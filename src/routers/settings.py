@@ -92,7 +92,7 @@ async def get_settings(db: Session = Depends(get_db)):
         "display_episode_format": get_setting(db, "display_episode_format", "{season}x{episode:02d}"),
         "theme": get_setting(db, "theme", "midnight"),
         "slow_import_count": int(get_setting(db, "slow_import_count", "10")),
-        "shows_per_page": int(get_setting(db, "shows_per_page", "50")),
+        "shows_per_page": int(get_setting(db, "shows_per_page", "0")),
     }
 
 

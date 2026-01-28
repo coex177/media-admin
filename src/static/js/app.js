@@ -23,7 +23,7 @@ const state = {
     savedScrollPosition: 0,
     pendingScrollRestore: false,
     showsPage: 1,
-    showsPerPage: 50,
+    showsPerPage: 0,
     totalShows: 0
 };
 
@@ -1473,15 +1473,16 @@ async function renderShowsList() {
         if (!state.settings) {
             state.settings = await api('/settings');
         }
-        state.showsPerPage = state.settings.shows_per_page || 50;
+        state.showsPerPage = state.settings.shows_per_page ?? 0;
 
-        const skip = (state.showsPage - 1) * state.showsPerPage;
-        const resp = await api(`/shows?skip=${skip}&limit=${state.showsPerPage}`);
+        const skip = state.showsPerPage > 0 ? (state.showsPage - 1) * state.showsPerPage : 0;
+        const limit = state.showsPerPage > 0 ? state.showsPerPage : 10000;
+        const resp = await api(`/shows?skip=${skip}&limit=${limit}`);
         const shows = resp.shows;
         state.shows = shows;
         state.totalShows = resp.total;
 
-        const totalPages = Math.ceil(state.totalShows / state.showsPerPage);
+        const totalPages = state.showsPerPage > 0 ? Math.ceil(state.totalShows / state.showsPerPage) : 1;
         // Clamp current page
         if (state.showsPage > totalPages && totalPages > 0) {
             state.showsPage = totalPages;
@@ -2764,7 +2765,7 @@ async function renderSettings() {
                     <div class="dashboard-setting-item">
                         <label>Shows Per Page</label>
                         <select id="settings-shows-per-page" class="form-control" onchange="markSettingsChanged('dashboard')">
-                            ${[25, 50, 75, 100, 150, 200].map(n => `<option value="${n}" ${settings.shows_per_page === n ? 'selected' : ''}>${n} Shows</option>`).join('')}
+                            ${[[100,'100 Shows'],[300,'300 Shows'],[500,'500 Shows'],[1000,'1000 Shows'],[3000,'3000 Shows'],[5000,'5000 Shows'],[0,'All Shows']].map(([v,l]) => `<option value="${v}" ${settings.shows_per_page === v ? 'selected' : ''}>${l}</option>`).join('')}
                         </select>
                     </div>
                 </div>
@@ -3035,7 +3036,7 @@ async function updateDashboardSettings() {
     const returningSoonCount = parseInt(document.getElementById('settings-returning-soon-count').value) || 5;
     const recentlyEndedCount = parseInt(document.getElementById('settings-recently-ended-count').value) || 5;
     const displayEpisodeFormat = document.getElementById('settings-display-episode-format').value.trim() || '{season}x{episode:02d}';
-    const showsPerPage = parseInt(document.getElementById('settings-shows-per-page').value) || 50;
+    const showsPerPage = parseInt(document.getElementById('settings-shows-per-page').value) || 0;
 
     try {
         await api('/settings', {
