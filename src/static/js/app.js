@@ -19,12 +19,45 @@ const state = {
     viewingShow: false,
     viewingSearch: false,
     cameFromSearch: false,
-    lastSearchQuery: ''
+    lastSearchQuery: '',
+    savedScrollPosition: 0,
+    pendingScrollRestore: false
 };
 
 // DOM Elements
 let appContent;
 let toastContainer;
+
+// Theme Management
+function applyTheme(themeName) {
+    // Remove theme attribute for midnight (default), set it for others
+    if (themeName === 'midnight' || !themeName) {
+        delete document.documentElement.dataset.theme;
+    } else {
+        document.documentElement.dataset.theme = themeName;
+    }
+}
+
+async function updateTheme(themeName) {
+    applyTheme(themeName);
+
+    // Update active state in UI
+    document.querySelectorAll('.theme-option').forEach(option => {
+        option.classList.toggle('active', option.dataset.theme === themeName);
+    });
+
+    // Save to API
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ theme: themeName })
+        });
+        state.settings.theme = themeName;
+    } catch (error) {
+        // Revert on error
+        applyTheme(state.settings?.theme || 'midnight');
+    }
+}
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
@@ -136,7 +169,18 @@ function goBack() {
     state.viewingSearch = false;
     state.cameFromSearch = false;
     state.lastSearchQuery = '';
+    state.pendingScrollRestore = true;
     navigateTo(page);
+}
+
+// Restore scroll position after navigating back
+function restorePendingScroll() {
+    if (state.pendingScrollRestore) {
+        const pos = state.savedScrollPosition;
+        state.pendingScrollRestore = false;
+        state.savedScrollPosition = 0;
+        requestAnimationFrame(() => window.scrollTo(0, pos));
+    }
 }
 
 // Global Search
@@ -396,6 +440,9 @@ async function checkSetup() {
         const settings = await api('/settings');
         state.settings = settings;
         state.setupCompleted = settings.setup_completed;
+
+        // Apply saved theme
+        applyTheme(settings.theme || 'midnight');
 
         if (!state.setupCompleted) {
             renderSetupWizard();
@@ -988,9 +1035,14 @@ function renderDashboardContent() {
                         ` : `
                             <div class="distribution-list">
                                 ${genreDistribution.slice(0, 10).map(g => `
-                                    <div class="distribution-item">
+                                    <div class="distribution-item clickable" onclick="toggleDistributionShows('genre', '${escapeHtml(g.genre).replace(/'/g, "\\'")}')">
                                         <span class="distribution-name">${escapeHtml(g.genre)}</span>
-                                        <span class="distribution-count">${g.count} shows</span>
+                                        <span class="distribution-count">${g.count} show${g.count !== 1 ? 's' : ''}</span>
+                                    </div>
+                                    <div class="distribution-shows" id="distribution-genre-${escapeHtml(g.genre)}" style="display: ${isDistributionExpanded('genre', g.genre) ? 'block' : 'none'};">
+                                        ${g.shows.map(s => `
+                                            <a class="distribution-show-link" onclick="event.stopPropagation(); showShowDetail(${s.id})">${escapeHtml(s.name)}</a>
+                                        `).join('')}
                                     </div>
                                 `).join('')}
                             </div>
@@ -1018,9 +1070,14 @@ function renderDashboardContent() {
                         ` : `
                             <div class="distribution-list">
                                 ${networkDistribution.slice(0, 10).map(n => `
-                                    <div class="distribution-item">
+                                    <div class="distribution-item clickable" onclick="toggleDistributionShows('network', '${escapeHtml(n.network).replace(/'/g, "\\'")}')">
                                         <span class="distribution-name">${escapeHtml(n.network)}</span>
-                                        <span class="distribution-count">${n.count} shows</span>
+                                        <span class="distribution-count">${n.count} show${n.count !== 1 ? 's' : ''}</span>
+                                    </div>
+                                    <div class="distribution-shows" id="distribution-network-${escapeHtml(n.network)}" style="display: ${isDistributionExpanded('network', n.network) ? 'block' : 'none'};">
+                                        ${n.shows.map(s => `
+                                            <a class="distribution-show-link" onclick="event.stopPropagation(); showShowDetail(${s.id})">${escapeHtml(s.name)}</a>
+                                        `).join('')}
                                     </div>
                                 `).join('')}
                             </div>
@@ -1098,6 +1155,30 @@ function renderDashboardContent() {
             </div>
         </div>
     `;
+
+    restorePendingScroll();
+}
+
+function toggleDistributionShows(type, name) {
+    const el = document.getElementById(`distribution-${type}-${name}`);
+    if (!el) return;
+    const isVisible = el.style.display !== 'none';
+    el.style.display = isVisible ? 'none' : 'block';
+
+    // Persist expanded state in localStorage
+    const stored = JSON.parse(localStorage.getItem('expandedDistributions') || '{}');
+    if (!stored[type]) stored[type] = [];
+    if (isVisible) {
+        stored[type] = stored[type].filter(n => n !== name);
+    } else {
+        if (!stored[type].includes(name)) stored[type].push(name);
+    }
+    localStorage.setItem('expandedDistributions', JSON.stringify(stored));
+}
+
+function isDistributionExpanded(type, name) {
+    const stored = JSON.parse(localStorage.getItem('expandedDistributions') || '{}');
+    return (stored[type] || []).includes(name);
 }
 
 function toggleDashboardCard(cardId) {
@@ -1253,7 +1334,7 @@ function renderShowsView(shows) {
 
     switch (currentShowsView) {
         case 'compact':
-            return `<div class="shows-grid compact">${shows.map(show => renderShowCardCompact(show)).join('')}</div>`;
+            return `<div class="shows-grid tiles">${shows.map(show => renderShowCardCompact(show)).join('')}</div>`;
         case 'list':
             return `<div class="shows-list">${shows.map(show => renderShowListItem(show)).join('')}</div>`;
         case 'cards':
@@ -1267,16 +1348,25 @@ function renderShowCardCompact(show) {
         ? `${TMDB_IMAGE_BASE}${show.poster_path}`
         : 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 150"><rect fill="%23252542" width="100" height="150"/></svg>';
 
-    const totalAired = show.episodes_found + show.episodes_missing;
+    const totalEpisodes = show.episodes_found + show.episodes_missing + (show.episodes_not_aired || 0);
+    const year = show.first_air_date ? show.first_air_date.substring(0, 4) : 'N/A';
+    const statusText = show.status === 'Returning Series' ? 'Continuing' :
+                       show.status === 'In Production' ? 'In Production' :
+                       show.status === 'Ended' ? 'Ended' :
+                       show.status === 'Canceled' ? 'Canceled' : show.status;
+    const statusClass = (show.status === 'Returning Series' || show.status === 'In Production') ? 'continuing' : 'ended';
+
     return `
-        <div class="show-card compact" onclick="showShowDetail(${show.id})">
-            <img src="${posterUrl}" alt="${show.name}" class="show-poster" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 150%22><rect fill=%22%23252542%22 width=%22100%22 height=%22150%22/></svg>'">
-            <div class="show-info">
-                <div class="show-name">${escapeHtml(show.name)}</div>
-                <div class="show-meta">
-                    <span>${show.episodes_found}/${totalAired}</span>
-                    ${show.episodes_missing > 0 ? `<span class="badge badge-danger badge-sm">${show.episodes_missing}</span>` : ''}
+        <div class="show-tile" onclick="showShowDetail(${show.id})">
+            <img src="${posterUrl}" alt="${show.name}" class="show-tile-poster" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 150%22><rect fill=%22%23252542%22 width=%22100%22 height=%22150%22/></svg>'">
+            <div class="show-tile-overlay ${statusClass}">
+                <div class="show-tile-name">${escapeHtml(show.name)}</div>
+                <div class="show-tile-year">${year}</div>
+                <div class="show-tile-details">
+                    <span>${show.number_of_seasons} Season${show.number_of_seasons !== 1 ? 's' : ''}</span>
+                    <span>${totalEpisodes} Episode${totalEpisodes !== 1 ? 's' : ''}</span>
                 </div>
+                <div class="show-tile-status ${statusClass}">${statusText}</div>
             </div>
         </div>
     `;
@@ -1333,23 +1423,29 @@ function renderShowCard(show) {
         ? `${TMDB_IMAGE_BASE}${show.poster_path}`
         : 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 150"><rect fill="%23252542" width="100" height="150"/><text x="50" y="75" text-anchor="middle" fill="%23666" font-size="12">No Poster</text></svg>';
 
-    const statusClass = show.status === 'Returning Series' || show.status === 'In Production' ? 'continuing' : 'ended';
-    const statusText = show.status === 'Returning Series' ? 'Continuing' : show.status;
+    const statusClass = (show.status === 'Returning Series' || show.status === 'In Production') ? 'continuing' : 'ended';
+    const statusText = show.status === 'Returning Series' ? 'Continuing' :
+                       show.status === 'In Production' ? 'In Production' :
+                       show.status === 'Ended' ? 'Ended' :
+                       show.status === 'Canceled' ? 'Canceled' : show.status;
 
+    const totalEpisodes = show.episodes_found + show.episodes_missing + (show.episodes_not_aired || 0);
     const totalAired = show.episodes_found + show.episodes_missing;
+    const year = show.first_air_date ? show.first_air_date.substring(0, 4) : 'N/A';
+
     return `
         <div class="show-card" onclick="showShowDetail(${show.id})">
             <img src="${posterUrl}" alt="${show.name}" class="show-poster" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 150%22><rect fill=%22%23252542%22 width=%22100%22 height=%22150%22/></svg>'">
-            <div class="show-info">
-                <div class="show-name">${escapeHtml(show.name)}</div>
-                <div class="show-meta">
-                    <span>${show.episodes_found}/${totalAired} aired episodes</span>
+            <div class="show-tile-overlay ${statusClass}">
+                <div class="show-tile-name">${escapeHtml(show.name)}</div>
+                <div class="show-tile-year">${year}</div>
+                <div class="show-tile-details">
+                    <span>${show.number_of_seasons} Season${show.number_of_seasons !== 1 ? 's' : ''}</span>
+                    <span>${totalEpisodes} Episode${totalEpisodes !== 1 ? 's' : ''}</span>
+                    <span>${show.episodes_found}/${totalAired} Found</span>
+                    ${show.episodes_missing > 0 ? `<span style="color: #f87171;">${show.episodes_missing} Missing</span>` : ''}
                 </div>
-                ${show.episodes_missing > 0 ? `
-                    <span class="badge badge-danger mt-10">${show.episodes_missing} missing</span>
-                ` : `
-                    <span class="badge badge-success mt-10">Complete</span>
-                `}
+                <div class="show-tile-status ${statusClass}">${statusText}</div>
             </div>
         </div>
     `;
@@ -1371,7 +1467,7 @@ async function renderShowsList() {
                         <button class="view-btn ${currentShowsView === 'cards' ? 'active' : ''}" onclick="setShowsView('cards')" title="Card View">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
                         </button>
-                        <button class="view-btn ${currentShowsView === 'compact' ? 'active' : ''}" onclick="setShowsView('compact')" title="Compact Cards">
+                        <button class="view-btn ${currentShowsView === 'compact' ? 'active' : ''}" onclick="setShowsView('compact')" title="Tiles">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="4" rx="1"/><rect x="6" y="1" width="4" height="4" rx="1"/><rect x="11" y="1" width="4" height="4" rx="1"/><rect x="1" y="6" width="4" height="4" rx="1"/><rect x="6" y="6" width="4" height="4" rx="1"/><rect x="11" y="6" width="4" height="4" rx="1"/><rect x="1" y="11" width="4" height="4" rx="1"/><rect x="6" y="11" width="4" height="4" rx="1"/><rect x="11" y="11" width="4" height="4" rx="1"/></svg>
                         </button>
                         <button class="view-btn ${currentShowsView === 'list' ? 'active' : ''}" onclick="setShowsView('list')" title="List View">
@@ -1407,6 +1503,7 @@ async function renderShowsList() {
 
         // Check if refresh is in progress on page load
         checkRefreshStatus();
+        restorePendingScroll();
     } catch (error) {
         appContent.innerHTML = `<div class="alert alert-danger">Failed to load shows.</div>`;
     }
@@ -1520,6 +1617,10 @@ async function checkRefreshStatus() {
 
 // Show Detail
 async function showShowDetail(showId, targetSeason = null, targetEpisode = null) {
+    // Save scroll position before navigating away
+    if (!state.viewingShow && !state.viewingSearch) {
+        state.savedScrollPosition = window.scrollY;
+    }
     // Track where we came from (only if not already viewing a show)
     if (!state.viewingShow && !state.viewingSearch) {
         state.previousPage = state.currentPage;
@@ -2042,44 +2143,13 @@ function showRefreshResultsModal(status) {
 
     const completedCount = status.completed?.length || 0;
     const errorCount = status.errors?.length || 0;
-    const totalCount = completedCount + errorCount;
 
     modalTitle.textContent = 'Metadata Refresh Complete';
 
-    let html = `
-        <div class="refresh-results">
-            <div class="refresh-summary">
-                <div class="refresh-stat refresh-stat-success">
-                    <span class="refresh-stat-number">${completedCount}</span>
-                    <span class="refresh-stat-label">Successful</span>
-                </div>
-                <div class="refresh-stat refresh-stat-error">
-                    <span class="refresh-stat-number">${errorCount}</span>
-                    <span class="refresh-stat-label">Errors</span>
-                </div>
-            </div>
-    `;
-
-    if (errorCount > 0) {
-        html += `
-            <div class="refresh-section refresh-errors">
-                <h4 class="refresh-section-title">Errors</h4>
-                <ul class="refresh-list">
-                    ${status.errors.map(err => `
-                        <li class="refresh-list-item refresh-list-error">
-                            <span class="refresh-icon">✗</span>
-                            <span class="refresh-text">${escapeHtml(err)}</span>
-                        </li>
-                    `).join('')}
-                </ul>
-            </div>
-        `;
-    }
-
+    let successListHtml = '';
     if (completedCount > 0) {
-        html += `
-            <div class="refresh-section refresh-success">
-                <h4 class="refresh-section-title">Successfully Refreshed</h4>
+        successListHtml = `
+            <div id="refresh-success-section" class="refresh-section refresh-success" style="display: none;">
                 <ul class="refresh-list">
                     ${status.completed.map(name => `
                         <li class="refresh-list-item refresh-list-success">
@@ -2092,7 +2162,36 @@ function showRefreshResultsModal(status) {
         `;
     }
 
-    html += `
+    let errorListHtml = '';
+    if (errorCount > 0) {
+        errorListHtml = `
+            <div id="refresh-error-section" class="refresh-section refresh-errors" style="display: none;">
+                <ul class="refresh-list">
+                    ${status.errors.map(err => `
+                        <li class="refresh-list-item refresh-list-error">
+                            <span class="refresh-icon">✗</span>
+                            <span class="refresh-text">${escapeHtml(err)}</span>
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+        `;
+    }
+
+    let html = `
+        <div class="refresh-results">
+            <div class="refresh-summary">
+                <div class="refresh-stat refresh-stat-success ${completedCount > 0 ? 'clickable' : ''}" id="refresh-tab-success" ${completedCount > 0 ? 'onclick="toggleRefreshFilter(\'success\')"' : ''}>
+                    <span class="refresh-stat-number">${completedCount}</span>
+                    <span class="refresh-stat-label">Successful</span>
+                </div>
+                <div class="refresh-stat refresh-stat-error ${errorCount > 0 ? 'clickable' : ''}" id="refresh-tab-error" ${errorCount > 0 ? 'onclick="toggleRefreshFilter(\'error\')"' : ''}>
+                    <span class="refresh-stat-number">${errorCount}</span>
+                    <span class="refresh-stat-label">Errors</span>
+                </div>
+            </div>
+            ${successListHtml}
+            ${errorListHtml}
             <div class="refresh-actions">
                 <button class="btn btn-primary" onclick="closeModal()">Close</button>
             </div>
@@ -2101,6 +2200,33 @@ function showRefreshResultsModal(status) {
 
     modalBody.innerHTML = html;
     modal.classList.add('active');
+}
+
+function toggleRefreshFilter(filter) {
+    const successSection = document.getElementById('refresh-success-section');
+    const errorSection = document.getElementById('refresh-error-section');
+    const successTab = document.getElementById('refresh-tab-success');
+    const errorTab = document.getElementById('refresh-tab-error');
+
+    if (filter === 'success' && successSection) {
+        const isVisible = successSection.style.display !== 'none';
+        successSection.style.display = isVisible ? 'none' : 'block';
+        successTab.classList.toggle('active', !isVisible);
+        // Hide the other section
+        if (errorSection) {
+            errorSection.style.display = 'none';
+            errorTab.classList.remove('active');
+        }
+    } else if (filter === 'error' && errorSection) {
+        const isVisible = errorSection.style.display !== 'none';
+        errorSection.style.display = isVisible ? 'none' : 'block';
+        errorTab.classList.toggle('active', !isVisible);
+        // Hide the other section
+        if (successSection) {
+            successSection.style.display = 'none';
+            successTab.classList.remove('active');
+        }
+    }
 }
 
 function closeModal() {
@@ -2370,9 +2496,41 @@ async function renderSettings() {
         const libraryFolders = folders.filter(f => f.type === 'library');
         const downloadFolders = folders.filter(f => f.type === 'download');
 
+        const currentTheme = settings.theme || 'midnight';
+
         appContent.innerHTML = `
             <div class="page-header">
                 <h1 class="page-title">Settings</h1>
+            </div>
+
+            <div class="card">
+                <h2 class="card-title mb-20">Appearance</h2>
+                <div class="theme-selector">
+                    <div class="theme-option ${currentTheme === 'midnight' ? 'active' : ''}" data-theme="midnight" onclick="updateTheme('midnight')">
+                        <div class="theme-preview">
+                            <div class="theme-swatch" style="background: #1a1a2e;"></div>
+                            <div class="theme-swatch" style="background: #252542;"></div>
+                            <div class="theme-swatch" style="background: #3498db;"></div>
+                        </div>
+                        <div class="theme-name">Midnight</div>
+                    </div>
+                    <div class="theme-option ${currentTheme === 'dark' ? 'active' : ''}" data-theme="dark" onclick="updateTheme('dark')">
+                        <div class="theme-preview">
+                            <div class="theme-swatch" style="background: #0a0a0a;"></div>
+                            <div class="theme-swatch" style="background: #111111;"></div>
+                            <div class="theme-swatch" style="background: #e67e22;"></div>
+                        </div>
+                        <div class="theme-name">OLED Dark</div>
+                    </div>
+                    <div class="theme-option ${currentTheme === 'light' ? 'active' : ''}" data-theme="light" onclick="updateTheme('light')">
+                        <div class="theme-preview">
+                            <div class="theme-swatch" style="background: #f5f5f5;"></div>
+                            <div class="theme-swatch" style="background: #ffffff;"></div>
+                            <div class="theme-swatch" style="background: #3498db;"></div>
+                        </div>
+                        <div class="theme-name">Light</div>
+                    </div>
+                </div>
             </div>
 
             <div class="card">
@@ -2412,18 +2570,47 @@ async function renderSettings() {
 
             <div class="card">
                 <h2 class="card-title mb-20">Dashboard Display</h2>
-                <div class="form-group">
-                    <label>Upcoming Episodes (days ahead)</label>
-                    <input type="number" id="settings-upcoming-days" class="form-control" value="${settings.upcoming_days}" min="1" max="365" oninput="markSettingsChanged('dashboard')">
-                    <small class="text-muted">How many days into the future to show upcoming episodes</small>
+                <div class="dashboard-settings-grid">
+                    <div class="dashboard-setting-item">
+                        <label>Upcoming Episodes</label>
+                        <select id="settings-upcoming-days" class="form-control" onchange="markSettingsChanged('dashboard')">
+                            ${generateSelectOptions(30, settings.upcoming_days, '{n} Days ahead')}
+                        </select>
+                    </div>
+                    <div class="dashboard-setting-item">
+                        <label>Recently Aired</label>
+                        <select id="settings-recently-aired-days" class="form-control" onchange="markSettingsChanged('dashboard')">
+                            ${generateSelectOptions(30, settings.recently_aired_days, '{n} Days back')}
+                        </select>
+                    </div>
+                    <div class="dashboard-setting-item">
+                        <label>Recently Added</label>
+                        <select id="settings-recently-added-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                            ${generateSelectOptions(30, settings.recently_added_count, '{n} Shows')}
+                        </select>
+                    </div>
+                    <div class="dashboard-setting-item">
+                        <label>Recently Matched</label>
+                        <select id="settings-recently-matched-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                            ${generateSelectOptions(30, settings.recently_matched_count, '{n} Episodes')}
+                        </select>
+                    </div>
+                    <div class="dashboard-setting-item">
+                        <label>Returning Soon</label>
+                        <select id="settings-returning-soon-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                            ${generateSelectOptions(30, settings.returning_soon_count, '{n} Shows')}
+                        </select>
+                    </div>
+                    <div class="dashboard-setting-item">
+                        <label>Recently Ended</label>
+                        <select id="settings-recently-ended-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                            ${generateSelectOptions(30, settings.recently_ended_count, '{n} Shows')}
+                        </select>
+                    </div>
                 </div>
+                <div class="dashboard-settings-divider"></div>
                 <div class="form-group">
-                    <label>Recently Aired Episodes (days back)</label>
-                    <input type="number" id="settings-recently-aired-days" class="form-control" value="${settings.recently_aired_days}" min="1" max="365" oninput="markSettingsChanged('dashboard')">
-                    <small class="text-muted">How many days into the past to show recently aired episodes</small>
-                </div>
-                <div class="form-group">
-                    <label>Episode Display Format</label>
+                    <label class="dashboard-setting-label">Episode Display Format</label>
                     <input type="text" id="settings-display-episode-format" class="form-control" value="${escapeHtml(settings.display_episode_format)}" oninput="updateFormatPreviews(); markSettingsChanged('dashboard')">
                     <div class="format-preview">Preview: <strong id="preview-display-episode-format"></strong></div>
                     <small class="text-muted">
@@ -2616,6 +2803,10 @@ function resetDashboardSettings() {
 
     document.getElementById('settings-upcoming-days').value = state.originalSettings.upcoming_days;
     document.getElementById('settings-recently-aired-days').value = state.originalSettings.recently_aired_days;
+    document.getElementById('settings-recently-added-count').value = state.originalSettings.recently_added_count;
+    document.getElementById('settings-recently-matched-count').value = state.originalSettings.recently_matched_count;
+    document.getElementById('settings-returning-soon-count').value = state.originalSettings.returning_soon_count;
+    document.getElementById('settings-recently-ended-count').value = state.originalSettings.recently_ended_count;
     document.getElementById('settings-display-episode-format').value = state.originalSettings.display_episode_format;
 
     updateFormatPreviews();
@@ -2666,8 +2857,12 @@ async function updateFormats() {
 }
 
 async function updateDashboardSettings() {
-    const upcomingDays = parseInt(document.getElementById('settings-upcoming-days').value) || 14;
-    const recentlyAiredDays = parseInt(document.getElementById('settings-recently-aired-days').value) || 14;
+    const upcomingDays = parseInt(document.getElementById('settings-upcoming-days').value) || 5;
+    const recentlyAiredDays = parseInt(document.getElementById('settings-recently-aired-days').value) || 5;
+    const recentlyAddedCount = parseInt(document.getElementById('settings-recently-added-count').value) || 5;
+    const recentlyMatchedCount = parseInt(document.getElementById('settings-recently-matched-count').value) || 5;
+    const returningSoonCount = parseInt(document.getElementById('settings-returning-soon-count').value) || 5;
+    const recentlyEndedCount = parseInt(document.getElementById('settings-recently-ended-count').value) || 5;
     const displayEpisodeFormat = document.getElementById('settings-display-episode-format').value.trim() || '{season}x{episode:02d}';
 
     try {
@@ -2676,12 +2871,20 @@ async function updateDashboardSettings() {
             body: JSON.stringify({
                 upcoming_days: upcomingDays,
                 recently_aired_days: recentlyAiredDays,
+                recently_added_count: recentlyAddedCount,
+                recently_matched_count: recentlyMatchedCount,
+                returning_soon_count: returningSoonCount,
+                recently_ended_count: recentlyEndedCount,
                 display_episode_format: displayEpisodeFormat
             })
         });
         // Update state so dashboard reflects changes immediately
         state.settings.upcoming_days = upcomingDays;
         state.settings.recently_aired_days = recentlyAiredDays;
+        state.settings.recently_added_count = recentlyAddedCount;
+        state.settings.recently_matched_count = recentlyMatchedCount;
+        state.settings.returning_soon_count = returningSoonCount;
+        state.settings.recently_ended_count = recentlyEndedCount;
         state.settings.display_episode_format = displayEpisodeFormat;
         clearSettingsChanged('dashboard');
         showToast('Dashboard settings updated', 'success');
@@ -2903,6 +3106,19 @@ function showToast(message, type = 'info') {
 }
 
 // Utility Functions
+function generateSelectOptions(max, selected, template) {
+    let html = '';
+    for (let i = 1; i <= max; i++) {
+        let label = template.replace('{n}', i);
+        // Handle singular: "Days" -> "Day", "Shows" -> "Show", "Episodes" -> "Episode"
+        if (i === 1) {
+            label = label.replace('Days', 'Day').replace('Shows', 'Show').replace('Episodes', 'Episode');
+        }
+        html += `<option value="${i}" ${i === selected ? 'selected' : ''}>${label}</option>`;
+    }
+    return html;
+}
+
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');

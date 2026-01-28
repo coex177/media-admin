@@ -24,7 +24,12 @@ class SettingsUpdate(BaseModel):
     auto_scan_interval_minutes: Optional[int] = None
     upcoming_days: Optional[int] = None
     recently_aired_days: Optional[int] = None
+    recently_added_count: Optional[int] = None
+    recently_matched_count: Optional[int] = None
+    returning_soon_count: Optional[int] = None
+    recently_ended_count: Optional[int] = None
     display_episode_format: Optional[str] = None
+    theme: Optional[str] = None
 
 
 class FolderCreate(BaseModel):
@@ -76,9 +81,14 @@ async def get_settings(db: Session = Depends(get_db)):
         "auto_scan_enabled": get_setting(db, "auto_scan_enabled", "false") == "true",
         "auto_scan_interval_minutes": int(get_setting(db, "auto_scan_interval_minutes", "60")),
         "setup_completed": get_setting(db, "setup_completed", "false") == "true",
-        "upcoming_days": int(get_setting(db, "upcoming_days", "14")),
-        "recently_aired_days": int(get_setting(db, "recently_aired_days", "14")),
+        "upcoming_days": int(get_setting(db, "upcoming_days", "5")),
+        "recently_aired_days": int(get_setting(db, "recently_aired_days", "5")),
+        "recently_added_count": int(get_setting(db, "recently_added_count", "5")),
+        "recently_matched_count": int(get_setting(db, "recently_matched_count", "5")),
+        "returning_soon_count": int(get_setting(db, "returning_soon_count", "5")),
+        "recently_ended_count": int(get_setting(db, "recently_ended_count", "5")),
         "display_episode_format": get_setting(db, "display_episode_format", "{season}x{episode:02d}"),
+        "theme": get_setting(db, "theme", "midnight"),
     }
 
 
@@ -106,8 +116,23 @@ async def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     if data.recently_aired_days is not None:
         set_setting(db, "recently_aired_days", str(data.recently_aired_days))
 
+    if data.recently_added_count is not None:
+        set_setting(db, "recently_added_count", str(data.recently_added_count))
+
+    if data.recently_matched_count is not None:
+        set_setting(db, "recently_matched_count", str(data.recently_matched_count))
+
+    if data.returning_soon_count is not None:
+        set_setting(db, "returning_soon_count", str(data.returning_soon_count))
+
+    if data.recently_ended_count is not None:
+        set_setting(db, "recently_ended_count", str(data.recently_ended_count))
+
     if data.display_episode_format is not None:
         set_setting(db, "display_episode_format", data.display_episode_format)
+
+    if data.theme is not None:
+        set_setting(db, "theme", data.theme)
 
     # Mark setup as completed if API key is set
     if data.tmdb_api_key:
@@ -239,7 +264,7 @@ async def get_recently_aired(
     from datetime import datetime, timedelta
 
     # Get days from settings
-    days = int(get_setting(db, "recently_aired_days", "14"))
+    days = int(get_setting(db, "recently_aired_days", "5"))
 
     today = datetime.utcnow()
     cutoff_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -290,7 +315,7 @@ async def get_upcoming_episodes(
     from datetime import datetime, timedelta
 
     # Get days from settings
-    days = int(get_setting(db, "upcoming_days", "14"))
+    days = int(get_setting(db, "upcoming_days", "5"))
 
     today = datetime.utcnow()
     today_str = today.strftime("%Y-%m-%d")
@@ -330,9 +355,9 @@ async def get_upcoming_episodes(
 @router.get("/recently-ended")
 async def get_recently_ended(
     db: Session = Depends(get_db),
-    limit: int = 5
 ):
     """Get shows that have recently ended or been canceled."""
+    limit = int(get_setting(db, "recently_ended_count", "5"))
     from ..models import Show, Episode
 
     # Get ended/canceled shows, ordered by last_updated (most recent first)
@@ -368,9 +393,9 @@ async def get_recently_ended(
 @router.get("/recently-added")
 async def get_recently_added(
     db: Session = Depends(get_db),
-    limit: int = 4
 ):
     """Get shows that were recently added."""
+    limit = int(get_setting(db, "recently_added_count", "5"))
     from ..models import Show, Episode
 
     # Get recently added shows
@@ -496,9 +521,9 @@ async def get_storage_stats(db: Session = Depends(get_db)):
 @router.get("/recently-matched")
 async def get_recently_matched(
     db: Session = Depends(get_db),
-    limit: int = 10
 ):
     """Get episodes that were recently matched by the scanner."""
+    limit = int(get_setting(db, "recently_matched_count", "5"))
     from ..models import Show, Episode
 
     episodes = (
@@ -531,9 +556,9 @@ async def get_recently_matched(
 @router.get("/returning-soon")
 async def get_returning_soon(
     db: Session = Depends(get_db),
-    limit: int = 5
 ):
     """Get shows that are returning soon (have a next episode air date)."""
+    limit = int(get_setting(db, "returning_soon_count", "5"))
     from ..models import Show
     from datetime import datetime
 
@@ -583,20 +608,22 @@ async def get_genre_distribution(db: Session = Depends(get_db)):
 
     shows = db.query(Show).all()
 
-    genre_counts = {}
+    genre_shows = {}
     for show in shows:
         if show.genres:
             try:
                 genres = json.loads(show.genres)
                 for genre in genres:
-                    genre_counts[genre] = genre_counts.get(genre, 0) + 1
+                    if genre not in genre_shows:
+                        genre_shows[genre] = []
+                    genre_shows[genre].append({"id": show.id, "name": show.name})
             except (json.JSONDecodeError, TypeError):
                 pass
 
     # Sort by count descending
-    sorted_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)
+    sorted_genres = sorted(genre_shows.items(), key=lambda x: len(x[1]), reverse=True)
 
-    return [{"genre": g, "count": c} for g, c in sorted_genres]
+    return [{"genre": g, "count": len(s), "shows": sorted(s, key=lambda x: x["name"])} for g, s in sorted_genres]
 
 
 @router.get("/network-distribution")
@@ -607,20 +634,22 @@ async def get_network_distribution(db: Session = Depends(get_db)):
 
     shows = db.query(Show).all()
 
-    network_counts = {}
+    network_shows = {}
     for show in shows:
         if show.networks:
             try:
                 networks = json.loads(show.networks)
                 for network in networks:
-                    network_counts[network] = network_counts.get(network, 0) + 1
+                    if network not in network_shows:
+                        network_shows[network] = []
+                    network_shows[network].append({"id": show.id, "name": show.name})
             except (json.JSONDecodeError, TypeError):
                 pass
 
     # Sort by count descending
-    sorted_networks = sorted(network_counts.items(), key=lambda x: x[1], reverse=True)
+    sorted_networks = sorted(network_shows.items(), key=lambda x: len(x[1]), reverse=True)
 
-    return [{"network": n, "count": c} for n, c in sorted_networks]
+    return [{"network": n, "count": len(s), "shows": sorted(s, key=lambda x: x["name"])} for n, s in sorted_networks]
 
 
 @router.get("/last-scan")
