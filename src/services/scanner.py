@@ -71,8 +71,38 @@ class ScannerService:
 
         return files
 
+    def _extract_folder_year(self, folder_name: str) -> Optional[int]:
+        """Extract year from folder name like 'Show (2019)' or 'Show 2019'."""
+        match = re.search(r'\(?(19|20)(\d{2})\)?\s*$', folder_name)
+        if match:
+            return int(match.group(1) + match.group(2))
+        return None
+
+    def _extract_folder_country(self, folder_name: str) -> Optional[str]:
+        """Extract country code from folder name like 'Show (US)' or 'Show (UK)'."""
+        match = re.search(r'\((US|UK|AU|CA|NZ)\)\s*$', folder_name, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+        return None
+
+    def _get_show_year(self, show: Show) -> Optional[int]:
+        """Get the premiere year from a show's first_air_date."""
+        if show.first_air_date:
+            try:
+                return int(show.first_air_date[:4])
+            except (ValueError, TypeError):
+                pass
+        return None
+
     def find_show_folder(self, show: Show) -> Optional[str]:
-        """Find a matching folder for a show in library folders."""
+        """Find a matching folder for a show in library folders.
+
+        Uses a multi-pass approach:
+        1. Exact match with year (folder year matches show's premiere year)
+        2. Exact match with country code
+        3. Exact normalized name match (no year/country in folder)
+        4. Fuzzy match as fallback
+        """
         # Get all library folders
         folders = (
             self.db.query(ScanFolder)
@@ -81,34 +111,80 @@ class ScannerService:
         )
 
         show_name_normalized = self.matcher.normalize_show_name(show.name)
+        show_year = self._get_show_year(show)
+
+        # Check if show name contains a country code
+        show_country = None
+        country_match = re.search(r'\((US|UK|AU|CA|NZ)\)', show.name, re.IGNORECASE)
+        if country_match:
+            show_country = country_match.group(1).upper()
+
+        # Collect all candidate folders
+        candidates = []
 
         for folder in folders:
             folder_path = Path(folder.path)
             if not folder_path.exists():
                 continue
 
-            # Look for subfolders that match the show name
             try:
                 for subfolder in folder_path.iterdir():
                     if not subfolder.is_dir():
                         continue
 
-                    # Normalize folder name for comparison
                     folder_name = subfolder.name
-                    # Remove year suffix like "(2021)" or "2021"
-                    folder_name_clean = re.sub(r'\s*\(?\d{4}\)?\s*$', '', folder_name)
+                    folder_year = self._extract_folder_year(folder_name)
+                    folder_country = self._extract_folder_country(folder_name)
+
+                    # Strip year/country for base name comparison
+                    folder_name_clean = re.sub(r'\s*\((US|UK|AU|CA|NZ|\d{4})\)\s*$', '', folder_name, flags=re.IGNORECASE)
+                    folder_name_clean = re.sub(r'\s+\d{4}\s*$', '', folder_name_clean)
+                    if not folder_name_clean.strip():
+                        folder_name_clean = folder_name
+
                     folder_name_normalized = self.matcher.normalize_show_name(folder_name_clean)
 
-                    # Check for match
-                    if folder_name_normalized == show_name_normalized:
-                        return str(subfolder)
-
-                    # Also check similarity score for close matches
-                    score = self.matcher.match_show_name(folder_name_clean, show.name)
-                    if score >= 0.85:
-                        return str(subfolder)
+                    candidates.append({
+                        'path': str(subfolder),
+                        'name': folder_name,
+                        'name_clean': folder_name_clean,
+                        'name_normalized': folder_name_normalized,
+                        'year': folder_year,
+                        'country': folder_country,
+                    })
             except PermissionError:
                 continue
+
+        # Pass 1: Exact name match with matching year
+        if show_year:
+            for c in candidates:
+                if c['name_normalized'] == show_name_normalized and c['year'] == show_year:
+                    return c['path']
+
+        # Pass 2: Exact name match with matching country code
+        if show_country:
+            for c in candidates:
+                if c['name_normalized'] == show_name_normalized and c['country'] == show_country:
+                    return c['path']
+
+        # Pass 3: Exact name match (folder has no year/country suffix)
+        for c in candidates:
+            if c['name_normalized'] == show_name_normalized and not c['year'] and not c['country']:
+                return c['path']
+
+        # Pass 4: Exact name match (any folder, but prefer no suffix)
+        for c in candidates:
+            if c['name_normalized'] == show_name_normalized:
+                return c['path']
+
+        # Pass 5: Fuzzy match as fallback (only if no year ambiguity)
+        for c in candidates:
+            score = self.matcher.match_show_name(c['name_clean'], show.name)
+            if score >= 0.85:
+                # If folder has a year, only match if it matches show year
+                if c['year'] and show_year and c['year'] != show_year:
+                    continue
+                return c['path']
 
         return None
 
@@ -491,8 +567,10 @@ class ScannerService:
         # Clean up common patterns
         import re
 
-        # Remove year
-        name = re.sub(r"\s*\(?(19|20)\d{2}\)?", "", folder_name)
+        # Remove year suffix, but only if there's other content before it
+        name = re.sub(r"(.+?)\s*\(?(19|20)\d{2}\)?$", r"\1", folder_name)
+        if not name.strip():
+            name = folder_name  # Keep original if stripping left nothing
         # Remove quality indicators
         name = re.sub(r"\s*(720p|1080p|2160p|4K|HDTV|WEB-DL|BluRay)", "", name, flags=re.IGNORECASE)
 
