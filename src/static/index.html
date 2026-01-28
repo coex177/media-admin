@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Admin</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>Media Admin</h1>
+                <p>TV Show Organization</p>
+            </div>
+            <nav>
+                <ul class="nav-menu">
+                    <li>
+                        <a href="#" data-page="dashboard" class="active">
+                            <span class="nav-icon">&#x1F3E0;</span>
+                            Dashboard
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" data-page="shows">
+                            <span class="nav-icon">&#x1F4FA;</span>
+                            Shows
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" data-page="scan">
+                            <span class="nav-icon">&#x1F50D;</span>
+                            Scan
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" data-page="settings">
+                            <span class="nav-icon">&#x2699;</span>
+                            Settings
+                        </a>
+                    </li>
+                </ul>
+                <div class="nav-back-section" id="nav-back-section" style="display: none;">
+                    <a href="#" id="nav-back-btn" onclick="goBack(); return false;">
+                        <span class="nav-icon">&#x2190;</span>
+                        Back
+                    </a>
+                </div>
+            </nav>
+            <div class="episode-preview" id="episode-preview" style="display: none;">
+                <img id="episode-preview-img" src="" alt="Episode preview">
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="global-search-bar" id="global-search-bar">
+                <input type="text" id="global-search-input" placeholder="Search for shows..."
+                       oninput="debounceGlobalSearch(event)" onkeydown="handleSearchKeydown(event)">
+                <span class="search-icon">&#x1F50D;</span>
+            </div>
+            <div id="app-content">
+                <div class="loading">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-title">Modal</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Modal content inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
