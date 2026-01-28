@@ -81,11 +81,12 @@ def get_tmdb_service(db: Session = Depends(get_db)) -> TMDBService:
 async def list_shows(
     db: Session = Depends(get_db),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(1000, ge=1, le=10000),
 ):
     """List all shows."""
     from ..models import IgnoredEpisode, SpecialEpisode
 
+    total = db.query(Show).count()
     shows = db.query(Show).order_by(Show.name).offset(skip).limit(limit).all()
 
     # Get all ignored and special episode IDs in one query
@@ -122,7 +123,7 @@ async def list_shows(
         show_dict["episodes_not_aired"] = not_aired_count
         result.append(show_dict)
 
-    return result
+    return {"total": total, "shows": result}
 
 
 @router.get("/{show_id}")

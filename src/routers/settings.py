@@ -31,6 +31,7 @@ class SettingsUpdate(BaseModel):
     display_episode_format: Optional[str] = None
     theme: Optional[str] = None
     slow_import_count: Optional[int] = None
+    shows_per_page: Optional[int] = None
 
 
 class FolderCreate(BaseModel):
@@ -91,6 +92,7 @@ async def get_settings(db: Session = Depends(get_db)):
         "display_episode_format": get_setting(db, "display_episode_format", "{season}x{episode:02d}"),
         "theme": get_setting(db, "theme", "midnight"),
         "slow_import_count": int(get_setting(db, "slow_import_count", "10")),
+        "shows_per_page": int(get_setting(db, "shows_per_page", "50")),
     }
 
 
@@ -138,6 +140,9 @@ async def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 
     if data.slow_import_count is not None:
         set_setting(db, "slow_import_count", str(data.slow_import_count))
+
+    if data.shows_per_page is not None:
+        set_setting(db, "shows_per_page", str(data.shows_per_page))
 
     # Mark setup as completed if API key is set
     if data.tmdb_api_key:

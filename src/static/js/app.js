@@ -21,7 +21,10 @@ const state = {
     cameFromSearch: false,
     lastSearchQuery: '',
     savedScrollPosition: 0,
-    pendingScrollRestore: false
+    pendingScrollRestore: false,
+    showsPage: 1,
+    showsPerPage: 50,
+    totalShows: 0
 };
 
 // DOM Elements
@@ -236,10 +239,11 @@ async function performGlobalSearch(query) {
 
     try {
         // Search both TMDB and local library
-        const [tmdbResults, localShows] = await Promise.all([
+        const [tmdbResults, localShowsResp] = await Promise.all([
             api(`/shows/search/tmdb?q=${encodeURIComponent(query)}`),
-            api('/shows')
+            api('/shows?limit=10000')
         ]);
+        const localShows = localShowsResp.shows;
 
         // Filter local shows by name
         const queryLower = query.toLowerCase();
@@ -325,8 +329,8 @@ function renderSearchResults(query, tmdbResults, localShows) {
 async function showShowDetailByTmdbId(tmdbId) {
     // Find the local show by TMDB ID
     try {
-        const shows = await api('/shows');
-        const localShow = shows.find(s => s.tmdb_id === tmdbId);
+        const resp = await api('/shows?limit=10000');
+        const localShow = resp.shows.find(s => s.tmdb_id === tmdbId);
         if (localShow) {
             showShowDetail(localShow.id);
         }
@@ -1465,8 +1469,24 @@ async function renderShowsList() {
     appContent.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
     try {
-        const shows = await api('/shows');
+        // Load settings to get shows_per_page if not already loaded
+        if (!state.settings) {
+            state.settings = await api('/settings');
+        }
+        state.showsPerPage = state.settings.shows_per_page || 50;
+
+        const skip = (state.showsPage - 1) * state.showsPerPage;
+        const resp = await api(`/shows?skip=${skip}&limit=${state.showsPerPage}`);
+        const shows = resp.shows;
         state.shows = shows;
+        state.totalShows = resp.total;
+
+        const totalPages = Math.ceil(state.totalShows / state.showsPerPage);
+        // Clamp current page
+        if (state.showsPage > totalPages && totalPages > 0) {
+            state.showsPage = totalPages;
+            return renderShowsList();
+        }
 
         appContent.innerHTML = `
             <div class="page-header">
@@ -1509,6 +1529,8 @@ async function renderShowsList() {
                     ${renderShowsView(shows)}
                 </div>
             </div>
+
+            ${totalPages > 1 ? renderPagination(state.showsPage, totalPages) : ''}
         `;
 
         // Check if refresh is in progress on page load
@@ -1517,6 +1539,57 @@ async function renderShowsList() {
     } catch (error) {
         appContent.innerHTML = `<div class="alert alert-danger">Failed to load shows.</div>`;
     }
+}
+
+function renderPagination(currentPage, totalPages) {
+    let pageButtons = '';
+
+    // Determine range of page numbers to show
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, currentPage + 2);
+
+    // Ensure we always show at least 5 pages when possible
+    if (endPage - startPage < 4) {
+        if (startPage === 1) {
+            endPage = Math.min(totalPages, startPage + 4);
+        } else if (endPage === totalPages) {
+            startPage = Math.max(1, endPage - 4);
+        }
+    }
+
+    if (startPage > 1) {
+        pageButtons += `<button class="pagination-btn" onclick="goToShowsPage(1)">1</button>`;
+        if (startPage > 2) {
+            pageButtons += `<span class="pagination-ellipsis">...</span>`;
+        }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+        pageButtons += `<button class="pagination-btn ${i === currentPage ? 'active' : ''}" onclick="goToShowsPage(${i})">${i}</button>`;
+    }
+
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            pageButtons += `<span class="pagination-ellipsis">...</span>`;
+        }
+        pageButtons += `<button class="pagination-btn" onclick="goToShowsPage(${totalPages})">${totalPages}</button>`;
+    }
+
+    return `
+        <div class="pagination">
+            <button class="pagination-btn" onclick="goToShowsPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>Previous</button>
+            ${pageButtons}
+            <button class="pagination-btn" onclick="goToShowsPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Next</button>
+        </div>
+    `;
+}
+
+function goToShowsPage(page) {
+    const totalPages = Math.ceil(state.totalShows / state.showsPerPage);
+    if (page < 1 || page > totalPages) return;
+    state.showsPage = page;
+    window.scrollTo(0, 0);
+    renderShowsList();
 }
 
 let refreshPollInterval = null;
@@ -1612,11 +1685,13 @@ async function checkRefreshStatus() {
                 showRefreshResultsModal(status);
 
                 // Reload the shows list without triggering another status check
-                const shows = await api('/shows');
-                state.shows = shows;
+                const skip = (state.showsPage - 1) * state.showsPerPage;
+                const resp = await api(`/shows?skip=${skip}&limit=${state.showsPerPage}`);
+                state.shows = resp.shows;
+                state.totalShows = resp.total;
                 const showsContainer = document.getElementById('shows-container');
                 if (showsContainer) {
-                    showsContainer.innerHTML = renderShowsView(shows);
+                    showsContainer.innerHTML = renderShowsView(resp.shows);
                 }
             }
         }
@@ -2686,6 +2761,12 @@ async function renderSettings() {
                             ${generateSelectOptions(30, settings.recently_ended_count, '{n} Shows')}
                         </select>
                     </div>
+                    <div class="dashboard-setting-item">
+                        <label>Shows Per Page</label>
+                        <select id="settings-shows-per-page" class="form-control" onchange="markSettingsChanged('dashboard')">
+                            ${[25, 50, 75, 100, 150, 200].map(n => `<option value="${n}" ${settings.shows_per_page === n ? 'selected' : ''}>${n} Shows</option>`).join('')}
+                        </select>
+                    </div>
                 </div>
                 <div class="dashboard-settings-divider"></div>
                 <div class="form-group">
@@ -2870,6 +2951,7 @@ function clearSettingsChanged(section) {
             state.originalSettings.upcoming_days = state.settings.upcoming_days;
             state.originalSettings.recently_aired_days = state.settings.recently_aired_days;
             state.originalSettings.display_episode_format = state.settings.display_episode_format;
+            state.originalSettings.shows_per_page = state.settings.shows_per_page;
         }
     }
 }
@@ -2896,6 +2978,7 @@ function resetDashboardSettings() {
     document.getElementById('settings-returning-soon-count').value = state.originalSettings.returning_soon_count;
     document.getElementById('settings-recently-ended-count').value = state.originalSettings.recently_ended_count;
     document.getElementById('settings-display-episode-format').value = state.originalSettings.display_episode_format;
+    document.getElementById('settings-shows-per-page').value = state.originalSettings.shows_per_page;
 
     updateFormatPreviews();
     settingsChanged.dashboard = false;
@@ -2952,6 +3035,7 @@ async function updateDashboardSettings() {
     const returningSoonCount = parseInt(document.getElementById('settings-returning-soon-count').value) || 5;
     const recentlyEndedCount = parseInt(document.getElementById('settings-recently-ended-count').value) || 5;
     const displayEpisodeFormat = document.getElementById('settings-display-episode-format').value.trim() || '{season}x{episode:02d}';
+    const showsPerPage = parseInt(document.getElementById('settings-shows-per-page').value) || 50;
 
     try {
         await api('/settings', {
@@ -2963,7 +3047,8 @@ async function updateDashboardSettings() {
                 recently_matched_count: recentlyMatchedCount,
                 returning_soon_count: returningSoonCount,
                 recently_ended_count: recentlyEndedCount,
-                display_episode_format: displayEpisodeFormat
+                display_episode_format: displayEpisodeFormat,
+                shows_per_page: showsPerPage
             })
         });
         // Update state so dashboard reflects changes immediately
@@ -2974,6 +3059,9 @@ async function updateDashboardSettings() {
         state.settings.returning_soon_count = returningSoonCount;
         state.settings.recently_ended_count = recentlyEndedCount;
         state.settings.display_episode_format = displayEpisodeFormat;
+        state.settings.shows_per_page = showsPerPage;
+        state.showsPerPage = showsPerPage;
+        state.showsPage = 1;  // Reset to page 1 when page size changes
         clearSettingsChanged('dashboard');
         showToast('Dashboard settings updated', 'success');
     } catch (error) {
@@ -3932,10 +4020,11 @@ async function searchForFixMatch() {
 
     try {
         // Search both local library and TMDB
-        const [tmdbResults, localShows] = await Promise.all([
+        const [tmdbResults, localShowsResp] = await Promise.all([
             api(`/shows/search/tmdb?q=${encodeURIComponent(query)}`),
-            api('/shows')
+            api('/shows?limit=10000')
         ]);
+        const localShows = localShowsResp.shows;
 
         // Filter local shows by name
         const queryLower = query.toLowerCase();
