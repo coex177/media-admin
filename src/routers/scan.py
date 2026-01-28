@@ -322,7 +322,7 @@ async def get_all_missing_episodes(
     ignored_subquery = select(IgnoredEpisode.episode_id)
     specials_subquery = select(SpecialEpisode.episode_id)
 
-    # Get missing episodes that have aired, excluding ignored and specials
+    # Get missing episodes that have aired, excluding ignored, specials, and season 0
     missing_episodes = (
         db.query(Episode, Show)
         .join(Show, Episode.show_id == Show.id)
@@ -330,6 +330,7 @@ async def get_all_missing_episodes(
             Episode.file_status == "missing",
             Episode.air_date <= today,
             Episode.air_date != None,
+            Episode.season != 0,
             ~Episode.id.in_(ignored_subquery),
             ~Episode.id.in_(specials_subquery),
         )
@@ -390,6 +391,7 @@ _library_folder_scan_status = {
     "shows_skipped": 0,
     "episodes_matched": 0,
     "console": [],  # List of log entries
+    "shows_processed": [],  # Per-show results for summary table
     "result": None,
 }
 
@@ -398,10 +400,15 @@ class LibraryFolderScanRequest(BaseModel):
     """Request model for scanning a library folder for new shows."""
 
     folder_id: int
+    limit: Optional[int] = None  # Limit number of shows to scan
 
 
-def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str):
-    """Background task to scan a library folder and discover/add new shows."""
+def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str, limit: int = None):
+    """Background task to scan a library folder and discover/add new shows.
+
+    Args:
+        limit: If provided, only scan this many show folders.
+    """
     global _library_folder_scan_status
     import time
     import asyncio
@@ -429,6 +436,17 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
         if current_show is not None:
             _library_folder_scan_status["current_show"] = current_show
 
+    def record_show(folder_name: str, show_name: str, status: str, episodes_matched: int = 0, total_episodes: int = 0, detail: str = ""):
+        """Record a per-show result for the summary table."""
+        _library_folder_scan_status["shows_processed"].append({
+            "folder": folder_name,
+            "name": show_name,
+            "status": status,  # added, existing, not_found, error
+            "episodes_matched": episodes_matched,
+            "total_episodes": total_episodes,
+            "detail": detail,
+        })
+
     # Small delay to ensure any recent commits are visible
     time.sleep(0.3)
 
@@ -448,6 +466,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
         _library_folder_scan_status["shows_skipped"] = 0
         _library_folder_scan_status["episodes_matched"] = 0
         _library_folder_scan_status["console"] = []
+        _library_folder_scan_status["shows_processed"] = []
         _library_folder_scan_status["result"] = None
 
         # Get folder
@@ -479,41 +498,52 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
             _library_folder_scan_status["result"] = {"error": str(e)}
             return
 
+        # Get existing shows to check for duplicates (before filtering)
+        existing_shows = {s.tmdb_id: s for s in db.query(Show).all()}
+        existing_folders = {s.folder_path: s for s in db.query(Show).all() if s.folder_path}
+
+        # Separate already-imported folders from new ones
+        new_dirs = []
+        skipped_count = 0
+        for d in show_dirs:
+            if str(d) in existing_folders:
+                skipped_count += 1
+            else:
+                new_dirs.append(d)
+
         total_dirs = len(show_dirs)
         _library_folder_scan_status["shows_found"] = total_dirs
-        log(f"Found {total_dirs} directories to scan")
+        _library_folder_scan_status["shows_skipped"] = skipped_count
 
-        if total_dirs == 0:
-            update_status("No show folders found", 100)
+        # Apply limit to new (non-imported) directories only
+        if limit and limit > 0:
+            new_dirs = new_dirs[:limit]
+            log(f"Found {total_dirs} directories ({skipped_count} already imported), scanning {len(new_dirs)} new")
+        else:
+            log(f"Found {total_dirs} directories ({skipped_count} already imported), scanning {len(new_dirs)} new")
+
+        if len(new_dirs) == 0:
+            update_status("No new show folders to scan", 100)
             _library_folder_scan_status["result"] = {
-                "shows_found": 0,
+                "shows_found": total_dirs,
                 "shows_added": 0,
-                "shows_skipped": 0,
+                "shows_skipped": skipped_count,
                 "episodes_matched": 0,
             }
+            log(f"All {skipped_count} directories already imported, nothing to do")
             return
 
         # Create TMDB service
         tmdb = TMDBService(api_key=api_key)
 
-        # Get existing shows to check for duplicates
-        existing_shows = {s.tmdb_id: s for s in db.query(Show).all()}
-        existing_folders = {s.folder_path: s for s in db.query(Show).all() if s.folder_path}
-
         scanner = ScannerService(db)
 
-        for i, show_dir in enumerate(show_dirs):
-            progress = 10 + int((i / total_dirs) * 80)  # 10-90%
+        scan_total = len(new_dirs)
+        for i, show_dir in enumerate(new_dirs):
+            progress = 10 + int((i / scan_total) * 80)  # 10-90%
             dir_name = show_dir.name
 
             update_status(f"Processing: {dir_name}", progress, dir_name)
-
-            # Check if this folder is already assigned to a show
-            if str(show_dir) in existing_folders:
-                existing = existing_folders[str(show_dir)]
-                log(f"Skipping '{dir_name}' - already assigned to '{existing.name}'", "skip")
-                _library_folder_scan_status["shows_skipped"] += 1
-                continue
 
             # Extract show name from folder
             show_name = scanner.detect_show_from_folder(str(show_dir))
@@ -527,12 +557,21 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
             log(f"Searching TMDB for: '{show_name}'" + (f" ({folder_year})" if folder_year else ""))
 
             try:
-                # Search TMDB
-                search_results = loop.run_until_complete(tmdb.search_shows(show_name))
+                # Search TMDB - pass year filter if folder has a year
+                search_results = loop.run_until_complete(
+                    tmdb.search_shows(show_name, year=folder_year)
+                )
                 results = search_results.get("results", [])
+
+                # If year-filtered search returned no results, try without year
+                if not results and folder_year:
+                    log(f"No results with year filter, retrying without year...", "info")
+                    search_results = loop.run_until_complete(tmdb.search_shows(show_name))
+                    results = search_results.get("results", [])
 
                 if not results:
                     log(f"No TMDB results for '{show_name}'", "warning")
+                    record_show(dir_name, show_name, "not_found", detail="No TMDB results")
                     continue
 
                 # Find best match (prefer exact year match if folder has year)
@@ -557,9 +596,11 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
                             # Scan for episodes
                             matched = _scan_show_folder(scanner, existing, show_dir)
                             _library_folder_scan_status["episodes_matched"] += matched
+                            record_show(dir_name, existing.name, "existing", episodes_matched=matched, detail="Assigned folder")
                         else:
                             log(f"Skipping '{result['name']}' - already in library", "skip")
                             _library_folder_scan_status["shows_skipped"] += 1
+                            record_show(dir_name, result['name'], "existing", detail="Already in library")
                         best_match = None  # Don't add, already handled
                         break
 
@@ -567,8 +608,14 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
                     if folder_year and result_year == folder_year:
                         best_match = result
                         break
-                    elif not best_match:
+                    elif not best_match and not folder_year:
+                        # Only accept first result as fallback when folder has no year
                         best_match = result
+
+                # If folder has a year but no result matched it, skip
+                if folder_year and not best_match:
+                    log(f"No TMDB result matched year {folder_year} for '{show_name}', skipping", "warning")
+                    record_show(dir_name, show_name, "not_found", detail=f"No match for year {folder_year}")
 
                 if not best_match:
                     continue
@@ -582,8 +629,10 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
                         log(f"Assigned folder to existing show: '{existing.name}'", "info")
                         matched = _scan_show_folder(scanner, existing, show_dir)
                         _library_folder_scan_status["episodes_matched"] += matched
+                        record_show(dir_name, existing.name, "existing", episodes_matched=matched, detail="Assigned folder")
                     else:
                         log(f"Skipping '{best_match['name']}' - already in library", "skip")
+                        record_show(dir_name, best_match['name'], "existing", detail="Already in library")
                     _library_folder_scan_status["shows_skipped"] += 1
                     continue
 
@@ -644,8 +693,12 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
                     if matched > 0:
                         log(f"Matched {matched} episode files", "success")
 
+                    total_eps = show_data.get('number_of_episodes', 0)
+                    record_show(dir_name, show.name, "added", episodes_matched=matched, total_episodes=total_eps, detail=f"{matched}/{total_eps} episodes matched")
+
                 except Exception as e:
                     log(f"Error adding show '{best_match['name']}': {str(e)}", "error")
+                    record_show(dir_name, best_match['name'], "error", detail=str(e))
                     db.rollback()
 
                 # Small delay to avoid TMDB rate limiting
@@ -653,6 +706,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
 
             except Exception as e:
                 log(f"Error searching for '{show_name}': {str(e)}", "error")
+                record_show(dir_name, show_name, "error", detail=str(e))
 
         # Final status
         update_status("Scan complete", 100, "")
@@ -665,6 +719,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
             "shows_added": _library_folder_scan_status["shows_added"],
             "shows_skipped": _library_folder_scan_status["shows_skipped"],
             "episodes_matched": _library_folder_scan_status["episodes_matched"],
+            "shows_processed": _library_folder_scan_status["shows_processed"],
         }
 
     except Exception as e:
@@ -684,6 +739,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str)
 
 def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> int:
     """Scan a show's folder for video files and match to episodes."""
+    import re
     from datetime import datetime
     from ..models import Episode
 
@@ -691,7 +747,23 @@ def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> int:
     files = scanner.scan_folder(str(show_dir))
 
     for file_info in files:
-        if file_info.parsed and file_info.parsed.season and file_info.parsed.episode:
+        if file_info.parsed and file_info.parsed.episode:
+            season = file_info.parsed.season
+            # If file is in a Specials folder, treat as Season 0
+            in_specials_folder = False
+            file_path = Path(file_info.path)
+            for parent in file_path.parents:
+                if parent.name.lower() in ("specials", "season 0", "season 00"):
+                    season = 0
+                    in_specials_folder = True
+                    break
+                if str(parent) == str(show_dir):
+                    break
+
+            # If no season detected but we have an episode, skip
+            if season is None:
+                continue
+
             # Get episode range (for multi-episode files)
             start_ep = file_info.parsed.episode
             end_ep = file_info.parsed.episode_end or file_info.parsed.episode
@@ -702,7 +774,7 @@ def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> int:
                     scanner.db.query(Episode)
                     .filter(
                         Episode.show_id == show.id,
-                        Episode.season == file_info.parsed.season,
+                        Episode.season == season,
                         Episode.episode == ep_num,
                     )
                     .first()
@@ -712,6 +784,25 @@ def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> int:
                     episode.file_path = file_info.path
                     episode.file_status = "found"
                     episode.matched_at = datetime.utcnow()
+                    matched_count += 1
+                elif not episode and in_specials_folder:
+                    # Create Season 0 episode from file if it doesn't exist in TMDB
+                    title = file_info.parsed.title or file_info.filename
+                    # Clean up title from filename
+                    title = re.sub(r'^\d+[xX]\d+\s*[-–]\s*', '', title)
+                    title = re.sub(r'\.[^.]+$', '', title)  # Remove extension
+                    title = title.strip() or f"Special {ep_num}"
+
+                    episode = Episode(
+                        show_id=show.id,
+                        season=0,
+                        episode=ep_num,
+                        title=title,
+                        file_path=file_info.path,
+                        file_status="found",
+                        matched_at=datetime.utcnow(),
+                    )
+                    scanner.db.add(episode)
                     matched_count += 1
 
     if matched_count > 0:
@@ -753,10 +844,12 @@ async def scan_library_folder_for_shows(
         run_library_folder_discovery,
         get_session_maker,
         data.folder_id,
-        api_key_setting.value
+        api_key_setting.value,
+        data.limit
     )
 
-    return {"message": "Library folder scan started", "status": "running", "folder_id": data.folder_id}
+    limit_msg = f" (limit: {data.limit})" if data.limit else ""
+    return {"message": f"Library folder scan started{limit_msg}", "status": "running", "folder_id": data.folder_id}
 
 
 @router.get("/library-folder/status")

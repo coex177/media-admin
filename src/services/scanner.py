@@ -408,7 +408,9 @@ class ScannerService:
         start_episode = file_info.parsed.episode
         end_episode = file_info.parsed.episode_end or file_info.parsed.episode
 
-        # First, try to match by folder structure
+        # Check if file is in a Specials folder
+        season = file_info.parsed.season
+        in_specials_folder = False
         file_path = Path(file_info.path)
 
         for show in shows:
@@ -417,13 +419,25 @@ class ScannerService:
 
             show_folder = Path(show.folder_path)
             if str(show_folder) in str(file_path):
+                # Check if inside a Specials folder
+                for parent in file_path.parents:
+                    if parent.name.lower() in ("specials", "season 0", "season 00"):
+                        season = 0
+                        in_specials_folder = True
+                        break
+                    if str(parent) == str(show_folder):
+                        break
+
                 # File is in show folder - mark all episodes in range
                 matched_count = self._mark_episodes_found(
                     show.id,
-                    file_info.parsed.season,
+                    season,
                     start_episode,
                     end_episode,
-                    file_info.path
+                    file_info.path,
+                    create_if_missing=in_specials_folder,
+                    parsed_info=file_info.parsed if in_specials_folder else None,
+                    filename=file_info.filename if in_specials_folder else None,
                 )
                 if matched_count > 0:
                     return matched_count
@@ -451,12 +465,22 @@ class ScannerService:
         season: int,
         start_episode: int,
         end_episode: int,
-        file_path: str
+        file_path: str,
+        create_if_missing: bool = False,
+        parsed_info: ParsedEpisode = None,
+        filename: str = None,
     ) -> int:
         """Mark one or more episodes as found with the given file path.
 
+        Args:
+            create_if_missing: If True and episode doesn't exist in DB, create it
+                              (used for Specials/Season 0 not in TMDB).
+            parsed_info: Parsed episode info for title extraction when creating.
+            filename: Original filename for title extraction when creating.
+
         Returns the number of episodes marked as found.
         """
+        import re
         from datetime import datetime
 
         matched_count = 0
@@ -480,6 +504,27 @@ class ScannerService:
                 if was_missing:
                     episode.matched_at = datetime.utcnow()
                 matched_count += 1
+            elif create_if_missing and season == 0:
+                # Create Season 0 episode from file
+                title = ""
+                if parsed_info and parsed_info.title:
+                    title = parsed_info.title
+                elif filename:
+                    title = re.sub(r'^\d+[xX]\d+\s*[-–]\s*', '', filename)
+                    title = re.sub(r'\.[^.]+$', '', title)
+                title = title.strip() or f"Special {ep_num}"
+
+                episode = Episode(
+                    show_id=show_id,
+                    season=0,
+                    episode=ep_num,
+                    title=title,
+                    file_path=file_path,
+                    file_status="found",
+                    matched_at=datetime.utcnow(),
+                )
+                self.db.add(episode)
+                matched_count += 1
 
         if matched_count > 0:
             self.db.commit()
@@ -487,7 +532,7 @@ class ScannerService:
         return matched_count
 
     def _count_missing_episodes(self, show: Show) -> int:
-        """Count missing episodes for a show."""
+        """Count missing episodes for a show (excludes Season 0 specials)."""
         from datetime import datetime
 
         missing = (
@@ -495,6 +540,7 @@ class ScannerService:
             .filter(
                 Episode.show_id == show.id,
                 Episode.file_status == "missing",
+                Episode.season != 0,
             )
             .all()
         )

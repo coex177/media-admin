@@ -84,7 +84,13 @@ async def list_shows(
     limit: int = Query(100, ge=1, le=1000),
 ):
     """List all shows."""
-    shows = db.query(Show).offset(skip).limit(limit).all()
+    from ..models import IgnoredEpisode, SpecialEpisode
+
+    shows = db.query(Show).order_by(Show.name).offset(skip).limit(limit).all()
+
+    # Get all ignored and special episode IDs in one query
+    ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
+    special_ids = set(r[0] for r in db.query(SpecialEpisode.episode_id).all())
 
     result = []
     for show in shows:
@@ -93,7 +99,8 @@ async def list_shows(
         # Get all episodes for this show
         episodes = db.query(Episode).filter(Episode.show_id == show.id).all()
 
-        # Count episodes by status (considering air date)
+        # Count episodes by status (considering air date, ignored, specials)
+        # Season 0 (specials) are never counted as missing
         found_count = 0
         missing_count = 0
         not_aired_count = 0
@@ -101,8 +108,12 @@ async def list_shows(
         for ep in episodes:
             if ep.file_status != "missing":
                 found_count += 1
+            elif ep.season == 0:
+                pass  # Season 0 specials never count as missing
             elif not ep.has_aired:
                 not_aired_count += 1
+            elif ep.id in ignored_ids or ep.id in special_ids:
+                found_count += 1  # Count as collected
             else:
                 missing_count += 1
 
@@ -117,6 +128,8 @@ async def list_shows(
 @router.get("/{show_id}")
 async def get_show(show_id: int, db: Session = Depends(get_db)):
     """Get a show by ID with episodes."""
+    from ..models import IgnoredEpisode, SpecialEpisode
+
     show = db.query(Show).filter(Show.id == show_id).first()
     if not show:
         raise HTTPException(status_code=404, detail="Show not found")
@@ -128,25 +141,52 @@ async def get_show(show_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    show_dict = show.to_dict()
-    show_dict["episodes"] = [ep.to_dict() for ep in episodes]
+    # Get ignored and special episode IDs for this show
+    ep_ids = [ep.id for ep in episodes]
+    ignored_ids = set(
+        r[0] for r in db.query(IgnoredEpisode.episode_id)
+        .filter(IgnoredEpisode.episode_id.in_(ep_ids)).all()
+    ) if ep_ids else set()
+    special_ids = set(
+        r[0] for r in db.query(SpecialEpisode.episode_id)
+        .filter(SpecialEpisode.episode_id.in_(ep_ids)).all()
+    ) if ep_ids else set()
 
-    # Count episodes by status (considering air date)
+    show_dict = show.to_dict()
+    ep_list = []
+    for ep in episodes:
+        ep_dict = ep.to_dict()
+        ep_dict["is_ignored"] = ep.id in ignored_ids
+        ep_dict["is_special"] = ep.id in special_ids
+        ep_list.append(ep_dict)
+    show_dict["episodes"] = ep_list
+
+    # Count episodes by status (considering air date, ignored, specials)
     found_count = 0
     missing_count = 0
     not_aired_count = 0
+    ignored_count = 0
+    special_count = 0
 
     for ep in episodes:
         if ep.file_status != "missing":
             found_count += 1
+        elif ep.season == 0:
+            pass  # Season 0 specials never count as missing
         elif not ep.has_aired:
             not_aired_count += 1
+        elif ep.id in ignored_ids:
+            ignored_count += 1
+        elif ep.id in special_ids:
+            special_count += 1
         else:
             missing_count += 1
 
     show_dict["episodes_found"] = found_count
     show_dict["episodes_missing"] = missing_count
     show_dict["episodes_not_aired"] = not_aired_count
+    show_dict["episodes_ignored"] = ignored_count
+    show_dict["episodes_special"] = special_count
 
     return show_dict
 
@@ -334,6 +374,7 @@ async def get_missing_episodes(show_id: int, db: Session = Depends(get_db)):
             Episode.show_id == show_id,
             Episode.file_status == "missing",
             Episode.air_date <= today,
+            Episode.season != 0,
         )
         .order_by(Episode.season, Episode.episode)
         .all()

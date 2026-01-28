@@ -610,9 +610,10 @@ function renderDashboardContent() {
     const displayEpFormat = settings?.display_episode_format || '{season}x{episode:02d}';
     const allExpanded = dashboardCardOrder.every(id => dashboardCardStates[id]);
 
-    // Calculate collection progress
-    const totalAired = stats.found_episodes + stats.missing_episodes;
-    const collectionPercent = totalAired > 0 ? ((stats.found_episodes / totalAired) * 100).toFixed(1) : 0;
+    // Calculate collection progress (ignored + specials count as collected)
+    const collectedEpisodes = stats.found_episodes + (stats.ignored_episodes || 0) + (stats.special_episodes || 0);
+    const totalAired = collectedEpisodes + stats.missing_episodes;
+    const collectionPercent = totalAired > 0 ? ((collectedEpisodes / totalAired) * 100).toFixed(1) : 0;
 
     // Card render functions
     const cardRenderers = {
@@ -1109,6 +1110,14 @@ function renderDashboardContent() {
                 <div class="stat-value">${stats.missing_episodes}</div>
                 <div class="stat-label">Episodes Missing</div>
             </div>
+            <div class="stat-card special">
+                <div class="stat-value">${stats.special_episodes || 0}</div>
+                <div class="stat-label">Specials</div>
+            </div>
+            <div class="stat-card ignored">
+                <div class="stat-value">${stats.ignored_episodes || 0}</div>
+                <div class="stat-label">Ignored</div>
+            </div>
             <div class="stat-card warning" onclick="navigateTo('scan')">
                 <div class="stat-value">${stats.pending_actions}</div>
                 <div class="stat-label">Pending Actions</div>
@@ -1475,6 +1484,7 @@ async function renderShowsList() {
                         </button>
                     </div>
                     <button class="btn btn-secondary" onclick="refreshAllMetadata()" id="refresh-all-btn">Refresh All Metadata</button>
+                    <button class="btn btn-secondary" onclick="startSlowImport()">Slow Import</button>
                     <button class="btn btn-primary" onclick="showAddShowModal()">+ Add Show</button>
                 </div>
             </div>
@@ -1688,7 +1698,7 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
                         <p><strong>Status:</strong> ${show.status}</p>
                         <p><strong>First Aired:</strong> ${show.first_air_date || 'Unknown'}</p>
                         <p><strong>Seasons:</strong> ${show.number_of_seasons}</p>
-                        <p><strong>Episodes:</strong> ${show.episodes_found} found${show.episodes_missing > 0 ? `, ${show.episodes_missing} missing` : ''}${show.episodes_not_aired > 0 ? `, ${show.episodes_not_aired} not aired` : ''}</p>
+                        <p><strong>Episodes:</strong> ${show.episodes_found} found${show.episodes_missing > 0 ? `, ${show.episodes_missing} missing` : ''}${(show.episodes_special || 0) > 0 ? `, ${show.episodes_special} specials` : ''}${(show.episodes_ignored || 0) > 0 ? `, ${show.episodes_ignored} ignored` : ''}${show.episodes_not_aired > 0 ? `, ${show.episodes_not_aired} not aired` : ''}</p>
                         ${show.folder_path ? `<p><strong>Folder:</strong> <code style="font-size: 0.85rem;">${escapeHtml(show.folder_path)}</code></p>` : '<p class="text-muted"><em>No folder configured</em></p>'}
                     </div>
                 </div>
@@ -1696,24 +1706,36 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
 
             ${Object.keys(seasons).sort((a, b) => a - b).map(seasonNum => {
                 const seasonEps = seasons[seasonNum];
-                const foundCount = seasonEps.filter(e => e.file_status === 'found' || e.file_status === 'renamed').length;
+                const foundCount = seasonEps.filter(e => e.file_status === 'found' || e.file_status === 'renamed' || e.is_ignored || e.is_special).length;
                 const airedCount = seasonEps.filter(e => e.file_status !== 'not_aired').length;
                 return `
                 <div class="card season-card">
                     <div class="season-header-toggle" onclick="toggleSeason(${seasonNum})" id="season-header-${seasonNum}">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span class="season-chevron" id="season-chevron-${seasonNum}">&#9658;</span>
-                            <h3>Season ${seasonNum}</h3>
+                            <h3>${seasonNum == 0 ? 'Specials' : 'Season ' + seasonNum}</h3>
                         </div>
-                        <span class="text-muted">${foundCount}/${airedCount} aired episodes</span>
+                        <span class="text-muted">${foundCount}/${airedCount} ${seasonNum == 0 ? 'specials' : 'aired episodes'}</span>
                     </div>
                     <div class="episodes-list collapsed" id="season-${seasonNum}-episodes">
                         ${seasonEps.map(ep => {
-                            let statusClass = ep.file_status === 'not_aired' ? 'not-aired' :
-                                              ep.file_status === 'missing' ? 'missing' : 'found';
-                            let statusLabel = ep.file_status === 'not_aired' ? 'Not Aired' :
-                                              ep.file_status === 'missing' ? 'Missing' :
-                                              ep.file_status === 'found' ? 'Found' : ep.file_status;
+                            let statusClass, statusLabel;
+                            if (ep.is_special) {
+                                statusClass = 'special';
+                                statusLabel = 'Special';
+                            } else if (ep.is_ignored) {
+                                statusClass = 'ignored';
+                                statusLabel = 'Ignored';
+                            } else if (ep.file_status === 'not_aired') {
+                                statusClass = 'not-aired';
+                                statusLabel = 'Not Aired';
+                            } else if (ep.file_status === 'missing') {
+                                statusClass = 'missing';
+                                statusLabel = 'Missing';
+                            } else {
+                                statusClass = 'found';
+                                statusLabel = ep.file_status === 'found' ? 'Found' : ep.file_status;
+                            }
                             return `
                                 <div class="episode-row" id="episode-row-${ep.id}" data-still-path="${ep.still_path || ''}">
                                     <div class="episode-header ${statusClass}" onclick="toggleEpisode(${ep.id})">
@@ -2712,6 +2734,14 @@ async function renderSettings() {
                         </tbody>
                     </table>
                 `}
+                <div style="padding: 15px 15px 5px; border-top: 1px solid var(--border-color); margin-top: 10px;">
+                    <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
+                        <label>Slow Import Count</label>
+                        <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500">
+                        <small class="text-muted">Number of shows to import per slow import batch</small>
+                    </div>
+                    <button class="btn btn-sm btn-primary" onclick="updateSlowImportCount()">Save</button>
+                </div>
             </div>
 
             <div class="card">
@@ -2951,6 +2981,20 @@ async function updateDashboardSettings() {
     }
 }
 
+async function updateSlowImportCount() {
+    const count = parseInt(document.getElementById('settings-slow-import-count').value) || 10;
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ slow_import_count: count })
+        });
+        state.settings.slow_import_count = count;
+        showToast('Slow import count updated', 'success');
+    } catch (error) {
+        // Error already shown
+    }
+}
+
 function showAddFolderModal(folderType) {
     const modal = document.getElementById('modal');
     const modalBody = document.getElementById('modal-body');
@@ -3112,6 +3156,39 @@ async function deleteFolder(folderId) {
     }
 }
 
+// Slow Import - import a configured number of shows from library folder
+async function startSlowImport() {
+    try {
+        // Fetch settings and folders
+        const [settings, folders] = await Promise.all([
+            api('/settings'),
+            api('/folders')
+        ]);
+
+        const slowImportCount = settings.slow_import_count || 10;
+        const libraryFolders = folders.filter(f => f.type === 'library' && f.enabled);
+
+        if (libraryFolders.length === 0) {
+            showToast('No library folders configured. Add one in Settings.', 'warning');
+            return;
+        }
+
+        const folder = libraryFolders[0];
+        showLibraryFolderScanModal(folder.path);
+
+        // Start scan with limit
+        await api('/scan/library-folder', {
+            method: 'POST',
+            body: JSON.stringify({ folder_id: folder.id, limit: slowImportCount })
+        });
+
+        pollLibraryFolderScanStatus();
+    } catch (error) {
+        closeLibraryFolderScanModal();
+        // Error already shown by api()
+    }
+}
+
 // Library Folder Discovery Scan
 async function scanLibraryFolder(folderId, folderPath) {
     // Show the scanning modal
@@ -3256,13 +3333,41 @@ function closeLibraryFolderScanModal() {
     closeModal();
 }
 
+// Store last scan status so minimized results can be restored
+let _lastScanCompleteStatus = null;
+
 function showLibraryFolderScanComplete(status) {
+    _lastScanCompleteStatus = status;
+    _renderScanCompleteModal(status);
+    // Remove minimized indicator if present
+    const indicator = document.getElementById('scan-results-indicator');
+    if (indicator) indicator.remove();
+}
+
+function _renderScanCompleteModal(status) {
     const modal = document.getElementById('modal');
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
 
     const result = status.result || {};
-    const hasErrors = status.console && status.console.some(e => e.level === 'error');
+    const showsProcessed = result.shows_processed || [];
+
+    // Status icon/color helpers
+    const statusDisplay = (show) => {
+        if (show.status === 'added') {
+            // Green check only if all episodes matched, red X if any missing
+            if (show.total_episodes > 0 && show.episodes_matched < show.total_episodes) {
+                return { icon: '✗', cls: 'console-error', label: 'Added (missing episodes)' };
+            }
+            return { icon: '✓', cls: 'console-success', label: 'Added' };
+        }
+        switch (show.status) {
+            case 'existing': return { icon: '→', cls: 'console-skip', label: 'Existing' };
+            case 'not_found': return { icon: '⚠', cls: 'console-warning', label: 'Not Found' };
+            case 'error': return { icon: '✗', cls: 'console-error', label: 'Error' };
+            default: return { icon: '•', cls: 'console-info', label: show.status };
+        }
+    };
 
     modalTitle.textContent = 'Scan Complete';
     modalBody.innerHTML = `
@@ -3270,7 +3375,7 @@ function showLibraryFolderScanComplete(status) {
             <div class="library-scan-complete-stats">
                 <div class="library-scan-stat ${result.shows_added > 0 ? 'stat-highlight' : ''}">
                     <span class="library-scan-stat-value">${result.shows_added || 0}</span>
-                    <span class="library-scan-stat-label">Shows Added</span>
+                    <span class="library-scan-stat-label">Added</span>
                 </div>
                 <div class="library-scan-stat">
                     <span class="library-scan-stat-value">${result.shows_skipped || 0}</span>
@@ -3278,29 +3383,76 @@ function showLibraryFolderScanComplete(status) {
                 </div>
                 <div class="library-scan-stat ${result.episodes_matched > 0 ? 'stat-highlight' : ''}">
                     <span class="library-scan-stat-value">${result.episodes_matched || 0}</span>
-                    <span class="library-scan-stat-label">Episodes Matched</span>
+                    <span class="library-scan-stat-label">Episodes</span>
                 </div>
             </div>
-            ${hasErrors ? `
-                <div class="library-scan-console" id="library-scan-console-final" style="max-height: 200px;">
-                    ${status.console.filter(e => e.level === 'error' || e.level === 'warning').map(entry => `
-                        <div class="console-entry console-${entry.level}">
-                            <span class="console-time">${entry.time}</span>
-                            <span class="console-icon">${entry.level === 'error' ? '✗' : '⚠'}</span>
-                            <span class="console-message">${escapeHtml(entry.message)}</span>
-                        </div>
-                    `).join('')}
+            ${showsProcessed.length > 0 ? `
+                <div class="table-container" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                    <table style="font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th style="width: 30px;"></th>
+                                <th>Show</th>
+                                <th>Episodes</th>
+                                <th>Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${showsProcessed.map(show => {
+                                const sd = statusDisplay(show);
+                                return `<tr>
+                                    <td class="${sd.cls}" style="text-align: center; font-weight: bold;">${sd.icon}</td>
+                                    <td>${escapeHtml(show.name)}</td>
+                                    <td style="text-align: center;">${show.status === 'added' || show.episodes_matched > 0 ? show.episodes_matched : '—'}</td>
+                                    <td class="text-muted" style="font-size: 0.8rem;">${escapeHtml(show.detail || sd.label)}</td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
                 </div>
             ` : ''}
             <div class="library-scan-actions">
-                <button class="btn btn-primary" onclick="closeModal(); navigateTo('shows');">View Shows</button>
-                <button class="btn btn-secondary" onclick="closeModal();">Close</button>
+                <button class="btn btn-primary" onclick="closeModal(); renderShowsList();">View Shows</button>
+                <button class="btn btn-secondary" onclick="minimizeScanResults();">Minimize</button>
+                <button class="btn btn-secondary" onclick="dismissScanResults(); closeModal();">Close</button>
             </div>
         </div>
     `;
 
     document.querySelector('.modal-close').style.display = '';
     modal.classList.add('active');
+}
+
+function minimizeScanResults() {
+    closeModal();
+    renderShowsList();
+
+    // Don't add duplicate indicator
+    if (document.getElementById('scan-results-indicator')) return;
+
+    // Add indicator to sidebar
+    const nav = document.querySelector('.nav-menu');
+    const li = document.createElement('li');
+    li.id = 'scan-results-indicator';
+    li.innerHTML = `
+        <a href="#" onclick="restoreScanResults(); return false;" style="color: var(--success-color);">
+            <span class="nav-icon">&#x1F4CB;</span>
+            Import Results
+        </a>
+    `;
+    nav.appendChild(li);
+}
+
+function restoreScanResults() {
+    if (_lastScanCompleteStatus) {
+        _renderScanCompleteModal(_lastScanCompleteStatus);
+    }
+}
+
+function dismissScanResults() {
+    _lastScanCompleteStatus = null;
+    const indicator = document.getElementById('scan-results-indicator');
+    if (indicator) indicator.remove();
 }
 
 let libraryFolderScanPollTimer = null;
@@ -3626,6 +3778,14 @@ async function ignoreSelectedEpisodes() {
         <p>Are you sure you want to ignore <strong>${selected.length}</strong> episode${selected.length > 1 ? 's' : ''}?</p>
         <p class="text-muted">Ignored episodes will not appear in the missing episodes list.</p>
         <div class="form-group" style="margin-top: 15px;">
+            <label>Quick Select</label>
+            <select class="form-control" onchange="if(this.value) document.getElementById('ignore-reason').value = this.value; this.value = '';">
+                <option value="">Choose a reason...</option>
+                <option value="Error on TMDB">Error on TMDB</option>
+                <option value="Search for later">Search for later</option>
+            </select>
+        </div>
+        <div class="form-group">
             <label>Reason (optional)</label>
             <input type="text" id="ignore-reason" class="form-control" placeholder="e.g., Not released in my region">
         </div>
@@ -3676,6 +3836,15 @@ async function markSelectedAsSpecials() {
         <p>Mark <strong>${selected.length}</strong> episode${selected.length > 1 ? 's' : ''} as specials?</p>
         <p class="text-muted">These episodes will be moved to a separate specials list for handling later.</p>
         <div class="form-group" style="margin-top: 15px;">
+            <label>Quick Select</label>
+            <select class="form-control" onchange="if(this.value) document.getElementById('specials-notes').value = this.value; this.value = '';">
+                <option value="">Choose a reason...</option>
+                <option value="Holiday Special">Holiday Special</option>
+                <option value="Behind the scenes">Behind the scenes</option>
+                <option value="Web Episode">Web Episode</option>
+            </select>
+        </div>
+        <div class="form-group">
             <label>Notes (optional)</label>
             <input type="text" id="specials-notes" class="form-control" placeholder="e.g., Behind the scenes, Holiday special">
         </div>

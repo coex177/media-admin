@@ -74,9 +74,12 @@ class TMDBService:
 
         return data
 
-    async def search_shows(self, query: str, page: int = 1) -> dict:
-        """Search for TV shows by name."""
-        return await self._request("/search/tv", {"query": query, "page": page})
+    async def search_shows(self, query: str, page: int = 1, year: int = None) -> dict:
+        """Search for TV shows by name, optionally filtered by first air date year."""
+        params = {"query": query, "page": page}
+        if year:
+            params["first_air_date_year"] = year
+        return await self._request("/search/tv", params)
 
     async def get_show(self, tmdb_id: int) -> dict:
         """Get detailed information about a TV show."""
@@ -105,9 +108,6 @@ class TMDBService:
 
         for season_info in show.get("seasons", []):
             season_num = season_info.get("season_number", 0)
-            # Skip specials (season 0) by default, but include regular seasons
-            if season_num == 0:
-                continue
 
             try:
                 season = await self.get_season(tmdb_id, season_num)

@@ -369,6 +369,8 @@ body {
 .stat-card.success .stat-value { color: var(--success-color); }
 .stat-card.warning .stat-value { color: var(--warning-color); }
 .stat-card.danger .stat-value { color: var(--danger-color); }
+.stat-card.special .stat-value { color: #9b59b6; }
+.stat-card.ignored .stat-value { color: #7f8c8d; }
 
 /* Buttons */
 .btn {
@@ -1240,13 +1242,14 @@ tr:hover {
 
 /* Episodes List */
 .episodes-list {
-    max-height: 2000px;
-    overflow: hidden;
+    max-height: 450px;
+    overflow-y: auto;
     transition: max-height 0.3s ease;
 }
 
 .episodes-list.collapsed {
     max-height: 0;
+    overflow: hidden;
 }
 
 /* Episode Row */
@@ -1309,6 +1312,16 @@ tr:hover {
     color: var(--text-secondary);
 }
 
+.episode-header.special .episode-number {
+    background-color: #9b59b6;
+    color: white;
+}
+
+.episode-header.ignored .episode-number {
+    background-color: #7f8c8d;
+    color: white;
+}
+
 .episode-title {
     flex: 1;
     font-weight: 500;
@@ -1338,6 +1351,16 @@ tr:hover {
 .episode-status-badge.not-aired {
     background-color: rgba(149, 165, 166, 0.2);
     color: var(--text-secondary);
+}
+
+.episode-status-badge.special {
+    background-color: rgba(155, 89, 182, 0.2);
+    color: #9b59b6;
+}
+
+.episode-status-badge.ignored {
+    background-color: rgba(127, 140, 141, 0.2);
+    color: #7f8c8d;
 }
 
 .episode-chevron {
