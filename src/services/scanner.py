@@ -202,14 +202,17 @@ class ScannerService:
 
         return False
 
-    def scan_library(self, quick_scan: bool = False, progress_callback=None) -> ScanResult:
+    def scan_library(self, quick_scan: bool = False, recent_days: int = None, progress_callback=None) -> ScanResult:
         """Scan library folders and match files to episodes.
 
         Args:
             quick_scan: If True, only scan ongoing shows (not Canceled/Ended).
                        If False, scan all shows.
+            recent_days: If set, only scan shows that have episodes that aired within this many days.
             progress_callback: Optional callback function(message, progress_percent) for status updates.
         """
+        from datetime import datetime, timedelta
+
         result = ScanResult()
 
         def report_progress(message, percent):
@@ -226,7 +229,29 @@ class ScannerService:
         )
 
         # Get shows based on scan type
-        if quick_scan:
+        if recent_days is not None:
+            # Only shows with episodes that aired within recent_days
+            cutoff_date = (datetime.utcnow() - timedelta(days=recent_days)).strftime("%Y-%m-%d")
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+
+            # Find show IDs with recently aired episodes
+            recent_show_ids = (
+                self.db.query(Episode.show_id)
+                .filter(
+                    Episode.air_date >= cutoff_date,
+                    Episode.air_date <= today,
+                )
+                .distinct()
+                .all()
+            )
+            recent_show_ids = [r[0] for r in recent_show_ids]
+
+            shows = (
+                self.db.query(Show)
+                .filter(Show.id.in_(recent_show_ids))
+                .all()
+            )
+        elif quick_scan:
             # Only ongoing shows (not Canceled or Ended)
             shows = (
                 self.db.query(Show)
@@ -246,7 +271,13 @@ class ScannerService:
                 self.auto_match_show_folder(show)
 
         # Refresh shows list after potential folder updates
-        if quick_scan:
+        if recent_days is not None:
+            shows = (
+                self.db.query(Show)
+                .filter(Show.id.in_(recent_show_ids))
+                .all()
+            )
+        elif quick_scan:
             shows = (
                 self.db.query(Show)
                 .filter(~Show.status.in_(["Canceled", "Ended"]))

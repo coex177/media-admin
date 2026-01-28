@@ -2269,7 +2269,19 @@ async function renderScan() {
                         <button class="btn btn-secondary btn-lg" onclick="triggerQuickScan()" id="scan-quick-btn" ${scanStatus.running ? 'disabled' : ''}>
                             Quick Scan
                         </button>
-                        <p class="scan-description">Scan only ongoing shows (not canceled/ended) and check downloads folder.</p>
+                        <p class="scan-description">Scan shows with recently aired episodes (${settings.recently_aired_days || 5} days).</p>
+                    </div>
+                    <div class="scan-button-group">
+                        <button class="btn btn-secondary btn-lg" onclick="triggerOngoingScan()" id="scan-ongoing-btn" ${scanStatus.running ? 'disabled' : ''}>
+                            Ongoing Scan
+                        </button>
+                        <p class="scan-description">Scan only ongoing shows (not canceled/ended).</p>
+                    </div>
+                    <div class="scan-button-group">
+                        <button class="btn btn-secondary btn-lg" onclick="triggerScanSelected()" id="scan-selected-btn" ${scanStatus.running ? 'disabled' : ''}>
+                            Scan Selected
+                        </button>
+                        <p class="scan-description">Scan only selected episodes from the Missing Episodes list below.</p>
                     </div>
                 </div>
             </div>
@@ -2316,15 +2328,29 @@ async function renderScan() {
                             `).join('')}
                         </div>
                     ` : missingEpisodes.length > 0 ? `
+                        <div class="missing-episodes-toolbar">
+                            <div class="missing-toolbar-left">
+                                <span class="missing-selected-count" id="missing-selected-count">0 selected</span>
+                                <button class="missing-toolbar-btn btn-primary" onclick="showFixMatchModal()" id="btn-fix-match" disabled>Fix Match</button>
+                                <button class="missing-toolbar-btn btn-warning" onclick="ignoreSelectedEpisodes()" id="btn-ignore" disabled>Ignore</button>
+                                <button class="missing-toolbar-btn" onclick="markSelectedAsSpecials()" id="btn-specials" disabled>Specials</button>
+                            </div>
+                            <div class="missing-toolbar-right">
+                                <button class="missing-toolbar-btn" onclick="toggleAllMissingGroups(true)">Expand All</button>
+                                <button class="missing-toolbar-btn" onclick="toggleAllMissingGroups(false)">Collapse All</button>
+                            </div>
+                        </div>
                         <div class="missing-episodes-grouped">
-                            ${missingEpisodes.map(show => `
-                                <div class="missing-show-group">
-                                    <div class="missing-show-header" onclick="toggleMissingShowGroup(this)">
-                                        <span class="missing-show-chevron">&#9660;</span>
+                            ${missingEpisodes.map(show => {
+                                const isCollapsed = getMissingGroupCollapseState(show.show_id);
+                                return `
+                                <div class="missing-show-group" data-show-id="${show.show_id}">
+                                    <div class="missing-show-header" onclick="toggleMissingShowGroup(this, ${show.show_id})">
+                                        <span class="missing-show-chevron">${isCollapsed ? '&#9654;' : '&#9660;'}</span>
                                         <span class="missing-show-name">${escapeHtml(show.show_name)}</span>
                                         <span class="missing-show-count">(${show.episodes.length} ${show.episodes.length === 1 ? 'item' : 'items'})</span>
                                     </div>
-                                    <div class="missing-episodes-table-wrapper open">
+                                    <div class="missing-episodes-table-wrapper ${isCollapsed ? '' : 'open'}">
                                         <table class="missing-episodes-table">
                                             <thead>
                                                 <tr>
@@ -2338,7 +2364,7 @@ async function renderScan() {
                                             <tbody>
                                                 ${show.episodes.map(ep => `
                                                     <tr class="missing-episode-row">
-                                                        <td class="checkbox-col"><input type="checkbox" class="episode-checkbox" data-show-id="${show.show_id}" data-episode-id="${ep.id}" onclick="event.stopPropagation()"></td>
+                                                        <td class="checkbox-col"><input type="checkbox" class="episode-checkbox" data-show-id="${show.show_id}" data-episode-id="${ep.id}" data-show-name="${escapeHtml(show.show_name)}" onclick="event.stopPropagation(); updateMissingSelectionCount()"></td>
                                                         <td>${ep.season}</td>
                                                         <td>${ep.episode}</td>
                                                         <td>${ep.air_date || '-'}</td>
@@ -2352,7 +2378,7 @@ async function renderScan() {
                                         </table>
                                     </div>
                                 </div>
-                            `).join('')}
+                            `}).join('')}
                         </div>
                     ` : `
                         <div class="empty-state" style="padding: 40px 20px;">
@@ -2382,20 +2408,51 @@ async function triggerFullScan() {
 
 async function triggerQuickScan() {
     try {
-        await api('/scan/quick', { method: 'POST' });
-        showToast('Quick scan started', 'info');
+        const result = await api('/scan/quick', { method: 'POST' });
+        showToast(`Quick scan started (${result.days} days)`, 'info');
         pollScanStatusWithUI();
     } catch (error) {
         // Error already shown
     }
 }
 
+async function triggerOngoingScan() {
+    try {
+        await api('/scan/ongoing', { method: 'POST' });
+        showToast('Ongoing shows scan started', 'info');
+        pollScanStatusWithUI();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+function triggerScanSelected() {
+    const selected = getSelectedMissingEpisodes();
+    if (selected.length === 0) {
+        // Scroll to missing episodes section and show a message
+        const missingSection = document.querySelector('.missing-episodes-grouped');
+        if (missingSection) {
+            missingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            showToast('Select episodes from the Missing Episodes list below, then click Scan Selected', 'info');
+        } else {
+            showToast('No missing episodes to scan', 'info');
+        }
+        return;
+    }
+    // If episodes are selected, run the scan
+    scanSelectedEpisodes();
+}
+
 function pollScanStatusWithUI() {
     // Disable buttons
     const fullBtn = document.getElementById('scan-full-btn');
     const quickBtn = document.getElementById('scan-quick-btn');
+    const ongoingBtn = document.getElementById('scan-ongoing-btn');
+    const selectedBtn = document.getElementById('scan-selected-btn');
     if (fullBtn) fullBtn.disabled = true;
     if (quickBtn) quickBtn.disabled = true;
+    if (ongoingBtn) ongoingBtn.disabled = true;
+    if (selectedBtn) selectedBtn.disabled = true;
 
     // Update title
     const resultsTitle = document.getElementById('results-title');
@@ -2646,6 +2703,7 @@ async function renderSettings() {
                                     <td>${escapeHtml(folder.path)}</td>
                                     <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
                                     <td>
+                                        <button class="btn btn-sm btn-primary" onclick="scanLibraryFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Scan</button>
                                         <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
                                         <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Remove</button>
                                     </td>
@@ -3054,6 +3112,233 @@ async function deleteFolder(folderId) {
     }
 }
 
+// Library Folder Discovery Scan
+async function scanLibraryFolder(folderId, folderPath) {
+    // Show the scanning modal
+    showLibraryFolderScanModal(folderPath);
+
+    try {
+        // Start the scan
+        await api('/scan/library-folder', {
+            method: 'POST',
+            body: JSON.stringify({ folder_id: folderId })
+        });
+
+        // Poll for status updates
+        pollLibraryFolderScanStatus();
+    } catch (error) {
+        closeLibraryFolderScanModal();
+        // Error already shown by api()
+    }
+}
+
+function showLibraryFolderScanModal(folderPath) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Scanning Library Folder';
+    modalBody.innerHTML = `
+        <div class="library-scan-modal">
+            <div class="library-scan-header">
+                <div class="library-scan-folder" title="${escapeHtml(folderPath)}">${escapeHtml(folderPath)}</div>
+                <div class="library-scan-status">
+                    <div class="library-scan-spinner"></div>
+                    <span id="library-scan-message">Initializing...</span>
+                </div>
+                <div class="library-scan-progress-container">
+                    <div class="library-scan-progress-bar" id="library-scan-progress" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="library-scan-stats" id="library-scan-stats">
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value" id="stat-found">0</span>
+                    <span class="library-scan-stat-label">Found</span>
+                </div>
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value" id="stat-added">0</span>
+                    <span class="library-scan-stat-label">Added</span>
+                </div>
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value" id="stat-skipped">0</span>
+                    <span class="library-scan-stat-label">Skipped</span>
+                </div>
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value" id="stat-matched">0</span>
+                    <span class="library-scan-stat-label">Episodes</span>
+                </div>
+            </div>
+            <div class="library-scan-current" id="library-scan-current"></div>
+            <div class="library-scan-console" id="library-scan-console">
+                <div class="console-placeholder">Waiting for scan to start...</div>
+            </div>
+        </div>
+    `;
+
+    // Hide close button during scan
+    document.querySelector('.modal-close').style.display = 'none';
+    modal.classList.add('active');
+}
+
+function updateLibraryFolderScanModal(status) {
+    // Update message
+    const messageEl = document.getElementById('library-scan-message');
+    if (messageEl) messageEl.textContent = status.message || 'Scanning...';
+
+    // Update progress bar
+    const progressEl = document.getElementById('library-scan-progress');
+    if (progressEl) progressEl.style.width = `${status.progress || 0}%`;
+
+    // Update stats
+    const statFound = document.getElementById('stat-found');
+    const statAdded = document.getElementById('stat-added');
+    const statSkipped = document.getElementById('stat-skipped');
+    const statMatched = document.getElementById('stat-matched');
+
+    if (statFound) statFound.textContent = status.shows_found || 0;
+    if (statAdded) statAdded.textContent = status.shows_added || 0;
+    if (statSkipped) statSkipped.textContent = status.shows_skipped || 0;
+    if (statMatched) statMatched.textContent = status.episodes_matched || 0;
+
+    // Update current show
+    const currentEl = document.getElementById('library-scan-current');
+    if (currentEl) {
+        if (status.current_show) {
+            currentEl.textContent = `Processing: ${status.current_show}`;
+            currentEl.style.display = 'block';
+        } else {
+            currentEl.style.display = 'none';
+        }
+    }
+
+    // Update console
+    const consoleEl = document.getElementById('library-scan-console');
+    if (consoleEl && status.console && status.console.length > 0) {
+        const entries = status.console.map(entry => {
+            let levelClass = '';
+            let icon = '';
+            switch (entry.level) {
+                case 'error':
+                    levelClass = 'console-error';
+                    icon = '✗';
+                    break;
+                case 'warning':
+                    levelClass = 'console-warning';
+                    icon = '⚠';
+                    break;
+                case 'success':
+                    levelClass = 'console-success';
+                    icon = '✓';
+                    break;
+                case 'skip':
+                    levelClass = 'console-skip';
+                    icon = '→';
+                    break;
+                default:
+                    levelClass = 'console-info';
+                    icon = '•';
+            }
+            return `<div class="console-entry ${levelClass}">
+                <span class="console-time">${entry.time}</span>
+                <span class="console-icon">${icon}</span>
+                <span class="console-message">${escapeHtml(entry.message)}</span>
+            </div>`;
+        }).join('');
+
+        consoleEl.innerHTML = entries;
+        // Auto-scroll to bottom
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+}
+
+function closeLibraryFolderScanModal() {
+    document.querySelector('.modal-close').style.display = '';
+    closeModal();
+}
+
+function showLibraryFolderScanComplete(status) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    const result = status.result || {};
+    const hasErrors = status.console && status.console.some(e => e.level === 'error');
+
+    modalTitle.textContent = 'Scan Complete';
+    modalBody.innerHTML = `
+        <div class="library-scan-modal">
+            <div class="library-scan-complete-stats">
+                <div class="library-scan-stat ${result.shows_added > 0 ? 'stat-highlight' : ''}">
+                    <span class="library-scan-stat-value">${result.shows_added || 0}</span>
+                    <span class="library-scan-stat-label">Shows Added</span>
+                </div>
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value">${result.shows_skipped || 0}</span>
+                    <span class="library-scan-stat-label">Skipped</span>
+                </div>
+                <div class="library-scan-stat ${result.episodes_matched > 0 ? 'stat-highlight' : ''}">
+                    <span class="library-scan-stat-value">${result.episodes_matched || 0}</span>
+                    <span class="library-scan-stat-label">Episodes Matched</span>
+                </div>
+            </div>
+            ${hasErrors ? `
+                <div class="library-scan-console" id="library-scan-console-final" style="max-height: 200px;">
+                    ${status.console.filter(e => e.level === 'error' || e.level === 'warning').map(entry => `
+                        <div class="console-entry console-${entry.level}">
+                            <span class="console-time">${entry.time}</span>
+                            <span class="console-icon">${entry.level === 'error' ? '✗' : '⚠'}</span>
+                            <span class="console-message">${escapeHtml(entry.message)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+            <div class="library-scan-actions">
+                <button class="btn btn-primary" onclick="closeModal(); navigateTo('shows');">View Shows</button>
+                <button class="btn btn-secondary" onclick="closeModal();">Close</button>
+            </div>
+        </div>
+    `;
+
+    document.querySelector('.modal-close').style.display = '';
+    modal.classList.add('active');
+}
+
+let libraryFolderScanPollTimer = null;
+
+function pollLibraryFolderScanStatus() {
+    const checkStatus = async () => {
+        try {
+            const status = await fetch(`${API_BASE}/scan/library-folder/status`).then(r => r.json());
+
+            if (status.running) {
+                updateLibraryFolderScanModal(status);
+                libraryFolderScanPollTimer = setTimeout(checkStatus, 500);
+            } else {
+                // Scan complete
+                updateLibraryFolderScanModal(status);
+
+                // Short delay to show final state
+                setTimeout(() => {
+                    if (status.result && !status.result.error) {
+                        showLibraryFolderScanComplete(status);
+                    } else {
+                        closeLibraryFolderScanModal();
+                        if (status.result?.error) {
+                            showToast(`Scan failed: ${status.result.error}`, 'error');
+                        }
+                    }
+                }, 1000);
+            }
+        } catch (error) {
+            closeLibraryFolderScanModal();
+            showToast('Failed to get scan status', 'error');
+        }
+    };
+
+    // Start polling
+    libraryFolderScanPollTimer = setTimeout(checkStatus, 300);
+}
+
 // Scanning
 async function triggerScan(type) {
     const endpoint = type === 'library' ? '/scan' : '/scan/downloads';
@@ -3138,22 +3423,88 @@ function formatEpisodeCode(season, episode, format) {
         .replace('{episode}', episode);
 }
 
-function toggleMissingShowGroup(header) {
+// Missing Episodes - Collapse State Management
+function getMissingGroupCollapseState(showId) {
+    try {
+        const states = JSON.parse(localStorage.getItem('missingGroupCollapseStates') || '{}');
+        return states[showId] === true;
+    } catch {
+        return false;
+    }
+}
+
+function setMissingGroupCollapseState(showId, collapsed) {
+    try {
+        const states = JSON.parse(localStorage.getItem('missingGroupCollapseStates') || '{}');
+        if (collapsed) {
+            states[showId] = true;
+        } else {
+            delete states[showId];
+        }
+        localStorage.setItem('missingGroupCollapseStates', JSON.stringify(states));
+    } catch {
+        // Ignore localStorage errors
+    }
+}
+
+function toggleMissingShowGroup(header, showId) {
     const wrapper = header.nextElementSibling;
     const chevron = header.querySelector('.missing-show-chevron');
 
     if (wrapper.classList.contains('open')) {
         wrapper.classList.remove('open');
         chevron.innerHTML = '&#9654;'; // Right arrow
+        setMissingGroupCollapseState(showId, true);
     } else {
         wrapper.classList.add('open');
         chevron.innerHTML = '&#9660;'; // Down arrow
+        setMissingGroupCollapseState(showId, false);
     }
+}
+
+function toggleAllMissingGroups(expand) {
+    document.querySelectorAll('.missing-show-group').forEach(group => {
+        const showId = group.dataset.showId;
+        const wrapper = group.querySelector('.missing-episodes-table-wrapper');
+        const chevron = group.querySelector('.missing-show-chevron');
+
+        if (expand) {
+            wrapper.classList.add('open');
+            chevron.innerHTML = '&#9660;';
+            setMissingGroupCollapseState(showId, false);
+        } else {
+            wrapper.classList.remove('open');
+            chevron.innerHTML = '&#9654;';
+            setMissingGroupCollapseState(showId, true);
+        }
+    });
 }
 
 function toggleAllMissingInShow(headerCheckbox, showId) {
     const checkboxes = document.querySelectorAll(`.episode-checkbox[data-show-id="${showId}"]`);
     checkboxes.forEach(cb => cb.checked = headerCheckbox.checked);
+    updateMissingSelectionCount();
+}
+
+function updateMissingSelectionCount() {
+    const selected = getSelectedMissingEpisodes();
+    const countEl = document.getElementById('missing-selected-count');
+    const fixMatchBtn = document.getElementById('btn-fix-match');
+    const ignoreBtn = document.getElementById('btn-ignore');
+    const specialsBtn = document.getElementById('btn-specials');
+
+    if (countEl) {
+        countEl.textContent = `${selected.length} selected`;
+    }
+    if (fixMatchBtn) {
+        fixMatchBtn.disabled = selected.length === 0;
+    }
+    if (ignoreBtn) {
+        ignoreBtn.disabled = selected.length === 0;
+    }
+    if (specialsBtn) {
+        specialsBtn.disabled = selected.length === 0;
+    }
 }
 
 function getSelectedMissingEpisodes() {
@@ -3161,8 +3512,367 @@ function getSelectedMissingEpisodes() {
     document.querySelectorAll('.episode-checkbox:checked').forEach(cb => {
         selected.push({
             showId: parseInt(cb.dataset.showId),
-            episodeId: parseInt(cb.dataset.episodeId)
+            episodeId: parseInt(cb.dataset.episodeId),
+            showName: cb.dataset.showName
         });
     });
     return selected;
+}
+
+// Scan Selected Episodes
+async function scanSelectedEpisodes() {
+    const selected = getSelectedMissingEpisodes();
+    if (selected.length === 0) {
+        showToast('No episodes selected', 'warning');
+        return;
+    }
+
+    // Show scanning modal
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Scanning Episodes';
+    modalBody.innerHTML = `
+        <div class="scanning-progress">
+            <div class="scanning-spinner"></div>
+            <p class="scanning-status">Scanning ${selected.length} episode${selected.length > 1 ? 's' : ''}...</p>
+            <p class="text-muted">Looking for matching files in show folders</p>
+        </div>
+    `;
+    document.querySelector('.modal-close').style.display = 'none';
+    modal.classList.add('active');
+
+    try {
+        const result = await api('/scan/selected-episodes', {
+            method: 'POST',
+            body: JSON.stringify({
+                episode_ids: selected.map(s => s.episodeId)
+            })
+        });
+
+        // Show results
+        const foundResults = result.results?.filter(r => r.status === 'found') || [];
+        const notFoundResults = result.results?.filter(r => r.status !== 'found') || [];
+
+        modalTitle.textContent = 'Scan Complete';
+        modalBody.innerHTML = `
+            <div class="scan-selected-results">
+                <div class="scan-selected-summary">
+                    <div class="scan-stat ${result.found > 0 ? 'scan-stat-success' : ''}">
+                        <span class="scan-stat-value">${result.found}</span>
+                        <span class="scan-stat-label">Found</span>
+                    </div>
+                    <div class="scan-stat ${result.not_found > 0 ? 'scan-stat-warning' : ''}">
+                        <span class="scan-stat-value">${result.not_found}</span>
+                        <span class="scan-stat-label">Not Found</span>
+                    </div>
+                </div>
+                ${foundResults.length > 0 ? `
+                    <div class="scan-results-section">
+                        <h4 class="scan-results-header scan-results-success">Found (${foundResults.length})</h4>
+                        <div class="scan-results-list">
+                            ${foundResults.map(r => `
+                                <div class="scan-result-item scan-result-found">
+                                    <span class="scan-result-icon">✓</span>
+                                    <span class="scan-result-text"><strong>${escapeHtml(r.show_name)}</strong> ${r.episode_code}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+                ${notFoundResults.length > 0 ? `
+                    <div class="scan-results-section">
+                        <h4 class="scan-results-header scan-results-warning">Not Found (${notFoundResults.length})</h4>
+                        <div class="scan-results-list">
+                            ${notFoundResults.map(r => `
+                                <div class="scan-result-item scan-result-notfound">
+                                    <span class="scan-result-icon">✗</span>
+                                    <span class="scan-result-text"><strong>${escapeHtml(r.show_name)}</strong> ${r.episode_code}</span>
+                                    <span class="scan-result-message">${escapeHtml(r.message)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+                <div class="scan-results-actions">
+                    <button class="btn btn-primary" onclick="closeModal(); renderScan();">Done</button>
+                </div>
+            </div>
+        `;
+        document.querySelector('.modal-close').style.display = '';
+
+    } catch (error) {
+        document.querySelector('.modal-close').style.display = '';
+        closeModal();
+        // Error already shown by api()
+    }
+}
+
+// Ignore Episodes
+async function ignoreSelectedEpisodes() {
+    const selected = getSelectedMissingEpisodes();
+    if (selected.length === 0) {
+        showToast('No episodes selected', 'warning');
+        return;
+    }
+
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Ignore Episodes';
+    modalBody.innerHTML = `
+        <p>Are you sure you want to ignore <strong>${selected.length}</strong> episode${selected.length > 1 ? 's' : ''}?</p>
+        <p class="text-muted">Ignored episodes will not appear in the missing episodes list.</p>
+        <div class="form-group" style="margin-top: 15px;">
+            <label>Reason (optional)</label>
+            <input type="text" id="ignore-reason" class="form-control" placeholder="e.g., Not released in my region">
+        </div>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-warning" onclick="confirmIgnoreEpisodes()">Ignore Episodes</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmIgnoreEpisodes() {
+    const selected = getSelectedMissingEpisodes();
+    const reason = document.getElementById('ignore-reason')?.value.trim() || null;
+
+    closeModal();
+
+    try {
+        const result = await api('/scan/ignore-episodes', {
+            method: 'POST',
+            body: JSON.stringify({
+                episode_ids: selected.map(s => s.episodeId),
+                reason: reason
+            })
+        });
+
+        showToast(result.message, 'success');
+        renderScan();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+// Mark as Specials
+async function markSelectedAsSpecials() {
+    const selected = getSelectedMissingEpisodes();
+    if (selected.length === 0) {
+        showToast('No episodes selected', 'warning');
+        return;
+    }
+
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Mark as Specials';
+    modalBody.innerHTML = `
+        <p>Mark <strong>${selected.length}</strong> episode${selected.length > 1 ? 's' : ''} as specials?</p>
+        <p class="text-muted">These episodes will be moved to a separate specials list for handling later.</p>
+        <div class="form-group" style="margin-top: 15px;">
+            <label>Notes (optional)</label>
+            <input type="text" id="specials-notes" class="form-control" placeholder="e.g., Behind the scenes, Holiday special">
+        </div>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-primary" onclick="confirmMarkAsSpecials()">Mark as Specials</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmMarkAsSpecials() {
+    const selected = getSelectedMissingEpisodes();
+    const notes = document.getElementById('specials-notes')?.value.trim() || null;
+
+    closeModal();
+
+    try {
+        const result = await api('/scan/special-episodes', {
+            method: 'POST',
+            body: JSON.stringify({
+                episode_ids: selected.map(s => s.episodeId),
+                notes: notes
+            })
+        });
+
+        showToast(result.message, 'success');
+        renderScan();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+// Fix Match Modal
+let fixMatchSelectedShow = null;
+
+function showFixMatchModal() {
+    const selected = getSelectedMissingEpisodes();
+    if (selected.length === 0) {
+        showToast('No episodes selected', 'warning');
+        return;
+    }
+
+    // Get unique show names from selection
+    const showNames = [...new Set(selected.map(s => s.showName))];
+
+    fixMatchSelectedShow = null;
+
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Fix Match';
+    modalBody.innerHTML = `
+        <div class="fix-match-modal">
+            <div class="fix-match-selected-info">
+                <strong>${selected.length}</strong> episode${selected.length > 1 ? 's' : ''} selected from: ${showNames.join(', ')}
+            </div>
+            <p>Search for the correct show to reassign these episodes:</p>
+            <div class="fix-match-search">
+                <input type="text" id="fix-match-search-input" class="form-control" placeholder="Search TMDB for correct show..." onkeydown="if(event.key==='Enter')searchForFixMatch()">
+                <button class="btn btn-primary" onclick="searchForFixMatch()">Search</button>
+            </div>
+            <div class="fix-match-results" id="fix-match-results">
+                <p class="text-muted" style="padding: 20px; text-align: center;">Search for a show above</p>
+            </div>
+            <div class="fix-match-actions">
+                <button class="btn btn-primary" id="btn-confirm-fix-match" onclick="confirmFixMatch()" disabled>Reassign Episodes</button>
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    `;
+    modal.classList.add('active');
+
+    // Focus search input
+    setTimeout(() => document.getElementById('fix-match-search-input')?.focus(), 100);
+}
+
+async function searchForFixMatch() {
+    const query = document.getElementById('fix-match-search-input')?.value.trim();
+    if (!query) return;
+
+    const resultsDiv = document.getElementById('fix-match-results');
+    resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+    try {
+        // Search both local library and TMDB
+        const [tmdbResults, localShows] = await Promise.all([
+            api(`/shows/search/tmdb?q=${encodeURIComponent(query)}`),
+            api('/shows')
+        ]);
+
+        // Filter local shows by name
+        const queryLower = query.toLowerCase();
+        const matchingLocalShows = localShows.filter(show =>
+            show.name.toLowerCase().includes(queryLower)
+        );
+
+        let html = '';
+
+        // Show local matches first
+        if (matchingLocalShows.length > 0) {
+            html += '<div style="padding: 8px 12px; background: var(--darker-bg); font-weight: 600; font-size: 0.85rem; color: var(--text-secondary);">In Your Library</div>';
+            matchingLocalShows.forEach(show => {
+                const year = show.first_air_date ? show.first_air_date.substring(0, 4) : '';
+                html += `
+                    <div class="fix-match-result" onclick="selectFixMatchShow(${show.id}, '${escapeHtml(show.name).replace(/'/g, "\\'")}', true)">
+                        <img src="${show.poster_path ? TMDB_IMAGE_BASE + show.poster_path : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 60%22><rect fill=%22%23252542%22 width=%2240%22 height=%2260%22/></svg>'}" class="fix-match-poster">
+                        <div class="fix-match-info">
+                            <div class="fix-match-name">${escapeHtml(show.name)}</div>
+                            <div class="fix-match-year">${year} - In Library</div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        // Then TMDB results
+        const tmdbShows = tmdbResults.results || [];
+        if (tmdbShows.length > 0) {
+            html += '<div style="padding: 8px 12px; background: var(--darker-bg); font-weight: 600; font-size: 0.85rem; color: var(--text-secondary);">Add from TMDB</div>';
+            tmdbShows.slice(0, 10).forEach(show => {
+                const inLibrary = localShows.some(ls => ls.tmdb_id === show.id);
+                if (inLibrary) return; // Skip if already shown in local
+
+                const year = show.first_air_date ? show.first_air_date.substring(0, 4) : '';
+                html += `
+                    <div class="fix-match-result" onclick="selectFixMatchShow(${show.id}, '${escapeHtml(show.name).replace(/'/g, "\\'")}', false)">
+                        <img src="${show.poster_path ? TMDB_IMAGE_BASE + show.poster_path : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 60%22><rect fill=%22%23252542%22 width=%2240%22 height=%2260%22/></svg>'}" class="fix-match-poster">
+                        <div class="fix-match-info">
+                            <div class="fix-match-name">${escapeHtml(show.name)}</div>
+                            <div class="fix-match-year">${year}</div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        if (!html) {
+            html = '<p class="text-muted" style="padding: 20px; text-align: center;">No shows found</p>';
+        }
+
+        resultsDiv.innerHTML = html;
+    } catch (error) {
+        resultsDiv.innerHTML = '<p class="text-muted" style="padding: 20px; text-align: center;">Search failed</p>';
+    }
+}
+
+function selectFixMatchShow(showId, showName, isLocal) {
+    // Clear previous selection
+    document.querySelectorAll('.fix-match-result').forEach(el => el.classList.remove('selected'));
+
+    // Mark new selection
+    event.currentTarget.classList.add('selected');
+
+    fixMatchSelectedShow = { id: showId, name: showName, isLocal };
+
+    // Enable confirm button
+    const confirmBtn = document.getElementById('btn-confirm-fix-match');
+    if (confirmBtn) confirmBtn.disabled = false;
+}
+
+async function confirmFixMatch() {
+    if (!fixMatchSelectedShow) {
+        showToast('Please select a show', 'warning');
+        return;
+    }
+
+    const selected = getSelectedMissingEpisodes();
+
+    closeModal();
+
+    try {
+        let targetShowId = fixMatchSelectedShow.id;
+
+        // If not in library, add the show first
+        if (!fixMatchSelectedShow.isLocal) {
+            showToast('Adding show to library...', 'info');
+            const newShow = await api('/shows', {
+                method: 'POST',
+                body: JSON.stringify({ tmdb_id: fixMatchSelectedShow.id })
+            });
+            targetShowId = newShow.id;
+        }
+
+        // Now reassign the episodes
+        const result = await api('/scan/fix-match', {
+            method: 'POST',
+            body: JSON.stringify({
+                episode_ids: selected.map(s => s.episodeId),
+                new_show_id: targetShowId
+            })
+        });
+
+        showToast(result.message, 'success');
+        renderScan();
+    } catch (error) {
+        // Error already shown
+    }
 }

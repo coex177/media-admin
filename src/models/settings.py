@@ -99,3 +99,57 @@ class AppSettings(Base):
 
     def __repr__(self) -> str:
         return f"<AppSettings(key='{self.key}')>"
+
+
+class IgnoredEpisode(Base):
+    """Ignored episodes that should not appear in missing lists."""
+
+    __tablename__ = "ignored_episodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    episode_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("episodes.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<IgnoredEpisode(episode_id={self.episode_id})>"
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "episode_id": self.episode_id,
+            "reason": self.reason,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class SpecialEpisode(Base):
+    """Episodes marked as specials for separate handling."""
+
+    __tablename__ = "special_episodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    episode_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("episodes.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    notes: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<SpecialEpisode(episode_id={self.episode_id})>"
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "episode_id": self.episode_id,
+            "notes": self.notes,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

@@ -25,10 +25,14 @@ class MatcherService:
 
     # Patterns for episode detection (ordered by specificity)
     EPISODE_PATTERNS = [
-        # S01E01 or S01E01E02 (multi-episode)
-        r"[Ss](\d{1,2})[Ee](\d{1,3})(?:[Ee](\d{1,3}))?",
-        # 1x01 or 1x01-1x02 (multi-episode)
-        r"(\d{1,2})[xX](\d{1,3})(?:-\d{1,2}[xX](\d{1,3}))?",
+        # S01E01E02 or S01E01-E02 or S01E01-02 (multi-episode with S##E## format)
+        r"[Ss](\d{1,2})[Ee](\d{1,3})(?:[Ee-](?:[Ee])?(\d{1,3}))?",
+        # 1x01-1x02 (multi-episode with full season prefix)
+        r"(\d{1,2})[xX](\d{1,3})-\d{1,2}[xX](\d{1,3})",
+        # 1x01-02 (multi-episode without repeating season)
+        r"(\d{1,2})[xX](\d{1,3})-(\d{1,3})",
+        # 1x01 (single episode)
+        r"(\d{1,2})[xX](\d{1,3})",
         # Season 1 Episode 1
         r"[Ss]eason\s*(\d{1,2})\s*[Ee]pisode\s*(\d{1,3})",
         # s01.e01 or s01_e01
