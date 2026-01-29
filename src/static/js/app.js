@@ -24,7 +24,8 @@ const state = {
     pendingScrollRestore: false,
     showsPage: 1,
     showsPerPage: 0,
-    totalShows: 0
+    totalShows: 0,
+    activeSettingsTab: localStorage.getItem('settingsActiveTab') || 'general'
 };
 
 // DOM Elements
@@ -2941,243 +2942,366 @@ async function renderSettings() {
         // Store original values for reset functionality
         state.originalSettings = { ...settings };
 
-        const libraryFolders = folders.filter(f => f.type === 'library');
-        const downloadFolders = folders.filter(f => f.type === 'download');
-
-        const currentTheme = settings.theme || 'midnight';
+        const activeTab = state.activeSettingsTab;
 
         appContent.innerHTML = `
             <div class="page-header">
                 <h1 class="page-title">Settings</h1>
             </div>
-
-            <div class="card">
-                <h2 class="card-title mb-20">Appearance</h2>
-                <div class="theme-selector">
-                    <div class="theme-option ${currentTheme === 'midnight' ? 'active' : ''}" data-theme="midnight" onclick="updateTheme('midnight')">
-                        <div class="theme-preview">
-                            <div class="theme-swatch" style="background: #1a1a2e;"></div>
-                            <div class="theme-swatch" style="background: #252542;"></div>
-                            <div class="theme-swatch" style="background: #3498db;"></div>
-                        </div>
-                        <div class="theme-name">Midnight</div>
-                    </div>
-                    <div class="theme-option ${currentTheme === 'dark' ? 'active' : ''}" data-theme="dark" onclick="updateTheme('dark')">
-                        <div class="theme-preview">
-                            <div class="theme-swatch" style="background: #0a0a0a;"></div>
-                            <div class="theme-swatch" style="background: #111111;"></div>
-                            <div class="theme-swatch" style="background: #e67e22;"></div>
-                        </div>
-                        <div class="theme-name">OLED Dark</div>
-                    </div>
-                    <div class="theme-option ${currentTheme === 'light' ? 'active' : ''}" data-theme="light" onclick="updateTheme('light')">
-                        <div class="theme-preview">
-                            <div class="theme-swatch" style="background: #f5f5f5;"></div>
-                            <div class="theme-swatch" style="background: #ffffff;"></div>
-                            <div class="theme-swatch" style="background: #3498db;"></div>
-                        </div>
-                        <div class="theme-name">Light</div>
-                    </div>
-                </div>
+            <div class="settings-tabs">
+                <button class="settings-tab ${activeTab === 'general' ? 'active' : ''}" onclick="switchSettingsTab('general')">General</button>
+                <button class="settings-tab ${activeTab === 'metadata' ? 'active' : ''}" onclick="switchSettingsTab('metadata')">Metadata</button>
+                <button class="settings-tab ${activeTab === 'library' ? 'active' : ''}" onclick="switchSettingsTab('library')">Library</button>
+                <button class="settings-tab ${activeTab === 'watcher' ? 'active' : ''}" onclick="switchSettingsTab('watcher')">Media Watcher</button>
             </div>
-
-            <div class="card">
-                <h2 class="card-title mb-20">Metadata Providers</h2>
-                <div class="form-group">
-                    <label>Default Metadata Source</label>
-                    <div class="metadata-source-options">
-                        <label>
-                            <input type="radio" name="settings-default-source" value="tmdb" ${settings.default_metadata_source === 'tmdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
-                            TMDB
-                        </label>
-                        <label>
-                            <input type="radio" name="settings-default-source" value="tvdb" ${settings.default_metadata_source === 'tvdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
-                            TVDB
-                        </label>
-                    </div>
-                    <small class="text-muted">Used for new shows, Managed Import, and search default</small>
-                </div>
-                <div class="form-group" style="margin-top: 20px;">
-                    <label>TMDB API Key ${settings.tmdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
-                    <small class="text-muted">Metadata provided by <a href="https://www.themoviedb.org" target="_blank">The Movie Database (TMDB)</a></small>
-                    <input type="password" id="settings-api-key" class="form-control" placeholder="${settings.tmdb_api_key_set ? '••••••••' : 'Enter API key'}">
-                </div>
-                <button class="btn btn-primary" onclick="updateApiKey()">Update TMDB Key</button>
-                <div class="form-group" style="margin-top: 20px;">
-                    <label>TVDB API Key ${settings.tvdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
-                    <small class="text-muted">Metadata provided by <a href="https://thetvdb.com" target="_blank">TheTVDB</a></small>
-                    <input type="password" id="settings-tvdb-api-key" class="form-control" placeholder="${settings.tvdb_api_key_set ? '••••••••' : 'Enter API key'}">
-                </div>
-                <button class="btn btn-primary" onclick="updateTvdbApiKey()">Update TVDB Key</button>
-            </div>
-
-            <div class="card">
-                <h2 class="card-title mb-20">Naming Formats</h2>
-                <div class="form-group">
-                    <label>Episode Filename Format</label>
-                    <input type="text" id="settings-episode-format" class="form-control" value="${escapeHtml(settings.episode_format)}" oninput="updateFormatPreviews(); markSettingsChanged('formats')">
-                    <div class="format-preview">Preview: <strong id="preview-episode-format"></strong></div>
-                    <small class="text-muted">
-                        Variables: <code>{season}</code>, <code>{episode}</code>, <code>{title}</code><br>
-                        Add <code>:02d</code> for zero-padding (e.g., <code>{episode:02d}</code> = 04 instead of 4)
-                    </small>
-                </div>
-                <div class="form-group">
-                    <label>Season Folder Format</label>
-                    <input type="text" id="settings-season-format" class="form-control" value="${escapeHtml(settings.season_format)}" oninput="updateFormatPreviews(); markSettingsChanged('formats')">
-                    <div class="format-preview">Preview: <strong id="preview-season-format"></strong></div>
-                    <small class="text-muted">
-                        Variables: <code>{season}</code><br>
-                        Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 04 instead of 4)
-                    </small>
-                </div>
-                <div class="settings-buttons">
-                    <button class="btn btn-primary" onclick="updateFormats()">Save Formats</button>
-                    <button class="btn btn-secondary" onclick="resetFormats()" id="reset-formats-btn" style="display: none;">Reset</button>
-                </div>
-            </div>
-
-            <div class="card">
-                <h2 class="card-title mb-20">Dashboard Display</h2>
-                <div class="dashboard-settings-grid">
-                    <div class="dashboard-setting-item">
-                        <label>Upcoming Episodes</label>
-                        <select id="settings-upcoming-days" class="form-control" onchange="markSettingsChanged('dashboard')">
-                            ${generateSelectOptions(30, settings.upcoming_days, '{n} Days ahead')}
-                        </select>
-                    </div>
-                    <div class="dashboard-setting-item">
-                        <label>Recently Aired</label>
-                        <select id="settings-recently-aired-days" class="form-control" onchange="markSettingsChanged('dashboard')">
-                            ${generateSelectOptions(30, settings.recently_aired_days, '{n} Days back')}
-                        </select>
-                    </div>
-                    <div class="dashboard-setting-item">
-                        <label>Recently Added</label>
-                        <select id="settings-recently-added-count" class="form-control" onchange="markSettingsChanged('dashboard')">
-                            ${generateSelectOptions(30, settings.recently_added_count, '{n} Shows')}
-                        </select>
-                    </div>
-                    <div class="dashboard-setting-item">
-                        <label>Recently Matched</label>
-                        <select id="settings-recently-matched-count" class="form-control" onchange="markSettingsChanged('dashboard')">
-                            ${generateSelectOptions(30, settings.recently_matched_count, '{n} Episodes')}
-                        </select>
-                    </div>
-                    <div class="dashboard-setting-item">
-                        <label>Returning Soon</label>
-                        <select id="settings-returning-soon-count" class="form-control" onchange="markSettingsChanged('dashboard')">
-                            ${generateSelectOptions(30, settings.returning_soon_count, '{n} Shows')}
-                        </select>
-                    </div>
-                    <div class="dashboard-setting-item">
-                        <label>Recently Ended</label>
-                        <select id="settings-recently-ended-count" class="form-control" onchange="markSettingsChanged('dashboard')">
-                            ${generateSelectOptions(30, settings.recently_ended_count, '{n} Shows')}
-                        </select>
-                    </div>
-                    <div class="dashboard-setting-item">
-                        <label>Shows Per Page</label>
-                        <select id="settings-shows-per-page" class="form-control" onchange="markSettingsChanged('dashboard')">
-                            ${[[100,'100 Shows'],[300,'300 Shows'],[500,'500 Shows'],[1000,'1000 Shows'],[3000,'3000 Shows'],[5000,'5000 Shows'],[0,'All Shows']].map(([v,l]) => `<option value="${v}" ${settings.shows_per_page === v ? 'selected' : ''}>${l}</option>`).join('')}
-                        </select>
-                    </div>
-                </div>
-                <div class="dashboard-settings-divider"></div>
-                <div class="form-group">
-                    <label class="dashboard-setting-label">Episode Display Format</label>
-                    <input type="text" id="settings-display-episode-format" class="form-control" value="${escapeHtml(settings.display_episode_format)}" oninput="updateFormatPreviews(); markSettingsChanged('dashboard')">
-                    <div class="format-preview">Preview: <strong id="preview-display-episode-format"></strong></div>
-                    <small class="text-muted">
-                        Variables: <code>{season}</code>, <code>{episode}</code><br>
-                        Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 03, <code>{episode:02d}</code> = 04)
-                    </small>
-                </div>
-                <div class="settings-buttons">
-                    <button class="btn btn-primary" onclick="updateDashboardSettings()">Save Dashboard Settings</button>
-                    <button class="btn btn-secondary" onclick="resetDashboardSettings()" id="reset-dashboard-btn" style="display: none;">Reset</button>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">Library Folders</h2>
-                    <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('library')">+ Add Folder</button>
-                </div>
-                ${libraryFolders.length === 0 ? `
-                    <p class="text-muted" id="library-folders-placeholder">No library folders configured.</p>
-                ` : `
-                    <table id="library-folders-table">
-                        <thead>
-                            <tr>
-                                <th>Path</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${libraryFolders.map(folder => `
-                                <tr data-folder-id="${folder.id}">
-                                    <td>${escapeHtml(folder.path)}</td>
-                                    <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
-                                    <td>
-                                        <button class="btn btn-sm btn-primary" onclick="scanLibraryFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Scan</button>
-                                        <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
-                                        <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Remove</button>
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `}
-                <div style="padding: 15px 15px 5px; border-top: 1px solid var(--border-color); margin-top: 10px;">
-                    <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
-                        <label>Managed Import Count</label>
-                        <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500">
-                        <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
-                    </div>
-                    <button class="btn btn-sm btn-primary" onclick="updateSlowImportCount()">Save</button>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">Download Folders</h2>
-                    <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('download')">+ Add Folder</button>
-                </div>
-                ${downloadFolders.length === 0 ? `
-                    <p class="text-muted" id="download-folders-placeholder">No download folders configured.</p>
-                ` : `
-                    <table id="download-folders-table">
-                        <thead>
-                            <tr>
-                                <th>Path</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${downloadFolders.map(folder => `
-                                <tr data-folder-id="${folder.id}">
-                                    <td>${escapeHtml(folder.path)}</td>
-                                    <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
-                                    <td>
-                                        <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
-                                        <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Remove</button>
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `}
-            </div>
+            <div id="settings-tab-content"></div>
         `;
 
-        // Initialize format previews
-        updateFormatPreviews();
+        renderSettingsTabContent(activeTab);
     } catch (error) {
         appContent.innerHTML = `<div class="alert alert-danger">Failed to load settings.</div>`;
     }
+}
+
+function renderSettingsGeneral(settings) {
+    const currentTheme = settings.theme || 'midnight';
+    return `
+        <div class="card">
+            <h2 class="card-title mb-20">Appearance</h2>
+            <div class="theme-selector">
+                <div class="theme-option ${currentTheme === 'midnight' ? 'active' : ''}" data-theme="midnight" onclick="updateTheme('midnight')">
+                    <div class="theme-preview">
+                        <div class="theme-swatch" style="background: #1a1a2e;"></div>
+                        <div class="theme-swatch" style="background: #252542;"></div>
+                        <div class="theme-swatch" style="background: #3498db;"></div>
+                    </div>
+                    <div class="theme-name">Midnight</div>
+                </div>
+                <div class="theme-option ${currentTheme === 'dark' ? 'active' : ''}" data-theme="dark" onclick="updateTheme('dark')">
+                    <div class="theme-preview">
+                        <div class="theme-swatch" style="background: #0a0a0a;"></div>
+                        <div class="theme-swatch" style="background: #111111;"></div>
+                        <div class="theme-swatch" style="background: #e67e22;"></div>
+                    </div>
+                    <div class="theme-name">OLED Dark</div>
+                </div>
+                <div class="theme-option ${currentTheme === 'light' ? 'active' : ''}" data-theme="light" onclick="updateTheme('light')">
+                    <div class="theme-preview">
+                        <div class="theme-swatch" style="background: #f5f5f5;"></div>
+                        <div class="theme-swatch" style="background: #ffffff;"></div>
+                        <div class="theme-swatch" style="background: #3498db;"></div>
+                    </div>
+                    <div class="theme-name">Light</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title mb-20">Dashboard Display</h2>
+            <div class="dashboard-settings-grid">
+                <div class="dashboard-setting-item">
+                    <label>Upcoming Episodes</label>
+                    <select id="settings-upcoming-days" class="form-control" onchange="markSettingsChanged('dashboard')">
+                        ${generateSelectOptions(30, settings.upcoming_days, '{n} Days ahead')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Recently Aired</label>
+                    <select id="settings-recently-aired-days" class="form-control" onchange="markSettingsChanged('dashboard')">
+                        ${generateSelectOptions(30, settings.recently_aired_days, '{n} Days back')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Recently Added</label>
+                    <select id="settings-recently-added-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                        ${generateSelectOptions(30, settings.recently_added_count, '{n} Shows')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Recently Matched</label>
+                    <select id="settings-recently-matched-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                        ${generateSelectOptions(30, settings.recently_matched_count, '{n} Episodes')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Returning Soon</label>
+                    <select id="settings-returning-soon-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                        ${generateSelectOptions(30, settings.returning_soon_count, '{n} Shows')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Recently Ended</label>
+                    <select id="settings-recently-ended-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                        ${generateSelectOptions(30, settings.recently_ended_count, '{n} Shows')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Shows Per Page</label>
+                    <select id="settings-shows-per-page" class="form-control" onchange="markSettingsChanged('dashboard')">
+                        ${[[100,'100 Shows'],[300,'300 Shows'],[500,'500 Shows'],[1000,'1000 Shows'],[3000,'3000 Shows'],[5000,'5000 Shows'],[0,'All Shows']].map(([v,l]) => `<option value="${v}" ${settings.shows_per_page === v ? 'selected' : ''}>${l}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="dashboard-settings-divider"></div>
+            <div class="form-group">
+                <label class="dashboard-setting-label">Episode Display Format</label>
+                <input type="text" id="settings-display-episode-format" class="form-control" value="${escapeHtml(settings.display_episode_format)}" oninput="updateFormatPreviews(); markSettingsChanged('dashboard')">
+                <div class="format-preview">Preview: <strong id="preview-display-episode-format"></strong></div>
+                <small class="text-muted">
+                    Variables: <code>{season}</code>, <code>{episode}</code><br>
+                    Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 03, <code>{episode:02d}</code> = 04)
+                </small>
+            </div>
+            <div class="settings-buttons">
+                <button class="btn btn-primary" onclick="updateDashboardSettings()">Save Dashboard Settings</button>
+                <button class="btn btn-secondary" onclick="resetDashboardSettings()" id="reset-dashboard-btn" style="display: none;">Reset</button>
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingsMetadata(settings) {
+    return `
+        <div class="card">
+            <h2 class="card-title mb-20">Metadata Providers</h2>
+            <div class="form-group">
+                <label>Default Metadata Source</label>
+                <div class="metadata-source-options">
+                    <label>
+                        <input type="radio" name="settings-default-source" value="tmdb" ${settings.default_metadata_source === 'tmdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
+                        TMDB
+                    </label>
+                    <label>
+                        <input type="radio" name="settings-default-source" value="tvdb" ${settings.default_metadata_source === 'tvdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
+                        TVDB
+                    </label>
+                </div>
+                <small class="text-muted">Used for new shows, Managed Import, and search default</small>
+            </div>
+            <div class="form-group" style="margin-top: 20px;">
+                <label>TMDB API Key ${settings.tmdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
+                <small class="text-muted">Metadata provided by <a href="https://www.themoviedb.org" target="_blank">The Movie Database (TMDB)</a></small>
+                <input type="password" id="settings-api-key" class="form-control" placeholder="${settings.tmdb_api_key_set ? '••••••••' : 'Enter API key'}">
+            </div>
+            <button class="btn btn-primary" onclick="updateApiKey()">Update TMDB Key</button>
+            <div class="form-group" style="margin-top: 20px;">
+                <label>TVDB API Key ${settings.tvdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
+                <small class="text-muted">Metadata provided by <a href="https://thetvdb.com" target="_blank">TheTVDB</a></small>
+                <input type="password" id="settings-tvdb-api-key" class="form-control" placeholder="${settings.tvdb_api_key_set ? '••••••••' : 'Enter API key'}">
+            </div>
+            <button class="btn btn-primary" onclick="updateTvdbApiKey()">Update TVDB Key</button>
+        </div>
+    `;
+}
+
+function renderSettingsLibrary(settings, folders) {
+    const libraryFolders = folders.filter(f => f.type === 'library');
+    const downloadFolders = folders.filter(f => f.type === 'download');
+
+    return `
+        <div class="card">
+            <h2 class="card-title mb-20">Naming Formats</h2>
+            <div class="form-group">
+                <label>Episode Filename Format</label>
+                <input type="text" id="settings-episode-format" class="form-control" value="${escapeHtml(settings.episode_format)}" oninput="updateFormatPreviews(); markSettingsChanged('formats')">
+                <div class="format-preview">Preview: <strong id="preview-episode-format"></strong></div>
+                <small class="text-muted">
+                    Variables: <code>{season}</code>, <code>{episode}</code>, <code>{title}</code><br>
+                    Add <code>:02d</code> for zero-padding (e.g., <code>{episode:02d}</code> = 04 instead of 4)
+                </small>
+            </div>
+            <div class="form-group">
+                <label>Season Folder Format</label>
+                <input type="text" id="settings-season-format" class="form-control" value="${escapeHtml(settings.season_format)}" oninput="updateFormatPreviews(); markSettingsChanged('formats')">
+                <div class="format-preview">Preview: <strong id="preview-season-format"></strong></div>
+                <small class="text-muted">
+                    Variables: <code>{season}</code><br>
+                    Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 04 instead of 4)
+                </small>
+            </div>
+            <div class="settings-buttons">
+                <button class="btn btn-primary" onclick="updateFormats()">Save Formats</button>
+                <button class="btn btn-secondary" onclick="resetFormats()" id="reset-formats-btn" style="display: none;">Reset</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Library Folders</h2>
+                <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('library')">+ Add Folder</button>
+            </div>
+            ${libraryFolders.length === 0 ? `
+                <p class="text-muted" id="library-folders-placeholder">No library folders configured.</p>
+            ` : `
+                <table id="library-folders-table">
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${libraryFolders.map(folder => `
+                            <tr data-folder-id="${folder.id}">
+                                <td>${escapeHtml(folder.path)}</td>
+                                <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" onclick="scanLibraryFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Scan</button>
+                                    <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
+                                    <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Remove</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `}
+            <div style="padding: 15px 15px 5px; border-top: 1px solid var(--border-color); margin-top: 10px;">
+                <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
+                    <label>Managed Import Count</label>
+                    <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500">
+                    <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="updateSlowImportCount()">Save</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Download Folders</h2>
+                <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('download')">+ Add Folder</button>
+            </div>
+            ${downloadFolders.length === 0 ? `
+                <p class="text-muted" id="download-folders-placeholder">No download folders configured.</p>
+            ` : `
+                <table id="download-folders-table">
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${downloadFolders.map(folder => `
+                            <tr data-folder-id="${folder.id}">
+                                <td>${escapeHtml(folder.path)}</td>
+                                <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                                <td>
+                                    <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
+                                    <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Remove</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `}
+        </div>
+    `;
+}
+
+function renderSettingsWatcher() {
+    return `
+        <div class="card">
+            <h2 class="card-title mb-20">Media Watcher</h2>
+            <p class="text-muted">Media Watcher settings will appear here once the feature is implemented.</p>
+        </div>
+    `;
+}
+
+function switchSettingsTab(tabName) {
+    if (tabName === state.activeSettingsTab) return;
+
+    // Check for unsaved changes on the current tab
+    if (hasUnsavedSettingsForTab(state.activeSettingsTab)) {
+        showUnsavedTabModal(state.activeSettingsTab, tabName);
+        return;
+    }
+
+    applySettingsTab(tabName);
+}
+
+function applySettingsTab(tabName) {
+    state.activeSettingsTab = tabName;
+    localStorage.setItem('settingsActiveTab', tabName);
+
+    // Update active class on tab buttons
+    document.querySelectorAll('.settings-tab').forEach(btn => {
+        const btnTab = btn.getAttribute('onclick').match(/switchSettingsTab\('(\w+)'\)/)?.[1];
+        btn.classList.toggle('active', btnTab === tabName);
+    });
+
+    renderSettingsTabContent(tabName);
+}
+
+function renderSettingsTabContent(tabName) {
+    const container = document.getElementById('settings-tab-content');
+    if (!container) return;
+
+    switch (tabName) {
+        case 'general':
+            container.innerHTML = renderSettingsGeneral(state.settings);
+            break;
+        case 'metadata':
+            container.innerHTML = renderSettingsMetadata(state.settings);
+            break;
+        case 'library':
+            container.innerHTML = renderSettingsLibrary(state.settings, state.folders);
+            break;
+        case 'watcher':
+            container.innerHTML = renderSettingsWatcher();
+            break;
+        default:
+            container.innerHTML = renderSettingsGeneral(state.settings);
+    }
+
+    updateFormatPreviews();
+}
+
+function hasUnsavedSettingsForTab(tabName) {
+    if (tabName === 'general') return settingsChanged.dashboard;
+    if (tabName === 'library') return settingsChanged.formats;
+    return false;
+}
+
+function showUnsavedTabModal(currentTab, targetTab) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Unsaved Changes';
+    modalBody.innerHTML = `
+        <p>You have unsaved changes. What would you like to do?</p>
+        <div class="modal-buttons">
+            <button class="btn btn-primary" onclick="saveTabAndSwitch('${currentTab}', '${targetTab}')">Save Changes</button>
+            <button class="btn btn-danger" onclick="discardTabAndSwitch('${currentTab}', '${targetTab}')">Discard Changes</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+
+    modal.classList.add('active');
+}
+
+async function saveTabAndSwitch(currentTab, targetTab) {
+    if (currentTab === 'general' && settingsChanged.dashboard) {
+        await updateDashboardSettings();
+    }
+    if (currentTab === 'library' && settingsChanged.formats) {
+        await updateFormats();
+    }
+    closeModal();
+    applySettingsTab(targetTab);
+}
+
+function discardTabAndSwitch(currentTab, targetTab) {
+    if (currentTab === 'general') {
+        settingsChanged.dashboard = false;
+    }
+    if (currentTab === 'library') {
+        settingsChanged.formats = false;
+    }
+    closeModal();
+    applySettingsTab(targetTab);
 }
 
 function updateFormatPreviews() {
