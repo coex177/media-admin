@@ -18,6 +18,9 @@
     --overlay-bg: rgba(0, 0, 0, 0.7);
     --text-color: #e0e0e0;
     --focus-ring: rgba(52, 152, 219, 0.3);
+    --link-color: #5dade2;
+    --link-visited: #a89edb;
+    --link-hover: #85c1e9;
 }
 
 /* OLED Dark theme */
@@ -39,6 +42,9 @@
     --overlay-bg: rgba(0, 0, 0, 0.85);
     --text-color: #e0e0e0;
     --focus-ring: rgba(230, 126, 34, 0.3);
+    --link-color: #f0a050;
+    --link-visited: #d4a0d4;
+    --link-hover: #f5bb78;
 }
 
 /* Light theme */
@@ -60,6 +66,9 @@
     --overlay-bg: rgba(0, 0, 0, 0.4);
     --text-color: #1a1a1a;
     --focus-ring: rgba(52, 152, 219, 0.25);
+    --link-color: #2471a3;
+    --link-visited: #6c3483;
+    --link-hover: #1a5276;
 }
 
 * {
@@ -73,6 +82,20 @@ body {
     background-color: var(--dark-bg);
     color: var(--text-primary);
     line-height: 1.6;
+}
+
+a {
+    color: var(--link-color);
+    text-decoration: none;
+}
+
+a:visited {
+    color: var(--link-visited);
+}
+
+a:hover {
+    color: var(--link-hover);
+    text-decoration: underline;
 }
 
 /* Custom Scrollbar */
@@ -128,6 +151,10 @@ body {
     position: relative;
     margin-bottom: 20px;
     max-width: 500px;
+}
+
+.global-search-bar .search-input-row {
+    position: relative;
 }
 
 .global-search-bar input {
@@ -233,7 +260,8 @@ body {
     margin: 2px 10px;
 }
 
-.nav-menu a {
+.nav-menu a,
+.nav-menu a:visited {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -2900,21 +2928,3 @@ tr:hover {
     font-size: 0.95rem;
 }
 
-/* TVDB attribution */
-.tvdb-attribution {
-    padding: 10px 15px;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    border-top: 1px solid var(--border-color);
-    margin-top: auto;
-}
-
-.tvdb-attribution a {
-    color: var(--text-secondary);
-    text-decoration: none;
-}
-
-.tvdb-attribution a:hover {
-    color: var(--primary-color);
-    text-decoration: underline;
-}
