@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -96,6 +97,16 @@ def get_tvdb_service(db: Session = Depends(get_db)) -> TVDBService:
     return TVDBService(api_key=api_key)
 
 
+def _get_label_char(name: str) -> str:
+    """Get the display character for a show name in page labels."""
+    if not name:
+        return "#"
+    first_char = name[0].upper()
+    if first_char.isalpha():
+        return first_char
+    return "#"
+
+
 def _get_default_metadata_source(db: Session) -> str:
     """Get the default metadata source from settings."""
     setting = db.query(AppSettings).filter(AppSettings.key == "default_metadata_source").first()
@@ -112,7 +123,25 @@ async def list_shows(
     from ..models import IgnoredEpisode, SpecialEpisode
 
     total = db.query(Show).count()
-    shows = db.query(Show).order_by(Show.name).offset(skip).limit(limit).all()
+    shows = db.query(Show).order_by(func.lower(Show.name)).offset(skip).limit(limit).all()
+
+    # Compute page labels for pagination
+    page_labels = []
+    if limit < 10000 and total > 0:
+        all_names = [
+            r[0] for r in db.query(Show.name).order_by(func.lower(Show.name)).all()
+        ]
+        total_pages = -(-total // limit)  # ceiling division
+        for page_idx in range(total_pages):
+            start_idx = page_idx * limit
+            end_idx = min(start_idx + limit - 1, len(all_names) - 1)
+            first_char = _get_label_char(all_names[start_idx])
+            last_char = _get_label_char(all_names[end_idx])
+            if first_char == last_char:
+                page_labels.append(first_char)
+            else:
+                page_labels.append(f"{first_char}-{last_char}")
+
 
     # Get all ignored and special episode IDs in one query
     ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
@@ -148,7 +177,7 @@ async def list_shows(
         show_dict["episodes_not_aired"] = not_aired_count
         result.append(show_dict)
 
-    return {"total": total, "shows": result}
+    return {"total": total, "shows": result, "page_labels": page_labels}
 
 
 @router.get("/{show_id}")

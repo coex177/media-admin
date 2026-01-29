@@ -164,6 +164,7 @@ async function renderShowsList() {
         const shows = resp.shows;
         state.shows = shows;
         state.totalShows = resp.total;
+        state.pageLabels = resp.page_labels || [];
 
         const totalPages = state.showsPerPage > 0 ? Math.ceil(state.totalShows / state.showsPerPage) : 1;
         // Clamp current page
@@ -208,13 +209,15 @@ async function renderShowsList() {
                 </div>
             </div>
 
+            ${totalPages > 1 ? renderPagination(state.showsPage, totalPages, state.pageLabels) : ''}
+
             <div class="card">
                 <div id="shows-container">
                     ${renderShowsView(shows)}
                 </div>
             </div>
 
-            ${totalPages > 1 ? renderPagination(state.showsPage, totalPages) : ''}
+            ${totalPages > 1 ? renderPagination(state.showsPage, totalPages, state.pageLabels) : ''}
         `;
 
         // Check if refresh is in progress on page load
@@ -225,38 +228,12 @@ async function renderShowsList() {
     }
 }
 
-function renderPagination(currentPage, totalPages) {
+function renderPagination(currentPage, totalPages, pageLabels) {
     let pageButtons = '';
 
-    // Determine range of page numbers to show
-    let startPage = Math.max(1, currentPage - 2);
-    let endPage = Math.min(totalPages, currentPage + 2);
-
-    // Ensure we always show at least 5 pages when possible
-    if (endPage - startPage < 4) {
-        if (startPage === 1) {
-            endPage = Math.min(totalPages, startPage + 4);
-        } else if (endPage === totalPages) {
-            startPage = Math.max(1, endPage - 4);
-        }
-    }
-
-    if (startPage > 1) {
-        pageButtons += `<button class="pagination-btn" onclick="goToShowsPage(1)">1</button>`;
-        if (startPage > 2) {
-            pageButtons += `<span class="pagination-ellipsis">...</span>`;
-        }
-    }
-
-    for (let i = startPage; i <= endPage; i++) {
-        pageButtons += `<button class="pagination-btn ${i === currentPage ? 'active' : ''}" onclick="goToShowsPage(${i})">${i}</button>`;
-    }
-
-    if (endPage < totalPages) {
-        if (endPage < totalPages - 1) {
-            pageButtons += `<span class="pagination-ellipsis">...</span>`;
-        }
-        pageButtons += `<button class="pagination-btn" onclick="goToShowsPage(${totalPages})">${totalPages}</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+        const label = pageLabels && pageLabels[i - 1] ? pageLabels[i - 1] : i;
+        pageButtons += `<button class="pagination-btn ${i === currentPage ? 'active' : ''}" onclick="goToShowsPage(${i})">${label}</button>`;
     }
 
     return `
