@@ -3805,6 +3805,9 @@ function _renderScanCompleteModal(status) {
         }
     };
 
+    const allClean = showsProcessed.length > 0 &&
+        showsProcessed.every(show => statusDisplay(show).cls !== 'console-error');
+
     modalTitle.textContent = 'Scan Complete';
     modalBody.innerHTML = `
         <div class="library-scan-modal">
@@ -3848,6 +3851,10 @@ function _renderScanCompleteModal(status) {
                 </div>
             ` : ''}
             <div class="library-scan-actions">
+                ${allClean
+                    ? `<button class="btn btn-primary" onclick="continueImport();">Continue Import</button>`
+                    : `<button class="btn btn-primary" disabled style="opacity: 0.5; cursor: not-allowed;">Continue Import</button>`
+                }
                 <button class="btn btn-primary" onclick="closeModal(); renderShowsList();">View Shows</button>
                 <button class="btn btn-secondary" onclick="minimizeScanResults();">Minimize</button>
                 <button class="btn btn-secondary" onclick="dismissScanResults(); closeModal();">Close</button>
@@ -3889,6 +3896,12 @@ function dismissScanResults() {
     _lastScanCompleteStatus = null;
     const indicator = document.getElementById('scan-results-indicator');
     if (indicator) indicator.remove();
+}
+
+async function continueImport() {
+    closeModal();
+    dismissScanResults();
+    startSlowImport();
 }
 
 let libraryFolderScanPollTimer = null;
