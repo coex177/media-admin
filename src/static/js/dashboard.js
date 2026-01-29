@@ -20,9 +20,6 @@ defaultCardOrder.forEach(cardId => {
 });
 let dashboardCardStates = JSON.parse(localStorage.getItem('dashboardCardStates')) || {};
 
-// Snapshot of card states before bulk expand/collapse (for restore)
-let _cardStateSnapshot = null;
-
 // Dashboard data cache for re-rendering after drag
 let dashboardData = {};
 
@@ -673,9 +670,13 @@ function toggleDashboardCard(cardId) {
         chevron.innerHTML = isOpen ? '&#9660;' : '&#9658;';
     }
 
-    // Save state to localStorage
+    // Update in-memory state
     dashboardCardStates[cardId] = isOpen;
-    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+
+    // Only persist to localStorage when the layout is mixed (not all same)
+    if (_isCardStateMixed()) {
+        localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+    }
 }
 
 function _applyCardStates(stateMap) {
@@ -693,38 +694,35 @@ function _applyCardStates(stateMap) {
     });
 }
 
-function expandAllCards() {
-    // Snapshot current saved state before bulk change
-    _cardStateSnapshot = { ...dashboardCardStates };
+function _isCardStateMixed() {
+    const states = dashboardCardOrder.map(id => !!dashboardCardStates[id]);
+    return !states.every(s => s === states[0]);
+}
 
+function expandAllCards() {
+    // Only changes display — never saves to localStorage
     dashboardCardOrder.forEach(cardId => {
         dashboardCardStates[cardId] = true;
     });
-    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
     _applyCardStates(dashboardCardStates);
 }
 
 function collapseAllCards() {
-    // Snapshot current saved state before bulk change
-    _cardStateSnapshot = { ...dashboardCardStates };
-
+    // Only changes display — never saves to localStorage
     dashboardCardOrder.forEach(cardId => {
         dashboardCardStates[cardId] = false;
     });
-    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
     _applyCardStates(dashboardCardStates);
 }
 
 function restoreSavedCards() {
-    if (_cardStateSnapshot) {
-        dashboardCardStates = { ..._cardStateSnapshot };
-    }
-    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+    // Load the last saved layout from localStorage
+    dashboardCardStates = JSON.parse(localStorage.getItem('dashboardCardStates')) || {};
     _applyCardStates(dashboardCardStates);
 }
 
 function clearSavedCards() {
-    _cardStateSnapshot = null;
+    // Collapse all AND persist as the saved layout
     dashboardCardStates = {};
     localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
     _applyCardStates(dashboardCardStates);
