@@ -1593,7 +1593,7 @@ async function renderShowsList() {
                         </button>
                     </div>
                     <button class="btn btn-secondary" onclick="refreshAllMetadata()" id="refresh-all-btn">Refresh All Metadata</button>
-                    <button class="btn btn-secondary" onclick="startSlowImport()">Slow Import</button>
+                    <button class="btn btn-secondary" onclick="startSlowImport()">Managed Import</button>
                     <button class="btn btn-primary" onclick="showAddShowModal()">+ Add Show</button>
                 </div>
             </div>
@@ -2872,7 +2872,7 @@ async function renderSettings() {
                             TVDB
                         </label>
                     </div>
-                    <small class="text-muted">Used for new shows, Slow Import, and search default</small>
+                    <small class="text-muted">Used for new shows, Managed Import, and search default</small>
                 </div>
                 <div class="form-group" style="margin-top: 20px;">
                     <label>TMDB API Key ${settings.tmdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
@@ -3009,9 +3009,9 @@ async function renderSettings() {
                 `}
                 <div style="padding: 15px 15px 5px; border-top: 1px solid var(--border-color); margin-top: 10px;">
                     <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
-                        <label>Slow Import Count</label>
+                        <label>Managed Import Count</label>
                         <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500">
-                        <small class="text-muted">Number of shows to import per slow import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
+                        <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
                     </div>
                     <button class="btn btn-sm btn-primary" onclick="updateSlowImportCount()">Save</button>
                 </div>
@@ -3302,7 +3302,7 @@ async function updateSlowImportCount() {
             body: JSON.stringify({ slow_import_count: count })
         });
         state.settings.slow_import_count = count;
-        showToast('Slow import count updated', 'success');
+        showToast('Managed import count updated', 'success');
     } catch (error) {
         // Error already shown
     }
@@ -3469,7 +3469,7 @@ async function deleteFolder(folderId) {
     }
 }
 
-// Slow Import - import a configured number of shows from library folder
+// Managed Import - import a configured number of shows from library folder
 async function startSlowImport() {
     try {
         // Fetch settings and folders
