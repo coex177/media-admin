@@ -544,6 +544,19 @@ async def refresh_show(
     db.commit()
     db.refresh(show)
 
+    # Rescan the show's folder to re-match files against updated episode list
+    if show.folder_path:
+        from pathlib import Path
+        from ..services.scanner import ScannerService
+        from ..routers.scan import _scan_show_folder
+
+        show_dir = Path(show.folder_path)
+        if show_dir.exists():
+            scanner = ScannerService(db)
+            _scan_show_folder(scanner, show, show_dir)
+            db.commit()
+            db.refresh(show)
+
     return show.to_dict()
 
 

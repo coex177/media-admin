@@ -29,6 +29,8 @@ class RenamerService:
     def __init__(self, db: Session):
         self.db = db
         self.subtitle_extensions = set(settings.subtitle_extensions)
+        self.image_extensions = set(settings.image_extensions)
+        self.metadata_extensions = set(settings.metadata_extensions)
 
     def generate_episode_filename(
         self, show: Show, episode: Episode, extension: str
@@ -182,7 +184,7 @@ class RenamerService:
         )
 
     def _move_accompanying_files(self, source: Path, dest: Path):
-        """Move accompanying files (subtitles, nfo) along with the main file."""
+        """Move accompanying files (subtitles, nfo, images) along with the main file."""
         source_stem = source.stem
         source_dir = source.parent
         dest_stem = dest.stem
@@ -202,11 +204,19 @@ class RenamerService:
                     sub_dest = dest_dir / f"{dest_stem}.{lang}{ext}"
                     shutil.move(str(sub_source), str(sub_dest))
 
-        # Check for NFO file
-        nfo_source = source_dir / f"{source_stem}.nfo"
-        if nfo_source.exists():
-            nfo_dest = dest_dir / f"{dest_stem}.nfo"
-            shutil.move(str(nfo_source), str(nfo_dest))
+        # Check for metadata files (.nfo, etc.)
+        for ext in self.metadata_extensions:
+            meta_source = source_dir / f"{source_stem}{ext}"
+            if meta_source.exists():
+                meta_dest = dest_dir / f"{dest_stem}{ext}"
+                shutil.move(str(meta_source), str(meta_dest))
+
+        # Check for image files (.jpg, .png, .tbn, etc.)
+        for ext in self.image_extensions:
+            img_source = source_dir / f"{source_stem}{ext}"
+            if img_source.exists():
+                img_dest = dest_dir / f"{dest_stem}{ext}"
+                shutil.move(str(img_source), str(img_dest))
 
     def _sanitize_filename(self, name: str) -> str:
         """Remove invalid characters from a filename."""

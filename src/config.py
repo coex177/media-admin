@@ -31,8 +31,15 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # File handling
-    video_extensions: list[str] = [".mkv", ".mp4", ".avi", ".m4v", ".wmv", ".flv", ".webm"]
-    subtitle_extensions: list[str] = [".srt", ".sub", ".ass", ".ssa", ".vtt"]
+    video_extensions: list[str] = [
+        ".mkv", ".mp4", ".avi", ".m4v", ".wmv", ".flv", ".webm",
+        ".mpg", ".mpeg", ".m2ts", ".mts", ".ts", ".vob", ".ogv",
+        ".mov", ".divx", ".3gp", ".3g2", ".asf", ".f4v", ".rmvb",
+        ".rm", ".ogm", ".iso",
+    ]
+    subtitle_extensions: list[str] = [".srt", ".sub", ".ass", ".ssa", ".vtt", ".idx", ".sup"]
+    image_extensions: list[str] = [".jpg", ".jpeg", ".png", ".tbn"]
+    metadata_extensions: list[str] = [".nfo"]
 
     # Default naming formats
     default_season_format: str = "Season {season}"
