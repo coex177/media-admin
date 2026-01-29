@@ -2865,6 +2865,15 @@ tr:hover {
     border: 1px solid rgba(76, 175, 80, 0.3);
 }
 
+a.metadata-source-tag {
+    text-decoration: none;
+    color: inherit;
+}
+
+a.metadata-source-tag:hover {
+    opacity: 0.8;
+}
+
 /* Search Source Toggle */
 .search-source-toggle {
     display: inline-flex;

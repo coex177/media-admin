@@ -1964,8 +1964,8 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
         const today = new Date().toISOString().split('T')[0];
 
         const metadataSourceTag = show.metadata_source === 'tvdb'
-            ? '<span class="metadata-source-tag metadata-source-tvdb">TVDB</span>'
-            : '<span class="metadata-source-tag metadata-source-tmdb">TMDB</span>';
+            ? `<a href="https://thetvdb.com/dereferrer/series/${show.tvdb_id}" target="_blank" class="metadata-source-tag metadata-source-tvdb">TVDB</a>`
+            : `<a href="https://www.themoviedb.org/tv/${show.tmdb_id}" target="_blank" class="metadata-source-tag metadata-source-tmdb">TMDB</a>`;
 
         appContent.innerHTML = `
             <div class="page-header">
