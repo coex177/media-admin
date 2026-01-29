@@ -3134,7 +3134,6 @@ a.metadata-source-tag:hover {
 
 .watcher-status-dot.stopped { background-color: var(--danger-color); }
 .watcher-status-dot.running { background-color: var(--success-color); animation: pulse-dot 2s infinite; }
-.watcher-status-dot.paused { background-color: var(--warning-color); }
 
 @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
@@ -3465,10 +3464,6 @@ a.metadata-source-tag:hover {
 .nav-watcher-dot.status-running {
     background-color: var(--success-color);
     animation: watcher-pulse 2s ease-in-out infinite;
-}
-
-.nav-watcher-dot.status-paused {
-    background-color: var(--warning-color);
 }
 
 .nav-watcher-dot.status-stopped {

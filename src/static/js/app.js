@@ -88,9 +88,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Check if setup is completed
     checkSetup();
 
-    // Start activity heartbeat for media watcher
-    startHeartbeat();
-
     // Add watcher status dot to Scan nav item
     const scanLink = document.querySelector('.nav-menu a[data-page="scan"]');
     if (scanLink) {
@@ -3457,7 +3454,6 @@ function renderWatcherContent() {
     const statusText = st.status.charAt(0).toUpperCase() + st.status.slice(1);
     const dotClass = st.status;
     const isRunning = st.status === 'running';
-    const isPaused = st.status === 'paused';
     const isStopped = st.status === 'stopped';
 
     const allPrereqsMet = st.all_prerequisites_met;
@@ -3485,9 +3481,8 @@ function renderWatcherContent() {
             <div class="watcher-status-left">
                 <span class="watcher-status-dot ${dotClass}"></span>
                 <span class="watcher-status-label">${statusText}</span>
-                ${isPaused && st.pause_reason ? `<span class="watcher-status-detail">(${st.pause_reason})</span>` : ''}
                 ${isRunning && st.pending_files > 0 ? `<span class="watcher-status-detail">${st.pending_files} file(s) stabilizing</span>` : ''}
-                ${(isRunning || isPaused) && st.queued_files > 0 ? `<span class="watcher-status-detail">${st.queued_files} queued</span>` : ''}
+                ${isRunning && st.queued_files > 0 ? `<span class="watcher-status-detail">${st.queued_files} queued</span>` : ''}
             </div>
             <div class="watcher-status-actions">
                 ${isStopped
@@ -3563,15 +3558,6 @@ function renderWatcherContent() {
                 </div>
             </div>
 
-            <div class="watcher-setting-row">
-                <div class="watcher-setting-info">
-                    <div class="watcher-setting-label">Inactivity Timeout</div>
-                    <div class="watcher-setting-desc">Pause watcher after no browser activity (minimum 5 minutes)</div>
-                </div>
-                <div class="watcher-setting-control">
-                    <input type="number" class="form-control form-control-sm" id="watcher-inactivity" value="${s.watcher_inactivity_minutes}" min="5" step="1" onchange="autoSaveWatcherSettings()"> <span class="text-muted" style="font-size:0.85rem;">min</span>
-                </div>
-            </div>
         </div>
 
         <!-- Issues Organization -->
@@ -3670,9 +3656,6 @@ async function autoSaveWatcherSettings() {
 
     const minSize = document.getElementById('watcher-min-size');
     if (minSize) data.watcher_min_file_size_mb = parseInt(minSize.value) || 0;
-
-    const inactivity = document.getElementById('watcher-inactivity');
-    if (inactivity) data.watcher_inactivity_minutes = Math.max(5, parseInt(inactivity.value) || 5);
 
     const issuesOrg = document.getElementById('watcher-issues-org');
     if (issuesOrg) data.watcher_issues_organization = issuesOrg.value;
@@ -3788,48 +3771,6 @@ function updatePriorityPoints() {
         const rank = slot.querySelector('.priority-rank');
         if (rank) rank.textContent = `${pointValues[i] || 0} pts`;
     });
-}
-
-// ── Heartbeat ───────────────────────────────────────────────────
-
-let heartbeatInterval = null;
-
-function startHeartbeat() {
-    if (heartbeatInterval) return;
-    sendHeartbeat();
-    heartbeatInterval = setInterval(sendHeartbeat, 30000);
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-}
-
-function stopHeartbeat() {
-    if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-        heartbeatInterval = null;
-    }
-    document.removeEventListener('visibilitychange', onVisibilityChange);
-}
-
-function onVisibilityChange() {
-    if (document.hidden) {
-        if (heartbeatInterval) {
-            clearInterval(heartbeatInterval);
-            heartbeatInterval = null;
-        }
-    } else {
-        sendHeartbeat();
-        if (!heartbeatInterval) {
-            heartbeatInterval = setInterval(sendHeartbeat, 30000);
-        }
-    }
-}
-
-async function sendHeartbeat() {
-    try {
-        await fetch('/api/activity/heartbeat', { method: 'POST' });
-    } catch (e) {
-        // Silently ignore heartbeat failures
-    }
 }
 
 // ── Watcher status indicator (sidebar dot) ──────────────────────

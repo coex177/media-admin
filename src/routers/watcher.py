@@ -70,7 +70,6 @@ WATCHER_DEFAULTS = {
     "watcher_monitor_subfolders": "true",
     "watcher_delete_empty_folders": "false",
     "watcher_min_file_size_mb": "50",
-    "watcher_inactivity_minutes": "5",
     "watcher_issues_organization": "date",
     "watcher_auto_purge_days": "0",
     "watcher_companion_types": json.dumps([".srt", ".sub", ".ass", ".ssa", ".vtt", ".idx", ".sup", ".nfo"]),
@@ -92,20 +91,10 @@ class WatcherSettingsUpdate(BaseModel):
     watcher_monitor_subfolders: Optional[bool] = None
     watcher_delete_empty_folders: Optional[bool] = None
     watcher_min_file_size_mb: Optional[int] = None
-    watcher_inactivity_minutes: Optional[int] = None
     watcher_issues_organization: Optional[str] = None
     watcher_auto_purge_days: Optional[int] = None
     watcher_companion_types: Optional[list[str]] = None
     watcher_quality_priorities: Optional[list[dict]] = None
-
-
-# ── Heartbeat ───────────────────────────────────────────────────────
-
-@router.post("/activity/heartbeat")
-async def activity_heartbeat():
-    """Receive a heartbeat from the frontend to indicate user is active."""
-    watcher_service.heartbeat()
-    return {"status": "ok"}
 
 
 # ── Watcher status ──────────────────────────────────────────────────
@@ -195,7 +184,7 @@ async def get_watcher_settings(db: Session = Depends(get_db)):
                 result[key] = json.loads(default)
         elif key in ("watcher_monitor_subfolders", "watcher_delete_empty_folders", "watcher_enabled"):
             result[key] = raw == "true"
-        elif key in ("watcher_min_file_size_mb", "watcher_inactivity_minutes", "watcher_auto_purge_days"):
+        elif key in ("watcher_min_file_size_mb", "watcher_auto_purge_days"):
             try:
                 result[key] = int(raw)
             except (ValueError, TypeError):
@@ -239,11 +228,6 @@ async def update_watcher_settings(
         val = max(0, data.watcher_min_file_size_mb)
         set_setting(db, "watcher_min_file_size_mb", str(val))
         watcher_service.set_min_file_size(val)
-
-    if data.watcher_inactivity_minutes is not None:
-        val = max(5, data.watcher_inactivity_minutes)
-        set_setting(db, "watcher_inactivity_minutes", str(val))
-        watcher_service.set_inactivity_minutes(val)
 
     if data.watcher_issues_organization is not None:
         if data.watcher_issues_organization in ("date", "reason", "flat"):
@@ -395,12 +379,6 @@ def _configure_watcher(db: Session):
     except ValueError:
         min_size = 50
     watcher_service.set_min_file_size(min_size)
-
-    try:
-        inactivity = int(get_setting(db, "watcher_inactivity_minutes", "5"))
-    except ValueError:
-        inactivity = 5
-    watcher_service.set_inactivity_minutes(inactivity)
 
     # Auto-purge settings
     try:

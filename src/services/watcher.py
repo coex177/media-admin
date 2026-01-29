@@ -1,11 +1,10 @@
-"""Download folder watcher service with stability checking and heartbeat-based pause/resume."""
+"""Download folder watcher service with stability checking and queue-based coordination."""
 
 import logging
 import os
-import shutil
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -36,21 +35,18 @@ class DownloadHandler(FileSystemEventHandler):
         return Path(path).suffix.lower() in self.video_extensions
 
     def on_created(self, event: FileCreatedEvent):
-        """Handle file creation events."""
         if event.is_directory:
             return
         if self._is_video_file(event.src_path):
             self.watcher.on_file_detected(event.src_path)
 
     def on_moved(self, event: FileMovedEvent):
-        """Handle file move events."""
         if event.is_directory:
             return
         if self._is_video_file(event.dest_path):
             self.watcher.on_file_detected(event.dest_path)
 
     def on_modified(self, event):
-        """Handle file modification events — resets stability timer."""
         if event.is_directory:
             return
         if self._is_video_file(event.src_path):
@@ -62,14 +58,12 @@ class WatcherService:
 
     Lifecycle:
         start() → running (observing + maturity thread)
-        pause() → paused (observing stopped, maturity thread paused)
-        resume() → running again
-        stop() → fully stopped
+        stop()  → fully stopped
 
-    Heartbeat:
-        The frontend sends heartbeats every 30s. If no heartbeat is received
-        for `inactivity_minutes`, the watcher pauses automatically.
-        When a heartbeat arrives while paused-for-inactivity, it resumes.
+    Queue coordination:
+        The watcher and manual scans share a lock. Only one can process
+        at a time. If the other is busy, work is queued and processed
+        when the lock becomes available.
     """
 
     def __init__(self):
@@ -78,28 +72,23 @@ class WatcherService:
         self._handlers: dict[str, DownloadHandler] = {}
         self._callback: Optional[Callable[[str], None]] = None
         self._running = False
-        self._paused = False
-        self._pause_reason: Optional[str] = None
 
         # Pending files: path → (first_seen, last_modified_size)
         self._pending: dict[str, tuple[float, int]] = {}
         self._pending_lock = threading.Lock()
 
-        # Queued files (detected while scan is running or watcher is paused)
+        # Queued files (detected while a scan or watcher processing holds the lock)
         self._queued: list[str] = []
         self._queue_lock = threading.Lock()
 
-        # Scan lock — shared with manual scan operations
+        # Processing lock — shared with manual scan operations.
+        # Only one of (watcher pipeline, manual scan) runs at a time.
         self._scan_lock = threading.Lock()
         self._scan_running = False
 
         # Maturity check thread
         self._maturity_thread: Optional[threading.Thread] = None
         self._maturity_stop = threading.Event()
-
-        # Heartbeat tracking
-        self._last_heartbeat: Optional[float] = None
-        self._inactivity_minutes: int = 5
 
         # Watch subdirectories setting
         self._monitor_subfolders: bool = True
@@ -116,10 +105,6 @@ class WatcherService:
     def set_callback(self, callback: Callable[[str], None]):
         """Set the callback function for stable file events."""
         self._callback = callback
-
-    def set_inactivity_minutes(self, minutes: int):
-        """Set the inactivity timeout in minutes (minimum 5)."""
-        self._inactivity_minutes = max(5, minutes)
 
     def set_monitor_subfolders(self, enabled: bool):
         """Set whether to watch subdirectories."""
@@ -141,13 +126,6 @@ class WatcherService:
 
     def on_file_detected(self, file_path: str):
         """Called when a new video file is detected by watchdog."""
-        if self._paused:
-            with self._queue_lock:
-                if file_path not in self._queued:
-                    self._queued.append(file_path)
-                    logger.info(f"Watcher paused — queued file: {file_path}")
-            return
-
         try:
             size = os.path.getsize(file_path)
         except OSError:
@@ -172,10 +150,8 @@ class WatcherService:
     def _maturity_loop(self):
         """Background thread that checks pending files for stability."""
         while not self._maturity_stop.is_set():
-            if not self._paused:
-                self._check_pending_files()
-                self._check_inactivity()
-                self._check_auto_purge()
+            self._check_pending_files()
+            self._check_auto_purge()
             self._maturity_stop.wait(MATURITY_CHECK_INTERVAL)
 
     def _check_pending_files(self):
@@ -220,93 +196,107 @@ class WatcherService:
             self._process_stable_file(path)
 
     def _process_stable_file(self, file_path: str):
-        """Process a file that has been stable for the required duration."""
+        """Process a file that has been stable for the required duration.
+
+        Acquires the shared lock so that manual scans and watcher
+        processing never overlap. If the lock is held (scan running),
+        the file is queued and will be processed once the scan finishes.
+        """
         if not self._callback:
             logger.warning(f"No callback set, cannot process: {file_path}")
             return
 
-        # If a manual scan is running, queue the file
-        if self._scan_running:
+        # Check file still exists before trying to lock
+        if not os.path.exists(file_path):
+            logger.info(f"File no longer exists, skipping: {file_path}")
+            return
+
+        acquired = self._scan_lock.acquire(blocking=False)
+        if not acquired:
+            # A scan is running — queue for later
             with self._queue_lock:
                 if file_path not in self._queued:
                     self._queued.append(file_path)
-                    logger.info(f"Scan running — queued file: {file_path}")
+                    logger.info(f"Lock held (scan running) — queued file: {file_path}")
             return
 
-        logger.info(f"File stable, processing: {file_path}")
         try:
+            # Double-check file still exists after acquiring the lock
+            if not os.path.exists(file_path):
+                logger.info(f"File no longer exists, skipping: {file_path}")
+                return
+
+            logger.info(f"File stable, processing: {file_path}")
             self._callback(file_path)
         except Exception as e:
             logger.error(f"Error processing file {file_path}: {e}", exc_info=True)
+        finally:
+            self._scan_lock.release()
 
-    def _check_inactivity(self):
-        """Check if the user has left the WebUI and we can resume.
-
-        When the user is active in the WebUI, the watcher is paused to avoid
-        conflicts with manual operations. Once heartbeats stop arriving for
-        `inactivity_minutes`, the user has left and the watcher resumes.
-        """
-        if not self._paused or self._pause_reason != "user_active":
-            return
-        if not self._last_heartbeat:
-            return
-
-        elapsed = time.time() - self._last_heartbeat
-        timeout = self._inactivity_minutes * 60
-
-        if elapsed > timeout:
-            logger.info(
-                f"No heartbeat for {self._inactivity_minutes} minutes, user inactive — resuming watcher"
-            )
-            self.resume()
-
-    # ── Heartbeat ───────────────────────────────────────────────────
-
-    def heartbeat(self):
-        """Record a heartbeat from the frontend.
-
-        A heartbeat means the user is actively using the WebUI.
-        The watcher pauses while the user is active to avoid conflicts
-        with manual scan/move operations.
-        """
-        self._last_heartbeat = time.time()
-
-        # If running, pause — user is active in the UI
-        if self._running and not self._paused:
-            logger.info("Heartbeat received — user active, pausing watcher")
-            self.pause(reason="user_active")
+        # After releasing the lock, drain any queued files
+        self._drain_queue()
 
     # ── Scan lock integration ───────────────────────────────────────
 
-    def acquire_scan_lock(self) -> bool:
-        """Try to acquire the scan lock. Returns True if acquired."""
-        acquired = self._scan_lock.acquire(blocking=False)
+    def acquire_scan_lock(self, timeout: float = 300) -> bool:
+        """Acquire the shared processing lock for a manual scan.
+
+        Blocks up to `timeout` seconds waiting for the watcher to finish
+        if it is currently processing a file. Returns True if acquired.
+        """
+        acquired = self._scan_lock.acquire(blocking=True, timeout=timeout)
         if acquired:
             self._scan_running = True
+        else:
+            logger.warning(f"Could not acquire scan lock within {timeout}s")
         return acquired
 
     def release_scan_lock(self):
-        """Release the scan lock and process any queued files."""
+        """Release the shared processing lock after a manual scan."""
         self._scan_running = False
         try:
             self._scan_lock.release()
         except RuntimeError:
             pass
 
-        # Process queued files
-        self._process_queue()
+        # Drain any files the watcher queued while the scan was running
+        self._drain_queue()
 
-    def _process_queue(self):
-        """Process files that were queued while scan was running or watcher was paused."""
-        with self._queue_lock:
-            queued = list(self._queued)
-            self._queued.clear()
+    def _drain_queue(self):
+        """Process queued files one at a time, respecting the lock.
 
-        for path in queued:
-            if os.path.exists(path):
-                logger.info(f"Processing queued file: {path}")
-                # Re-enter as newly detected so stability timer runs
-                self.on_file_detected(path)
+        Each file is processed only if the lock is available and the
+        file still exists.
+        """
+        while True:
+            with self._queue_lock:
+                if not self._queued:
+                    return
+                file_path = self._queued.pop(0)
+
+            if not os.path.exists(file_path):
+                logger.info(f"Queued file no longer exists, skipping: {file_path}")
+                continue
+
+            acquired = self._scan_lock.acquire(blocking=False)
+            if not acquired:
+                # Lock taken again (a scan just started) — re-queue and stop
+                with self._queue_lock:
+                    self._queued.insert(0, file_path)
+                return
+
+            try:
+                if not os.path.exists(file_path):
+                    logger.info(f"Queued file no longer exists, skipping: {file_path}")
+                    continue
+
+                logger.info(f"Processing queued file: {file_path}")
+                if self._callback:
+                    self._callback(file_path)
+            except Exception as e:
+                logger.error(f"Error processing queued file {file_path}: {e}", exc_info=True)
+            finally:
+                self._scan_lock.release()
 
     # ── Folder management ───────────────────────────────────────────
 
@@ -330,7 +320,7 @@ class WatcherService:
         self._watched_paths.add(path)
 
         # If the observer is already live, schedule immediately
-        if self.observer and self._running and not self._paused:
+        if self.observer and self._running:
             self.observer.schedule(handler, path, recursive=self._monitor_subfolders)
 
         logger.info(f"Added watch folder: {path}")
@@ -362,7 +352,7 @@ class WatcherService:
             if path in self._watched_paths:
                 self.observer.schedule(handler, path, recursive=self._monitor_subfolders)
 
-        if self._running and not self._paused:
+        if self._running:
             self.observer.start()
 
     # ── Lifecycle ───────────────────────────────────────────────────
@@ -380,9 +370,6 @@ class WatcherService:
 
         self.observer.start()
         self._running = True
-        self._paused = False
-        self._pause_reason = None
-        self._last_heartbeat = None
 
         # Start maturity check thread
         self._maturity_stop.clear()
@@ -414,8 +401,6 @@ class WatcherService:
             self.observer = None
 
         self._running = False
-        self._paused = False
-        self._pause_reason = None
 
         # Clear all state
         with self._pending_lock:
@@ -426,49 +411,6 @@ class WatcherService:
         self._handlers.clear()
 
         logger.info("File watcher stopped")
-
-    def pause(self, reason: str = "manual"):
-        """Pause the watcher (stops observing but keeps state)."""
-        if not self._running or self._paused:
-            return
-
-        self._paused = True
-        self._pause_reason = reason
-
-        # Stop the observer but keep the maturity thread alive (it checks _paused)
-        if self.observer:
-            self.observer.stop()
-            self.observer.join(timeout=5)
-            self.observer = None
-
-        logger.info(f"File watcher paused (reason: {reason})")
-
-    def resume(self):
-        """Resume the watcher after being paused.
-
-        Performs a catch-up sweep of all download folders to detect any
-        video files that arrived while the watcher was dormant.
-        """
-        if not self._running or not self._paused:
-            return
-
-        self._paused = False
-        self._pause_reason = None
-
-        # Restart observer
-        self.observer = Observer()
-        for path, handler in self._handlers.items():
-            if path in self._watched_paths:
-                self.observer.schedule(handler, path, recursive=self._monitor_subfolders)
-        self.observer.start()
-
-        logger.info("File watcher resumed")
-
-        # Process any queued files
-        self._process_queue()
-
-        # Catch-up sweep: scan download folders for files that arrived while dormant
-        self._catchup_sweep()
 
     # ── Catch-up sweep ─────────────────────────────────────────────
 
@@ -578,53 +520,29 @@ class WatcherService:
 
     @property
     def is_running(self) -> bool:
-        """Check if the watcher is running (may be paused)."""
         return self._running
 
     @property
-    def is_paused(self) -> bool:
-        """Check if the watcher is paused."""
-        return self._paused
-
-    @property
-    def pause_reason(self) -> Optional[str]:
-        """Get the reason for the current pause."""
-        return self._pause_reason
-
-    @property
     def watched_paths(self) -> list[str]:
-        """Get list of currently watched paths."""
         return list(self._watched_paths)
 
     @property
     def pending_count(self) -> int:
-        """Number of files waiting for stability."""
         with self._pending_lock:
             return len(self._pending)
 
     @property
     def queued_count(self) -> int:
-        """Number of files queued for processing."""
         with self._queue_lock:
             return len(self._queued)
 
     def get_status(self) -> dict:
         """Get full watcher status."""
-        status = "stopped"
-        if self._running:
-            status = "paused" if self._paused else "running"
-
         return {
-            "status": status,
-            "pause_reason": self._pause_reason,
+            "status": "running" if self._running else "stopped",
             "watched_paths": list(self._watched_paths),
             "pending_files": self.pending_count,
             "queued_files": self.queued_count,
-            "last_heartbeat": (
-                datetime.fromtimestamp(self._last_heartbeat).isoformat()
-                if self._last_heartbeat
-                else None
-            ),
         }
 
 
