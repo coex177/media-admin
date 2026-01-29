@@ -224,42 +224,162 @@ async def create_show(
     tmdb: TMDBService = Depends(get_tmdb_service),
     tvdb: TVDBService = Depends(get_tvdb_service),
 ):
-    """Add a new show from TMDB or TVDB."""
-    # Determine metadata source
-    metadata_source = data.metadata_source or _get_default_metadata_source(db)
+    """Add a new show from TMDB or TVDB.
 
-    if metadata_source == "tvdb":
-        if not data.tvdb_id:
-            raise HTTPException(status_code=400, detail="tvdb_id is required for TVDB source")
+    Fetches episode data from both sources when possible and automatically
+    selects whichever has more complete data (more non-special episodes).
+    The user's default source wins when counts are equal.
+    """
+    default_source = data.metadata_source or _get_default_metadata_source(db)
 
-        # Check if show already exists by tvdb_id
+    # --- Step 1: Initial duplicate check on provided IDs ---
+    if data.tmdb_id:
+        existing = db.query(Show).filter(Show.tmdb_id == data.tmdb_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Show already exists")
+    if data.tvdb_id:
         existing = db.query(Show).filter(Show.tvdb_id == data.tvdb_id).first()
         if existing:
             raise HTTPException(status_code=400, detail="Show already exists")
 
-        try:
-            show_data = await tvdb.get_show_with_episodes(data.tvdb_id)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to fetch show from TVDB: {e}")
-    else:
-        if not data.tmdb_id:
-            raise HTTPException(status_code=400, detail="tmdb_id is required for TMDB source")
+    # --- Step 2: Fetch from default source ---
+    default_data = None
+    prefetched_secondary = None  # Reuse data fetched during cross-referencing
+    if default_source == "tvdb":
+        if not data.tvdb_id:
+            # User searched TMDB but default is TVDB — cross-reference first
+            if data.tmdb_id:
+                try:
+                    prefetched_secondary = await tmdb.get_show_with_episodes(data.tmdb_id)
+                    data.tvdb_id = prefetched_secondary.get("tvdb_id")
+                except Exception:
+                    pass
+            if not data.tvdb_id:
+                # Can't find TVDB ID — fall back to TMDB as default
+                default_source = "tmdb"
 
-        # Check if show already exists by tmdb_id
+        if default_source == "tvdb":
+            try:
+                default_data = await tvdb.get_show_with_episodes(data.tvdb_id)
+            except Exception as e:
+                # TVDB failed — fall back to TMDB if we have a TMDB ID
+                if data.tmdb_id:
+                    default_source = "tmdb"
+                else:
+                    raise HTTPException(status_code=400, detail=f"Failed to fetch show from TVDB: {e}")
+
+    if default_source == "tmdb":
+        if not data.tmdb_id:
+            # User searched TVDB but default is TMDB — cross-reference
+            if data.tvdb_id:
+                try:
+                    data.tmdb_id = await tmdb.find_show_by_tvdb_id(data.tvdb_id)
+                except Exception:
+                    pass
+            if not data.tmdb_id:
+                # Can't find TMDB ID — fall back to TVDB as default
+                default_source = "tvdb"
+
+        if default_source == "tmdb" and not default_data:
+            try:
+                default_data = await tmdb.get_show_with_episodes(data.tmdb_id)
+            except Exception as e:
+                if data.tvdb_id:
+                    default_source = "tvdb"
+                else:
+                    raise HTTPException(status_code=400, detail=f"Failed to fetch show from TMDB: {e}")
+
+        # If we fell back to TVDB after TMDB cross-ref failed
+        if default_source == "tvdb" and not default_data:
+            try:
+                default_data = await tvdb.get_show_with_episodes(data.tvdb_id)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to fetch show: {e}")
+
+    if not default_data:
+        raise HTTPException(status_code=400, detail="Failed to fetch show from any source")
+
+    # --- Step 3: Cross-reference and fetch secondary source ---
+    secondary_data = prefetched_secondary  # Reuse if already fetched during cross-ref
+    secondary_source = "tvdb" if default_source == "tmdb" else "tmdb"
+
+    if not secondary_data:
+        try:
+            if secondary_source == "tvdb":
+                # Default is TMDB — get TVDB ID from TMDB's external_ids
+                tvdb_id = data.tvdb_id or default_data.get("tvdb_id")
+                if tvdb_id:
+                    data.tvdb_id = tvdb_id
+                    secondary_data = await tvdb.get_show_with_episodes(tvdb_id)
+            else:
+                # Default is TVDB — find TMDB ID via cross-reference
+                tmdb_id = data.tmdb_id
+                if not tmdb_id:
+                    tvdb_id = data.tvdb_id or default_data.get("tvdb_id")
+                    if tvdb_id:
+                        tmdb_id = await tmdb.find_show_by_tvdb_id(tvdb_id)
+                if tmdb_id:
+                    data.tmdb_id = tmdb_id
+                    secondary_data = await tmdb.get_show_with_episodes(tmdb_id)
+        except Exception:
+            # Secondary lookup failed — proceed with default only
+            secondary_data = None
+
+    # --- Step 4: Second duplicate check on cross-referenced IDs ---
+    if data.tmdb_id:
         existing = db.query(Show).filter(Show.tmdb_id == data.tmdb_id).first()
         if existing:
             raise HTTPException(status_code=400, detail="Show already exists")
+    if data.tvdb_id:
+        existing = db.query(Show).filter(Show.tvdb_id == data.tvdb_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Show already exists")
 
-        try:
-            show_data = await tmdb.get_show_with_episodes(data.tmdb_id)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to fetch show from TMDB: {e}")
+    # --- Step 5: Compare episode counts (non-specials only) ---
+    source_switched = False
+    original_source = default_source
+    switch_reason = None
 
-    # Create show
+    def count_non_special(show_result):
+        return sum(1 for ep in show_result.get("episodes", []) if ep.get("season", 0) > 0)
+
+    default_count = count_non_special(default_data)
+
+    if secondary_data:
+        secondary_count = count_non_special(secondary_data)
+        if secondary_count > default_count:
+            # Switch to secondary source
+            show_data = secondary_data
+            metadata_source = secondary_source
+            source_switched = True
+            switch_reason = f"{secondary_source.upper()} had {secondary_count} episodes vs {default_count} from {default_source.upper()}"
+        else:
+            show_data = default_data
+            metadata_source = default_source
+    else:
+        show_data = default_data
+        metadata_source = default_source
+
+    # --- Step 6: Merge IDs from both sources ---
+    tmdb_id = data.tmdb_id or show_data.get("tmdb_id")
+    tvdb_id = data.tvdb_id or show_data.get("tvdb_id")
+    imdb_id = show_data.get("imdb_id")
+
+    # Pull IDs from whichever source has them
+    if secondary_data:
+        tmdb_id = tmdb_id or secondary_data.get("tmdb_id")
+        tvdb_id = tvdb_id or secondary_data.get("tvdb_id")
+        imdb_id = imdb_id or secondary_data.get("imdb_id")
+    if default_data:
+        tmdb_id = tmdb_id or default_data.get("tmdb_id")
+        tvdb_id = tvdb_id or default_data.get("tvdb_id")
+        imdb_id = imdb_id or default_data.get("imdb_id")
+
+    # --- Step 7: Create show + episodes ---
     show = Show(
-        tmdb_id=show_data.get("tmdb_id"),
-        tvdb_id=show_data.get("tvdb_id"),
-        imdb_id=show_data.get("imdb_id"),
+        tmdb_id=tmdb_id,
+        tvdb_id=tvdb_id,
+        imdb_id=imdb_id,
         metadata_source=metadata_source,
         name=show_data["name"],
         overview=show_data.get("overview"),
@@ -279,7 +399,6 @@ async def create_show(
     db.commit()
     db.refresh(show)
 
-    # Create episodes
     for ep_data in show_data.get("episodes", []):
         episode = Episode(
             show_id=show.id,
@@ -296,7 +415,15 @@ async def create_show(
 
     db.commit()
 
-    return show.to_dict()
+    # --- Step 8: Build response ---
+    result = show.to_dict()
+    if source_switched:
+        result["source_switched"] = True
+        result["original_source"] = original_source
+        result["switched_to"] = metadata_source
+        result["switch_reason"] = switch_reason
+
+    return result
 
 
 @router.put("/{show_id}")

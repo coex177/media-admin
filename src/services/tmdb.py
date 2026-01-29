@@ -128,6 +128,23 @@ class TMDBService:
 
         return episodes
 
+    async def find_show_by_tvdb_id(self, tvdb_id: int) -> Optional[int]:
+        """Find a TMDB show ID by its TVDB ID using the /find endpoint.
+
+        Returns the TMDB ID (int) or None if not found.
+        """
+        try:
+            data = await self._request(
+                f"/find/{tvdb_id}",
+                params={"external_source": "tvdb_id"},
+            )
+            tv_results = data.get("tv_results", [])
+            if tv_results:
+                return tv_results[0].get("id")
+            return None
+        except Exception:
+            return None
+
     async def get_show_with_episodes(self, tmdb_id: int) -> dict:
         """Get show details with all episodes."""
         import json

@@ -568,7 +568,11 @@ async function confirmAddShow(showId, shouldScan, source = 'tmdb') {
             method: 'POST',
             body: JSON.stringify(body)
         });
-        showToast('Show added successfully', 'success');
+        if (newShow.source_switched) {
+            showToast(`Show added using ${newShow.switched_to.toUpperCase()} (had more episodes than ${newShow.original_source.toUpperCase()})`, 'info');
+        } else {
+            showToast('Show added successfully', 'success');
+        }
 
         if (shouldScan && newShow.id) {
             // Scan library to find and match episodes
