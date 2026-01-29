@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Show, Episode, AppSettings
 from ..services.tmdb import TMDBService
+from ..services.tvdb import TVDBService
 
 router = APIRouter(prefix="/api/shows", tags=["shows"])
 
@@ -27,7 +28,9 @@ _refresh_status = {
 class ShowCreate(BaseModel):
     """Request model for creating a show."""
 
-    tmdb_id: int
+    tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
+    metadata_source: Optional[str] = None  # "tmdb" or "tvdb"
     folder_path: Optional[str] = None
 
 
@@ -41,13 +44,20 @@ class ShowUpdate(BaseModel):
     do_missing: Optional[bool] = None
 
 
+class SwitchSourceRequest(BaseModel):
+    """Request model for switching metadata source."""
+
+    metadata_source: str  # "tmdb" or "tvdb"
+
+
 class ShowResponse(BaseModel):
     """Response model for a show."""
 
     id: int
-    tmdb_id: int
+    tmdb_id: Optional[int]
     tvdb_id: Optional[int]
     imdb_id: Optional[str]
+    metadata_source: str
     name: str
     overview: Optional[str]
     poster_path: Optional[str]
@@ -75,6 +85,21 @@ def get_tmdb_service(db: Session = Depends(get_db)) -> TMDBService:
     )
     api_key = api_key_setting.value if api_key_setting else ""
     return TMDBService(api_key=api_key)
+
+
+def get_tvdb_service(db: Session = Depends(get_db)) -> TVDBService:
+    """Get TVDB service with API key from settings."""
+    api_key_setting = (
+        db.query(AppSettings).filter(AppSettings.key == "tvdb_api_key").first()
+    )
+    api_key = api_key_setting.value if api_key_setting else ""
+    return TVDBService(api_key=api_key)
+
+
+def _get_default_metadata_source(db: Session) -> str:
+    """Get the default metadata source from settings."""
+    setting = db.query(AppSettings).filter(AppSettings.key == "default_metadata_source").first()
+    return setting.value if setting else "tmdb"
 
 
 @router.get("")
@@ -197,24 +222,45 @@ async def create_show(
     data: ShowCreate,
     db: Session = Depends(get_db),
     tmdb: TMDBService = Depends(get_tmdb_service),
+    tvdb: TVDBService = Depends(get_tvdb_service),
 ):
-    """Add a new show from TMDB."""
-    # Check if show already exists
-    existing = db.query(Show).filter(Show.tmdb_id == data.tmdb_id).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Show already exists")
+    """Add a new show from TMDB or TVDB."""
+    # Determine metadata source
+    metadata_source = data.metadata_source or _get_default_metadata_source(db)
 
-    try:
-        # Fetch show details from TMDB
-        show_data = await tmdb.get_show_with_episodes(data.tmdb_id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch show from TMDB: {e}")
+    if metadata_source == "tvdb":
+        if not data.tvdb_id:
+            raise HTTPException(status_code=400, detail="tvdb_id is required for TVDB source")
+
+        # Check if show already exists by tvdb_id
+        existing = db.query(Show).filter(Show.tvdb_id == data.tvdb_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Show already exists")
+
+        try:
+            show_data = await tvdb.get_show_with_episodes(data.tvdb_id)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to fetch show from TVDB: {e}")
+    else:
+        if not data.tmdb_id:
+            raise HTTPException(status_code=400, detail="tmdb_id is required for TMDB source")
+
+        # Check if show already exists by tmdb_id
+        existing = db.query(Show).filter(Show.tmdb_id == data.tmdb_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Show already exists")
+
+        try:
+            show_data = await tmdb.get_show_with_episodes(data.tmdb_id)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to fetch show from TMDB: {e}")
 
     # Create show
     show = Show(
-        tmdb_id=show_data["tmdb_id"],
+        tmdb_id=show_data.get("tmdb_id"),
         tvdb_id=show_data.get("tvdb_id"),
         imdb_id=show_data.get("imdb_id"),
+        metadata_source=metadata_source,
         name=show_data["name"],
         overview=show_data.get("overview"),
         poster_path=show_data.get("poster_path"),
@@ -297,17 +343,25 @@ async def refresh_show(
     show_id: int,
     db: Session = Depends(get_db),
     tmdb: TMDBService = Depends(get_tmdb_service),
+    tvdb: TVDBService = Depends(get_tvdb_service),
 ):
-    """Refresh show metadata from TMDB."""
+    """Refresh show metadata from its configured source."""
     show = db.query(Show).filter(Show.id == show_id).first()
     if not show:
         raise HTTPException(status_code=404, detail="Show not found")
 
     try:
-        # Fetch updated data
-        show_data = await tmdb.get_show_with_episodes(show.tmdb_id)
+        if show.metadata_source == "tvdb" and show.tvdb_id:
+            show_data = await tvdb.get_show_with_episodes(show.tvdb_id)
+        elif show.tmdb_id:
+            show_data = await tmdb.get_show_with_episodes(show.tmdb_id)
+        else:
+            raise HTTPException(status_code=400, detail="Show has no valid source ID")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to refresh from TMDB: {e}")
+        source = show.metadata_source.upper()
+        raise HTTPException(status_code=400, detail=f"Failed to refresh from {source}: {e}")
 
     # Update show metadata
     show.name = show_data["name"]
@@ -321,6 +375,14 @@ async def refresh_show(
     show.genres = show_data.get("genres")
     show.networks = show_data.get("networks")
     show.next_episode_air_date = show_data.get("next_episode_air_date")
+
+    # Update cross-reference IDs if available
+    if show_data.get("tvdb_id"):
+        show.tvdb_id = show_data["tvdb_id"]
+    if show_data.get("tmdb_id"):
+        show.tmdb_id = show_data["tmdb_id"]
+    if show_data.get("imdb_id"):
+        show.imdb_id = show_data["imdb_id"]
 
     # Get existing episodes
     existing_episodes = {
@@ -354,6 +416,102 @@ async def refresh_show(
 
     db.commit()
     db.refresh(show)
+
+    return show.to_dict()
+
+
+@router.post("/{show_id}/switch-source")
+async def switch_metadata_source(
+    show_id: int,
+    data: SwitchSourceRequest,
+    db: Session = Depends(get_db),
+    tmdb: TMDBService = Depends(get_tmdb_service),
+    tvdb: TVDBService = Depends(get_tvdb_service),
+):
+    """Switch a show's metadata source between TMDB and TVDB."""
+    if data.metadata_source not in ("tmdb", "tvdb"):
+        raise HTTPException(status_code=400, detail="metadata_source must be 'tmdb' or 'tvdb'")
+
+    show = db.query(Show).filter(Show.id == show_id).first()
+    if not show:
+        raise HTTPException(status_code=404, detail="Show not found")
+
+    if show.metadata_source == data.metadata_source:
+        return show.to_dict()
+
+    # Fetch from the new source
+    try:
+        if data.metadata_source == "tvdb":
+            if not show.tvdb_id:
+                raise HTTPException(status_code=400, detail="Show has no TVDB ID. Cannot switch to TVDB.")
+            show_data = await tvdb.get_show_with_episodes(show.tvdb_id)
+        else:
+            if not show.tmdb_id:
+                raise HTTPException(status_code=400, detail="Show has no TMDB ID. Cannot switch to TMDB.")
+            show_data = await tmdb.get_show_with_episodes(show.tmdb_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch from {data.metadata_source.upper()}: {e}")
+
+    # Update show metadata
+    show.metadata_source = data.metadata_source
+    show.name = show_data["name"]
+    show.overview = show_data.get("overview")
+    show.poster_path = show_data.get("poster_path")
+    show.backdrop_path = show_data.get("backdrop_path")
+    show.status = show_data.get("status", "Unknown")
+    show.first_air_date = show_data.get("first_air_date")
+    show.number_of_seasons = show_data.get("number_of_seasons", 0)
+    show.number_of_episodes = show_data.get("number_of_episodes", 0)
+    show.genres = show_data.get("genres")
+    show.networks = show_data.get("networks")
+    show.next_episode_air_date = show_data.get("next_episode_air_date")
+
+    # Update cross-reference IDs
+    if show_data.get("tvdb_id"):
+        show.tvdb_id = show_data["tvdb_id"]
+    if show_data.get("tmdb_id"):
+        show.tmdb_id = show_data["tmdb_id"]
+    if show_data.get("imdb_id"):
+        show.imdb_id = show_data["imdb_id"]
+
+    # Delete all existing episodes
+    existing_episodes = db.query(Episode).filter(Episode.show_id == show.id).all()
+    for ep in existing_episodes:
+        db.delete(ep)
+    db.flush()
+
+    # Create new episodes from the new source (all start as missing)
+    for ep_data in show_data.get("episodes", []):
+        episode = Episode(
+            show_id=show.id,
+            season=ep_data["season"],
+            episode=ep_data["episode"],
+            title=ep_data["title"],
+            overview=ep_data.get("overview"),
+            air_date=ep_data.get("air_date"),
+            tmdb_id=ep_data.get("tmdb_id"),
+            still_path=ep_data.get("still_path"),
+            runtime=ep_data.get("runtime"),
+        )
+        db.add(episode)
+
+    db.commit()
+    db.refresh(show)
+
+    # Rescan the show's folder to re-match files against new episode structure
+    if show.folder_path:
+        from pathlib import Path
+        from ..services.scanner import ScannerService
+        from ..routers.scan import _scan_show_folder
+
+        show_dir = Path(show.folder_path)
+        if show_dir.exists():
+            scanner = ScannerService(db)
+            _scan_show_folder(scanner, show, show_dir)
+            db.commit()
+            db.refresh(show)
 
     return show.to_dict()
 
@@ -403,7 +561,23 @@ async def search_tmdb(
         raise HTTPException(status_code=400, detail=f"Search failed: {e}")
 
 
-async def _refresh_all_shows_async(db, tmdb):
+@router.get("/search/tvdb")
+async def search_tvdb(
+    q: str = Query(..., min_length=1),
+    tvdb: TVDBService = Depends(get_tvdb_service),
+):
+    """Search TVDB for TV shows."""
+    try:
+        results = await tvdb.search_shows(q)
+        return {
+            "results": results,
+            "total_results": len(results),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Search failed: {e}")
+
+
+async def _refresh_all_shows_async(db, tmdb, tvdb):
     """Async helper to refresh all shows."""
     global _refresh_status
 
@@ -415,7 +589,15 @@ async def _refresh_all_shows_async(db, tmdb):
         _refresh_status["current_show"] = show.name
 
         try:
-            show_data = await tmdb.get_show_with_episodes(show.tmdb_id)
+            # Use the correct service based on show's metadata source
+            if show.metadata_source == "tvdb" and show.tvdb_id:
+                show_data = await tvdb.get_show_with_episodes(show.tvdb_id)
+            elif show.tmdb_id:
+                show_data = await tmdb.get_show_with_episodes(show.tmdb_id)
+            else:
+                _refresh_status["errors"].append(f"{show.name}: No valid source ID")
+                _refresh_status["current"] += 1
+                continue
 
             # Update show metadata
             show.name = show_data["name"]
@@ -429,6 +611,14 @@ async def _refresh_all_shows_async(db, tmdb):
             show.genres = show_data.get("genres")
             show.networks = show_data.get("networks")
             show.next_episode_air_date = show_data.get("next_episode_air_date")
+
+            # Update cross-reference IDs
+            if show_data.get("tvdb_id"):
+                show.tvdb_id = show_data["tvdb_id"]
+            if show_data.get("tmdb_id"):
+                show.tmdb_id = show_data["tmdb_id"]
+            if show_data.get("imdb_id"):
+                show.imdb_id = show_data["imdb_id"]
 
             # Get existing episodes
             existing_episodes = {
@@ -475,7 +665,7 @@ async def _refresh_all_shows_async(db, tmdb):
     _refresh_status["current_show"] = ""
 
 
-def run_refresh_all(db_session_maker, api_key: str):
+def run_refresh_all(db_session_maker, tmdb_api_key: str, tvdb_api_key: str):
     """Background task to refresh all shows."""
     global _refresh_status
     import time
@@ -495,10 +685,11 @@ def run_refresh_all(db_session_maker, api_key: str):
         _refresh_status["completed"] = []
         _refresh_status["errors"] = []
 
-        tmdb = TMDBService(api_key=api_key)
+        tmdb = TMDBService(api_key=tmdb_api_key)
+        tvdb = TVDBService(api_key=tvdb_api_key)
 
         # Run all refreshes in the single event loop
-        loop.run_until_complete(_refresh_all_shows_async(db, tmdb))
+        loop.run_until_complete(_refresh_all_shows_async(db, tmdb, tvdb))
 
     except Exception as e:
         _refresh_status["errors"].append(f"Fatal error: {str(e)}")
@@ -524,16 +715,23 @@ async def refresh_all_shows(
     if _refresh_status["running"]:
         raise HTTPException(status_code=400, detail="Refresh already in progress")
 
-    # Get API key
-    api_key_setting = (
+    # Get API keys
+    tmdb_key_setting = (
         db.query(AppSettings).filter(AppSettings.key == "tmdb_api_key").first()
     )
-    if not api_key_setting or not api_key_setting.value:
-        raise HTTPException(status_code=400, detail="TMDB API key not configured")
+    tvdb_key_setting = (
+        db.query(AppSettings).filter(AppSettings.key == "tvdb_api_key").first()
+    )
+
+    tmdb_key = tmdb_key_setting.value if tmdb_key_setting else ""
+    tvdb_key = tvdb_key_setting.value if tvdb_key_setting else ""
+
+    if not tmdb_key and not tvdb_key:
+        raise HTTPException(status_code=400, detail="No API keys configured")
 
     from ..database import get_session_maker
 
-    background_tasks.add_task(run_refresh_all, get_session_maker, api_key_setting.value)
+    background_tasks.add_task(run_refresh_all, get_session_maker, tmdb_key, tvdb_key)
 
     return {"message": "Refresh started", "status": "running"}
 

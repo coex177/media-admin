@@ -403,11 +403,13 @@ class LibraryFolderScanRequest(BaseModel):
     limit: Optional[int] = None  # Limit number of shows to scan
 
 
-def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str, limit: int = None):
+def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str, limit: int = None, metadata_source: str = "tmdb", tvdb_api_key: str = ""):
     """Background task to scan a library folder and discover/add new shows.
 
     Args:
         limit: If provided, only scan this many show folders.
+        metadata_source: Which provider to use for new shows ("tmdb" or "tvdb").
+        tvdb_api_key: TVDB API key (used when metadata_source is "tvdb").
     """
     global _library_folder_scan_status
     import time
@@ -416,6 +418,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
     from pathlib import Path
     from ..models import Show, Episode, ScanFolder
     from ..services.tmdb import TMDBService
+    from ..services.tvdb import TVDBService
 
     def log(message: str, level: str = "info"):
         """Add a log entry to the console."""
@@ -533,8 +536,10 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
             log(f"All {skipped_count} directories already imported, nothing to do")
             return
 
-        # Create TMDB service
+        # Create metadata services
         tmdb = TMDBService(api_key=api_key)
+        tvdb = TVDBService(api_key=tvdb_api_key) if tvdb_api_key else None
+        use_tvdb = metadata_source == "tvdb" and tvdb is not None
 
         scanner = ScannerService(db)
 
@@ -554,24 +559,29 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
             year_match = re.search(r'\(?(19|20)(\d{2})\)?$', dir_name)
             folder_year = int(year_match.group(1) + year_match.group(2)) if year_match else None
 
-            log(f"Searching TMDB for: '{show_name}'" + (f" ({folder_year})" if folder_year else ""))
+            source_label = "TVDB" if use_tvdb else "TMDB"
+            log(f"Searching {source_label} for: '{show_name}'" + (f" ({folder_year})" if folder_year else ""))
 
             try:
-                # Search TMDB - pass year filter if folder has a year
-                search_results = loop.run_until_complete(
-                    tmdb.search_shows(show_name, year=folder_year)
-                )
-                results = search_results.get("results", [])
-
-                # If year-filtered search returned no results, try without year
-                if not results and folder_year:
-                    log(f"No results with year filter, retrying without year...", "info")
-                    search_results = loop.run_until_complete(tmdb.search_shows(show_name))
+                # Search using configured provider
+                if use_tvdb:
+                    tvdb_results = loop.run_until_complete(tvdb.search_shows(show_name))
+                    results = tvdb_results
+                else:
+                    search_results = loop.run_until_complete(
+                        tmdb.search_shows(show_name, year=folder_year)
+                    )
                     results = search_results.get("results", [])
 
+                    # If year-filtered search returned no results, try without year
+                    if not results and folder_year:
+                        log(f"No results with year filter, retrying without year...", "info")
+                        search_results = loop.run_until_complete(tmdb.search_shows(show_name))
+                        results = search_results.get("results", [])
+
                 if not results:
-                    log(f"No TMDB results for '{show_name}'", "warning")
-                    record_show(dir_name, show_name, "not_found", detail="No TMDB results")
+                    log(f"No {source_label} results for '{show_name}'", "warning")
+                    record_show(dir_name, show_name, "not_found", detail=f"No {source_label} results")
                     continue
 
                 # Find best match (prefer exact year match if folder has year)
@@ -584,9 +594,22 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                         except (ValueError, TypeError):
                             pass
 
+                    # Get the correct ID based on provider
+                    if use_tvdb:
+                        result_id = result.get("tvdb_id") or result.get("id")
+                        # For TVDB, check existing by tvdb_id
+                        existing_by_id = None
+                        for s in existing_shows.values():
+                            if s.tvdb_id == result_id:
+                                existing_by_id = s
+                                break
+                    else:
+                        result_id = result["id"]
+                        existing_by_id = existing_shows.get(result_id)
+
                     # Check if already exists
-                    if result["id"] in existing_shows:
-                        existing = existing_shows[result["id"]]
+                    if existing_by_id:
+                        existing = existing_by_id
                         # If it exists but has no folder, assign this folder
                         if not existing.folder_path:
                             log(f"Assigning folder to existing show: '{existing.name}'", "info")
@@ -614,22 +637,31 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
 
                 # If folder has a year but no result matched it, skip
                 if folder_year and not best_match:
-                    log(f"No TMDB result matched year {folder_year} for '{show_name}', skipping", "warning")
+                    log(f"No {source_label} result matched year {folder_year} for '{show_name}', skipping", "warning")
                     record_show(dir_name, show_name, "not_found", detail=f"No match for year {folder_year}")
 
                 if not best_match:
                     continue
 
                 # Check again if best match exists (might have been a different result)
-                if best_match["id"] in existing_shows:
-                    existing = existing_shows[best_match["id"]]
-                    if not existing.folder_path:
-                        existing.folder_path = str(show_dir)
+                best_match_id = best_match.get("tvdb_id") or best_match.get("id") if use_tvdb else best_match["id"]
+                existing_check = None
+                if use_tvdb:
+                    for s in existing_shows.values():
+                        if s.tvdb_id == best_match_id:
+                            existing_check = s
+                            break
+                else:
+                    existing_check = existing_shows.get(best_match_id)
+
+                if existing_check:
+                    if not existing_check.folder_path:
+                        existing_check.folder_path = str(show_dir)
                         db.commit()
-                        log(f"Assigned folder to existing show: '{existing.name}'", "info")
-                        matched = _scan_show_folder(scanner, existing, show_dir)
+                        log(f"Assigned folder to existing show: '{existing_check.name}'", "info")
+                        matched = _scan_show_folder(scanner, existing_check, show_dir)
                         _library_folder_scan_status["episodes_matched"] += matched
-                        record_show(dir_name, existing.name, "existing", episodes_matched=matched, detail="Assigned folder")
+                        record_show(dir_name, existing_check.name, "existing", episodes_matched=matched, detail="Assigned folder")
                     else:
                         log(f"Skipping '{best_match['name']}' - already in library", "skip")
                         record_show(dir_name, best_match['name'], "existing", detail="Already in library")
@@ -637,16 +669,25 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     continue
 
                 # Add new show
-                log(f"Adding show: '{best_match['name']}' (TMDB ID: {best_match['id']})")
+                if use_tvdb:
+                    fetch_id = best_match.get("tvdb_id") or best_match.get("id")
+                    log(f"Adding show: '{best_match['name']}' (TVDB ID: {fetch_id})")
+                else:
+                    fetch_id = best_match["id"]
+                    log(f"Adding show: '{best_match['name']}' (TMDB ID: {fetch_id})")
 
                 try:
-                    show_data = loop.run_until_complete(tmdb.get_show_with_episodes(best_match["id"]))
+                    if use_tvdb:
+                        show_data = loop.run_until_complete(tvdb.get_show_with_episodes(fetch_id))
+                    else:
+                        show_data = loop.run_until_complete(tmdb.get_show_with_episodes(fetch_id))
 
                     # Create show
                     show = Show(
-                        tmdb_id=show_data["tmdb_id"],
+                        tmdb_id=show_data.get("tmdb_id"),
                         tvdb_id=show_data.get("tvdb_id"),
                         imdb_id=show_data.get("imdb_id"),
+                        metadata_source=metadata_source,
                         name=show_data["name"],
                         overview=show_data.get("overview"),
                         poster_path=show_data.get("poster_path"),
@@ -665,7 +706,8 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     db.refresh(show)
 
                     # Add to existing shows dict to prevent duplicates in same scan
-                    existing_shows[show.tmdb_id] = show
+                    if show.tmdb_id:
+                        existing_shows[show.tmdb_id] = show
                     existing_folders[str(show_dir)] = show
 
                     # Create episodes
@@ -701,7 +743,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     record_show(dir_name, best_match['name'], "error", detail=str(e))
                     db.rollback()
 
-                # Small delay to avoid TMDB rate limiting
+                # Small delay to avoid API rate limiting
                 time.sleep(0.3)
 
             except Exception as e:
@@ -833,9 +875,20 @@ async def scan_library_folder_for_shows(
     if folder.folder_type != "library":
         raise HTTPException(status_code=400, detail="Can only scan library folders")
 
-    # Get API key
+    # Get API keys
     api_key_setting = db.query(AppSettings).filter(AppSettings.key == "tmdb_api_key").first()
-    if not api_key_setting or not api_key_setting.value:
+    tvdb_key_setting = db.query(AppSettings).filter(AppSettings.key == "tvdb_api_key").first()
+
+    tmdb_key = api_key_setting.value if api_key_setting else ""
+    tvdb_key = tvdb_key_setting.value if tvdb_key_setting else ""
+
+    # Get default metadata source
+    source_setting = db.query(AppSettings).filter(AppSettings.key == "default_metadata_source").first()
+    metadata_source = source_setting.value if source_setting else "tmdb"
+
+    if metadata_source == "tvdb" and not tvdb_key:
+        raise HTTPException(status_code=400, detail="TVDB API key not configured")
+    if metadata_source == "tmdb" and not tmdb_key:
         raise HTTPException(status_code=400, detail="TMDB API key not configured")
 
     from ..database import get_session_maker
@@ -844,8 +897,10 @@ async def scan_library_folder_for_shows(
         run_library_folder_discovery,
         get_session_maker,
         data.folder_id,
-        api_key_setting.value,
-        data.limit
+        tmdb_key,
+        data.limit,
+        metadata_source,
+        tvdb_key,
     )
 
     limit_msg = f" (limit: {data.limit})" if data.limit else ""

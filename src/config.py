@@ -8,6 +8,10 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 
+    # Default TVDB API key (project key for free tier)
+TVDB_API_KEY_DEFAULT = "fe3e163b-746a-43ea-b559-0364b3b4785b"
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment or config file."""
 
@@ -17,6 +21,9 @@ class Settings(BaseSettings):
     # TMDB API
     tmdb_api_key: str = ""
     tmdb_base_url: str = "https://api.themoviedb.org/3"
+
+    # TVDB API
+    tvdb_api_key: str = TVDB_API_KEY_DEFAULT
 
     # Server
     host: str = "0.0.0.0"

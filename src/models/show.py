@@ -18,9 +18,10 @@ class Show(Base):
     __tablename__ = "shows"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    tmdb_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    tmdb_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, nullable=True)
     tvdb_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    metadata_source: Mapped[str] = mapped_column(String(10), default="tmdb", nullable=False)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     overview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -75,6 +76,7 @@ class Show(Base):
             "tmdb_id": self.tmdb_id,
             "tvdb_id": self.tvdb_id,
             "imdb_id": self.imdb_id,
+            "metadata_source": self.metadata_source,
             "name": self.name,
             "overview": self.overview,
             "poster_path": self.poster_path,

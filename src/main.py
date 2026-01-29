@@ -20,12 +20,91 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def run_migrations():
+    """Run database migrations for new columns."""
+    from .database import get_engine
+    from sqlalchemy import text, inspect
+
+    engine = get_engine()
+    inspector = inspect(engine)
+
+    with engine.connect() as conn:
+        columns = [c["name"] for c in inspector.get_columns("shows")]
+
+        # Add metadata_source column to shows table if missing
+        if "metadata_source" not in columns:
+            logger.info("Adding metadata_source column to shows table")
+            conn.execute(text("ALTER TABLE shows ADD COLUMN metadata_source VARCHAR(10) DEFAULT 'tmdb' NOT NULL"))
+            conn.commit()
+
+        # Make tmdb_id nullable: SQLite doesn't support ALTER COLUMN, so we recreate the table
+        # Check if tmdb_id is currently NOT NULL by inspecting the column
+        col_info = {c["name"]: c for c in inspector.get_columns("shows")}
+        if col_info.get("tmdb_id", {}).get("nullable") is False:
+            logger.info("Migrating shows table to make tmdb_id nullable")
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
+            conn.execute(text("""
+                CREATE TABLE shows_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    tmdb_id INTEGER,
+                    tvdb_id INTEGER,
+                    imdb_id VARCHAR(20),
+                    metadata_source VARCHAR(10) NOT NULL DEFAULT 'tmdb',
+                    name VARCHAR(255) NOT NULL,
+                    overview TEXT,
+                    poster_path VARCHAR(255),
+                    backdrop_path VARCHAR(255),
+                    folder_path VARCHAR(1024),
+                    season_format VARCHAR(255) NOT NULL,
+                    episode_format VARCHAR(255) NOT NULL,
+                    do_rename BOOLEAN NOT NULL,
+                    do_missing BOOLEAN NOT NULL,
+                    status VARCHAR(50) NOT NULL,
+                    first_air_date VARCHAR(10),
+                    number_of_seasons INTEGER NOT NULL,
+                    number_of_episodes INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    last_updated DATETIME NOT NULL,
+                    genres TEXT,
+                    networks TEXT,
+                    next_episode_air_date VARCHAR(10),
+                    UNIQUE (tmdb_id)
+                )
+            """))
+            # Copy data - if metadata_source column didn't exist before, default to 'tmdb'
+            existing_cols = [c["name"] for c in inspector.get_columns("shows")]
+            if "metadata_source" in existing_cols:
+                conn.execute(text("""
+                    INSERT INTO shows_new SELECT id, tmdb_id, tvdb_id, imdb_id, metadata_source,
+                        name, overview, poster_path, backdrop_path, folder_path,
+                        season_format, episode_format, do_rename, do_missing, status,
+                        first_air_date, number_of_seasons, number_of_episodes,
+                        created_at, last_updated, genres, networks, next_episode_air_date
+                    FROM shows
+                """))
+            else:
+                conn.execute(text("""
+                    INSERT INTO shows_new SELECT id, tmdb_id, tvdb_id, imdb_id, 'tmdb',
+                        name, overview, poster_path, backdrop_path, folder_path,
+                        season_format, episode_format, do_rename, do_missing, status,
+                        first_air_date, number_of_seasons, number_of_episodes,
+                        created_at, last_updated, genres, networks, next_episode_air_date
+                    FROM shows
+                """))
+            conn.execute(text("DROP TABLE shows"))
+            conn.execute(text("ALTER TABLE shows_new RENAME TO shows"))
+            conn.execute(text("PRAGMA foreign_keys=ON"))
+            conn.commit()
+            logger.info("Shows table migration complete")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     logger.info("Starting media-admin...")
     init_database()
+    run_migrations()
     logger.info("Database initialized")
 
     yield

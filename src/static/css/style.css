@@ -2811,3 +2811,110 @@ tr:hover {
     font-size: 0.95rem;
     color: var(--text-primary);
 }
+
+/* Metadata Source Tag */
+.metadata-source-tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    margin-left: 8px;
+}
+
+.metadata-source-tmdb {
+    background: rgba(1, 180, 228, 0.15);
+    color: #01b4e4;
+    border: 1px solid rgba(1, 180, 228, 0.3);
+}
+
+.metadata-source-tvdb {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4caf50;
+    border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+/* Search Source Toggle */
+.search-source-toggle {
+    display: inline-flex;
+    gap: 0;
+    margin-left: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.search-source-toggle label {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    background: var(--input-bg);
+    color: var(--text-secondary);
+    transition: all 0.15s ease;
+    border-right: 1px solid var(--border-color);
+    user-select: none;
+}
+
+.search-source-toggle label:last-child {
+    border-right: none;
+}
+
+.search-source-toggle input[type="radio"] {
+    display: none;
+}
+
+.search-source-toggle input[type="radio"]:checked + span {
+    color: var(--text-primary);
+}
+
+.search-source-toggle label:has(input:checked) {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* Fallback for browsers without :has() */
+.search-source-toggle label.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* Settings metadata source radio */
+.metadata-source-options {
+    display: flex;
+    gap: 15px;
+    margin-top: 5px;
+}
+
+.metadata-source-options label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 0.95rem;
+}
+
+/* TVDB attribution */
+.tvdb-attribution {
+    padding: 10px 15px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border-color);
+    margin-top: auto;
+}
+
+.tvdb-attribution a {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.tvdb-attribution a:hover {
+    color: var(--primary-color);
+    text-decoration: underline;
+}

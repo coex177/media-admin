@@ -186,6 +186,61 @@ function restorePendingScroll() {
     }
 }
 
+// Search Source Toggle
+function getSearchSource() {
+    const checked = document.querySelector('input[name="global-search-source"]:checked');
+    return checked ? checked.value : (state.settings?.default_metadata_source || 'tmdb');
+}
+
+function setSearchSource(source, labelEl) {
+    // Explicitly set the radio state — onclick fires before the browser toggles the radio
+    const toggle = document.getElementById('global-search-source-toggle');
+    if (toggle) {
+        toggle.querySelectorAll('label').forEach(l => {
+            l.classList.remove('active');
+            const input = l.querySelector('input');
+            if (input) input.checked = (input.value === source);
+        });
+        if (labelEl) labelEl.classList.add('active');
+    }
+    // If there's an active search, re-run it with the new source
+    const searchInput = document.getElementById('global-search-input');
+    if (searchInput && searchInput.value.trim().length >= 2) {
+        performGlobalSearch(searchInput.value.trim());
+    }
+}
+
+function initSearchSourceToggle() {
+    const defaultSource = state.settings?.default_metadata_source || 'tmdb';
+    const toggle = document.getElementById('global-search-source-toggle');
+    if (toggle) {
+        toggle.querySelectorAll('label').forEach(l => {
+            const input = l.querySelector('input');
+            if (input && input.value === defaultSource) {
+                input.checked = true;
+                l.classList.add('active');
+            } else {
+                if (input) input.checked = false;
+                l.classList.remove('active');
+            }
+        });
+    }
+}
+
+// Image URL helper - handles both TMDB paths and TVDB full URLs
+function getImageUrl(path) {
+    if (!path) return '';
+    if (path.startsWith('http')) return path;
+    return TMDB_IMAGE_BASE + path;
+}
+
+function getImageUrlOrPlaceholder(path) {
+    const placeholder = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>";
+    if (!path) return placeholder;
+    if (path.startsWith('http')) return path;
+    return TMDB_IMAGE_BASE + path;
+}
+
 // Global Search
 let globalSearchTimeout;
 function debounceGlobalSearch(event) {
@@ -238,9 +293,14 @@ async function performGlobalSearch(query) {
     appContent.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
     try {
-        // Search both TMDB and local library
-        const [tmdbResults, localShowsResp] = await Promise.all([
-            api(`/shows/search/tmdb?q=${encodeURIComponent(query)}`),
+        const searchSource = getSearchSource();
+        const searchEndpoint = searchSource === 'tvdb'
+            ? `/shows/search/tvdb?q=${encodeURIComponent(query)}`
+            : `/shows/search/tmdb?q=${encodeURIComponent(query)}`;
+
+        // Search provider and local library
+        const [providerResults, localShowsResp] = await Promise.all([
+            api(searchEndpoint),
             api('/shows?limit=10000')
         ]);
         const localShows = localShowsResp.shows;
@@ -251,7 +311,7 @@ async function performGlobalSearch(query) {
             show.name.toLowerCase().includes(queryLower)
         );
 
-        renderSearchResults(query, tmdbResults.results || [], matchingLocalShows);
+        renderSearchResults(query, providerResults.results || [], matchingLocalShows, searchSource);
     } catch (error) {
         appContent.innerHTML = `
             <div class="page-header">
@@ -262,9 +322,11 @@ async function performGlobalSearch(query) {
     }
 }
 
-function renderSearchResults(query, tmdbResults, localShows) {
+function renderSearchResults(query, providerResults, localShows, searchSource = 'tmdb') {
     const hasLocalResults = localShows.length > 0;
-    const hasTmdbResults = tmdbResults.length > 0;
+    const hasProviderResults = providerResults.length > 0;
+    const sourceName = searchSource === 'tvdb' ? 'TVDB' : 'TMDB';
+    const placeholder = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>";
 
     appContent.innerHTML = `
         <div class="page-header">
@@ -277,9 +339,9 @@ function renderSearchResults(query, tmdbResults, localShows) {
                 <div class="search-results-grid">
                     ${localShows.map(show => `
                         <div class="search-result-card" onclick="showShowDetail(${show.id})">
-                            <img src="${show.poster_path ? TMDB_IMAGE_BASE + show.poster_path : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>'}"
+                            <img src="${getImageUrlOrPlaceholder(show.poster_path)}"
                                  class="search-result-poster-large"
-                                 onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>'">
+                                 onerror="this.src='${placeholder}'">
                             <div class="search-result-card-info">
                                 <h3>${escapeHtml(show.name)}</h3>
                                 <p class="text-muted">${show.first_air_date ? show.first_air_date.substring(0, 4) : 'Unknown year'}</p>
@@ -291,19 +353,26 @@ function renderSearchResults(query, tmdbResults, localShows) {
             </div>
         ` : ''}
 
-        ${hasTmdbResults ? `
+        ${hasProviderResults ? `
             <div class="card">
-                <h2 class="card-title">Add from TMDB (${tmdbResults.length})</h2>
+                <h2 class="card-title">Add from ${sourceName} (${providerResults.length})</h2>
                 <div class="search-results-grid">
-                    ${tmdbResults.slice(0, 12).map(show => {
+                    ${providerResults.slice(0, 12).map(show => {
+                        const showId = searchSource === 'tvdb' ? (show.tvdb_id || show.id) : show.id;
                         // Check if already in library
-                        const inLibrary = localShows.some(ls => ls.tmdb_id === show.id);
+                        const inLibrary = searchSource === 'tvdb'
+                            ? localShows.some(ls => ls.tvdb_id === showId)
+                            : localShows.some(ls => ls.tmdb_id === showId);
                         const escapedName = escapeHtml(show.name).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        const posterUrl = getImageUrlOrPlaceholder(show.poster_path);
+                        const onClickAction = inLibrary
+                            ? (searchSource === 'tvdb' ? `showShowDetailByTvdbId(${showId})` : `showShowDetailByTmdbId(${showId})`)
+                            : `addShowFromGlobalSearch(${showId}, '${escapedName}', '${searchSource}')`;
                         return `
-                            <div class="search-result-card ${inLibrary ? 'in-library' : ''}" onclick="${inLibrary ? `showShowDetailByTmdbId(${show.id})` : `addShowFromGlobalSearch(${show.id}, '${escapedName}')`}">
-                                <img src="${show.poster_path ? TMDB_IMAGE_BASE + show.poster_path : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>'}"
+                            <div class="search-result-card ${inLibrary ? 'in-library' : ''}" onclick="${onClickAction}">
+                                <img src="${posterUrl}"
                                      class="search-result-poster-large"
-                                     onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>'">
+                                     onerror="this.src='${placeholder}'">
                                 <div class="search-result-card-info">
                                     <h3>${escapeHtml(show.name)}</h3>
                                     <p class="text-muted">${show.first_air_date ? show.first_air_date.substring(0, 4) : 'Unknown year'}</p>
@@ -318,7 +387,7 @@ function renderSearchResults(query, tmdbResults, localShows) {
             </div>
         ` : ''}
 
-        ${!hasLocalResults && !hasTmdbResults ? `
+        ${!hasLocalResults && !hasProviderResults ? `
             <div class="card">
                 <p class="text-muted text-center">No results found for "${escapeHtml(query)}"</p>
             </div>
@@ -339,7 +408,20 @@ async function showShowDetailByTmdbId(tmdbId) {
     }
 }
 
-function addShowFromGlobalSearch(tmdbId, showName) {
+async function showShowDetailByTvdbId(tvdbId) {
+    // Find the local show by TVDB ID
+    try {
+        const resp = await api('/shows?limit=10000');
+        const localShow = resp.shows.find(s => s.tvdb_id === tvdbId);
+        if (localShow) {
+            showShowDetail(localShow.id);
+        }
+    } catch (error) {
+        showToast('Failed to find show', 'error');
+    }
+}
+
+function addShowFromGlobalSearch(showId, showName, source = 'tmdb') {
     const modal = document.getElementById('modal');
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
@@ -349,22 +431,25 @@ function addShowFromGlobalSearch(tmdbId, showName) {
         <p>Do you already have <strong>${escapeHtml(showName)}</strong> in your library folders?</p>
         <p class="text-muted" style="font-size: 0.9rem;">If yes, we'll scan your library to find and match existing episodes.</p>
         <div class="modal-buttons" style="margin-top: 20px;">
-            <button class="btn btn-primary" onclick="confirmAddShow(${tmdbId}, true)">Yes, scan for files</button>
-            <button class="btn btn-secondary" onclick="confirmAddShow(${tmdbId}, false)">No, just add it</button>
+            <button class="btn btn-primary" onclick="confirmAddShow(${showId}, true, '${source}')">Yes, scan for files</button>
+            <button class="btn btn-secondary" onclick="confirmAddShow(${showId}, false, '${source}')">No, just add it</button>
             <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
         </div>
     `;
     modal.classList.add('active');
 }
 
-async function confirmAddShow(tmdbId, shouldScan) {
+async function confirmAddShow(showId, shouldScan, source = 'tmdb') {
     closeModal();
 
     try {
         showToast('Adding show...', 'info');
+        const body = source === 'tvdb'
+            ? { tvdb_id: showId, metadata_source: 'tvdb' }
+            : { tmdb_id: showId, metadata_source: 'tmdb' };
         const newShow = await api('/shows', {
             method: 'POST',
-            body: JSON.stringify({ tmdb_id: tmdbId })
+            body: JSON.stringify(body)
         });
         showToast('Show added successfully', 'success');
 
@@ -447,6 +532,9 @@ async function checkSetup() {
 
         // Apply saved theme
         applyTheme(settings.theme || 'midnight');
+
+        // Initialize search source toggle to match default
+        initSearchSourceToggle();
 
         if (!state.setupCompleted) {
             renderSetupWizard();
@@ -686,7 +774,7 @@ function renderDashboardContent() {
                                 ${recentlyAdded.map(show => {
                                     const totalAired = show.episodes_found + show.episodes_missing;
                                     const posterUrl = show.poster_path
-                                        ? `${TMDB_IMAGE_BASE}${show.poster_path}`
+                                        ? `${getImageUrl(show.poster_path)}`
                                         : null;
                                     return `
                                         <div class="recent-show-item" onclick="showShowDetail(${show.id})">
@@ -782,7 +870,7 @@ function renderDashboardContent() {
                             <div class="recent-shows-list">
                                 ${recentlyEnded.map(show => {
                                     const posterUrl = show.poster_path
-                                        ? `${TMDB_IMAGE_BASE}${show.poster_path}`
+                                        ? `${getImageUrl(show.poster_path)}`
                                         : null;
                                     return `
                                         <div class="recent-show-item" onclick="showShowDetail(${show.id})">
@@ -833,7 +921,7 @@ function renderDashboardContent() {
                         ` : `
                             <div class="recent-shows-list">
                                 ${mostIncomplete.map(show => {
-                                    const posterUrl = show.poster_path ? `${TMDB_IMAGE_BASE}${show.poster_path}` : null;
+                                    const posterUrl = show.poster_path ? `${getImageUrl(show.poster_path)}` : null;
                                     return `
                                         <div class="recent-show-item" onclick="showShowDetail(${show.id})">
                                             <div class="recent-show-poster">
@@ -918,7 +1006,7 @@ function renderDashboardContent() {
                         ` : `
                             <div class="recent-shows-list">
                                 ${returningSoon.map(show => {
-                                    const posterUrl = show.poster_path ? `${TMDB_IMAGE_BASE}${show.poster_path}` : null;
+                                    const posterUrl = show.poster_path ? `${getImageUrl(show.poster_path)}` : null;
                                     const daysLabel = show.days_until === 0 ? 'Today' :
                                                       show.days_until === 1 ? 'Tomorrow' :
                                                       show.days_until <= 7 ? `In ${show.days_until} days` :
@@ -1358,7 +1446,7 @@ function renderShowsView(shows) {
 
 function renderShowCardCompact(show) {
     const posterUrl = show.poster_path
-        ? `${TMDB_IMAGE_BASE}${show.poster_path}`
+        ? `${getImageUrl(show.poster_path)}`
         : 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 150"><rect fill="%23252542" width="100" height="150"/></svg>';
 
     const totalEpisodes = show.episodes_found + show.episodes_missing + (show.episodes_not_aired || 0);
@@ -1433,7 +1521,7 @@ function toggleShowListItem(showId) {
 
 function renderShowCard(show) {
     const posterUrl = show.poster_path
-        ? `${TMDB_IMAGE_BASE}${show.poster_path}`
+        ? getImageUrl(show.poster_path)
         : 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 150"><rect fill="%23252542" width="100" height="150"/><text x="50" y="75" text-anchor="middle" fill="%23666" font-size="12">No Poster</text></svg>';
 
     const statusClass = (show.status === 'Returning Series' || show.status === 'In Production') ? 'continuing' : 'ended';
@@ -1750,15 +1838,17 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
             }
         });
 
-        const posterUrl = show.poster_path
-            ? `${TMDB_IMAGE_BASE}${show.poster_path}`
-            : '';
+        const posterUrl = show.poster_path ? getImageUrl(show.poster_path) : '';
 
         const today = new Date().toISOString().split('T')[0];
 
+        const metadataSourceTag = show.metadata_source === 'tvdb'
+            ? '<span class="metadata-source-tag metadata-source-tvdb">TVDB</span>'
+            : '<span class="metadata-source-tag metadata-source-tmdb">TMDB</span>';
+
         appContent.innerHTML = `
             <div class="page-header">
-                <h1 class="page-title">${escapeHtml(show.name)}</h1>
+                <h1 class="page-title">${escapeHtml(show.name)}${metadataSourceTag}</h1>
                 <div>
                     <button class="btn btn-secondary" onclick="showEditShowModal(${show.id})">Edit Settings</button>
                     <button class="btn btn-secondary" onclick="refreshShow(${show.id})">Refresh Metadata</button>
@@ -1938,7 +2028,7 @@ function toggleEpisode(episodeId) {
         // Show episode preview image (or hide if no still available)
         const stillPath = row.dataset.stillPath;
         if (stillPath && preview && previewImg) {
-            previewImg.src = `${TMDB_IMAGE_BASE}${stillPath}`;
+            previewImg.src = getImageUrl(stillPath);
             preview.style.display = 'block';
         } else if (preview) {
             preview.style.display = 'none';
@@ -1985,6 +2075,9 @@ function showEditShowModal(showId) {
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
 
+    const canSwitchToTvdb = !!show.tvdb_id;
+    const canSwitchToTmdb = !!show.tmdb_id;
+
     modalTitle.textContent = 'Edit Show Settings';
     modalBody.innerHTML = `
         <div class="form-group">
@@ -2013,6 +2106,21 @@ function showEditShowModal(showId) {
                 Track missing episodes
             </label>
         </div>
+        <div class="form-group">
+            <label>Metadata Source</label>
+            <div class="metadata-source-options">
+                <label>
+                    <input type="radio" name="modal-metadata-source" value="tmdb" ${show.metadata_source === 'tmdb' ? 'checked' : ''} ${!canSwitchToTmdb && show.metadata_source !== 'tmdb' ? 'disabled' : ''}>
+                    TMDB
+                </label>
+                <label>
+                    <input type="radio" name="modal-metadata-source" value="tvdb" ${show.metadata_source === 'tvdb' ? 'checked' : ''} ${!canSwitchToTvdb && show.metadata_source !== 'tvdb' ? 'disabled' : ''}>
+                    TVDB
+                </label>
+            </div>
+            ${!canSwitchToTvdb && show.metadata_source === 'tmdb' ? '<small class="text-muted">No TVDB ID available for this show</small>' : ''}
+            ${!canSwitchToTmdb && show.metadata_source === 'tvdb' ? '<small class="text-muted">No TMDB ID available for this show</small>' : ''}
+        </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
             <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
             <button class="btn btn-primary" onclick="saveShowSettings(${showId})">Save</button>
@@ -2028,8 +2136,10 @@ async function saveShowSettings(showId) {
     const episodeFormat = document.getElementById('modal-episode-format').value.trim();
     const doRename = document.getElementById('modal-do-rename').checked;
     const doMissing = document.getElementById('modal-do-missing').checked;
+    const selectedSource = document.querySelector('input[name="modal-metadata-source"]:checked')?.value;
 
     try {
+        // Save show settings
         await api(`/shows/${showId}`, {
             method: 'PUT',
             body: JSON.stringify({
@@ -2040,7 +2150,19 @@ async function saveShowSettings(showId) {
                 do_missing: doMissing
             })
         });
-        showToast('Settings updated', 'success');
+
+        // If metadata source changed, switch source
+        if (selectedSource && state.currentShow && selectedSource !== state.currentShow.metadata_source) {
+            showToast(`Switching to ${selectedSource.toUpperCase()}...`, 'info');
+            await api(`/shows/${showId}/switch-source`, {
+                method: 'POST',
+                body: JSON.stringify({ metadata_source: selectedSource })
+            });
+            showToast(`Switched to ${selectedSource.toUpperCase()}`, 'success');
+        } else {
+            showToast('Settings updated', 'success');
+        }
+
         closeModal();
         showShowDetail(showId);
     } catch (error) {
@@ -2054,11 +2176,24 @@ function showAddShowModal() {
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
 
+    const defaultSource = state.settings?.default_metadata_source || 'tmdb';
     modalTitle.textContent = 'Add Show';
     modalBody.innerHTML = `
         <div class="form-group">
-            <label>Search TMDB</label>
-            <input type="text" id="show-search-input" class="form-control" placeholder="Enter show name..." onkeyup="debounceSearch(event)">
+            <label>Search for a show</label>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="text" id="show-search-input" class="form-control" placeholder="Enter show name..." onkeyup="debounceSearch(event)" style="flex: 1;">
+                <div class="search-source-toggle" id="modal-search-source-toggle">
+                    <label class="${defaultSource === 'tmdb' ? 'active' : ''}" onclick="setModalSearchSource('tmdb', this)">
+                        <input type="radio" name="modal-search-source" value="tmdb" ${defaultSource === 'tmdb' ? 'checked' : ''}>
+                        <span>TMDB</span>
+                    </label>
+                    <label class="${defaultSource === 'tvdb' ? 'active' : ''}" onclick="setModalSearchSource('tvdb', this)">
+                        <input type="radio" name="modal-search-source" value="tvdb" ${defaultSource === 'tvdb' ? 'checked' : ''}>
+                        <span>TVDB</span>
+                    </label>
+                </div>
+            </div>
         </div>
         <div class="form-group">
             <label class="checkbox-label">
@@ -2071,6 +2206,28 @@ function showAddShowModal() {
     `;
 
     modal.classList.add('active');
+}
+
+function getModalSearchSource() {
+    const checked = document.querySelector('input[name="modal-search-source"]:checked');
+    return checked ? checked.value : (state.settings?.default_metadata_source || 'tmdb');
+}
+
+function setModalSearchSource(source, labelEl) {
+    const toggle = document.getElementById('modal-search-source-toggle');
+    if (toggle) {
+        toggle.querySelectorAll('label').forEach(l => {
+            l.classList.remove('active');
+            const input = l.querySelector('input');
+            if (input) input.checked = (input.value === source);
+        });
+        if (labelEl) labelEl.classList.add('active');
+    }
+    // Re-run search with new source
+    const searchInput = document.getElementById('show-search-input');
+    if (searchInput && searchInput.value.trim().length >= 2) {
+        searchShows(searchInput.value.trim());
+    }
 }
 
 let searchTimeout;
@@ -2090,17 +2247,26 @@ async function searchShows(query) {
     const resultsDiv = document.getElementById('search-results');
     resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
+    const searchSource = getModalSearchSource();
+    const searchEndpoint = searchSource === 'tvdb'
+        ? `/shows/search/tvdb?q=${encodeURIComponent(query)}`
+        : `/shows/search/tmdb?q=${encodeURIComponent(query)}`;
+    const placeholder = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>";
+
     try {
-        const data = await api(`/shows/search/tmdb?q=${encodeURIComponent(query)}`);
+        const data = await api(searchEndpoint);
 
         if (data.results.length === 0) {
             resultsDiv.innerHTML = '<p class="text-muted text-center">No results found.</p>';
             return;
         }
 
-        resultsDiv.innerHTML = data.results.slice(0, 10).map(show => `
-            <div class="search-result-item" onclick="addShowFromSearch(${show.id})">
-                <img src="${show.poster_path ? TMDB_IMAGE_BASE + show.poster_path : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>'}"
+        resultsDiv.innerHTML = data.results.slice(0, 10).map(show => {
+            const showId = searchSource === 'tvdb' ? (show.tvdb_id || show.id) : show.id;
+            const posterUrl = getImageUrlOrPlaceholder(show.poster_path);
+            return `
+            <div class="search-result-item" onclick="addShowFromSearch(${showId}, '${searchSource}')">
+                <img src="${posterUrl}"
                      class="search-result-poster"
                      onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>'">
                 <div class="search-result-info">
@@ -2109,13 +2275,14 @@ async function searchShows(query) {
                     <p>${escapeHtml((show.overview || '').substring(0, 100))}${(show.overview || '').length > 100 ? '...' : ''}</p>
                 </div>
             </div>
-        `).join('');
+            `;
+        }).join('');
     } catch (error) {
         resultsDiv.innerHTML = '<p class="text-muted text-center">Search failed.</p>';
     }
 }
 
-async function addShowFromSearch(tmdbId) {
+async function addShowFromSearch(showId, source = 'tmdb') {
     // Check if we should scan library
     const scanLibraryCheckbox = document.getElementById('scan-library-checkbox');
     const shouldScanLibrary = scanLibraryCheckbox ? scanLibraryCheckbox.checked : false;
@@ -2124,9 +2291,12 @@ async function addShowFromSearch(tmdbId) {
 
     try {
         showToast('Adding show...', 'info');
+        const body = source === 'tvdb'
+            ? { tvdb_id: showId, metadata_source: 'tvdb' }
+            : { tmdb_id: showId, metadata_source: 'tmdb' };
         const newShow = await api('/shows', {
             method: 'POST',
-            body: JSON.stringify({ tmdb_id: tmdbId })
+            body: JSON.stringify(body)
         });
         showToast('Show added successfully', 'success');
 
@@ -2689,12 +2859,33 @@ async function renderSettings() {
             </div>
 
             <div class="card">
-                <h2 class="card-title mb-20">TMDB API</h2>
+                <h2 class="card-title mb-20">Metadata Providers</h2>
                 <div class="form-group">
-                    <label>API Key ${settings.tmdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
+                    <label>Default Metadata Source</label>
+                    <div class="metadata-source-options">
+                        <label>
+                            <input type="radio" name="settings-default-source" value="tmdb" ${settings.default_metadata_source === 'tmdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
+                            TMDB
+                        </label>
+                        <label>
+                            <input type="radio" name="settings-default-source" value="tvdb" ${settings.default_metadata_source === 'tvdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
+                            TVDB
+                        </label>
+                    </div>
+                    <small class="text-muted">Used for new shows, Slow Import, and search default</small>
+                </div>
+                <div class="form-group" style="margin-top: 20px;">
+                    <label>TMDB API Key ${settings.tmdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
+                    <small class="text-muted">Metadata provided by <a href="https://www.themoviedb.org" target="_blank">The Movie Database (TMDB)</a></small>
                     <input type="password" id="settings-api-key" class="form-control" placeholder="${settings.tmdb_api_key_set ? '••••••••' : 'Enter API key'}">
                 </div>
-                <button class="btn btn-primary" onclick="updateApiKey()">Update API Key</button>
+                <button class="btn btn-primary" onclick="updateApiKey()">Update TMDB Key</button>
+                <div class="form-group" style="margin-top: 20px;">
+                    <label>TVDB API Key ${settings.tvdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
+                    <small class="text-muted">Metadata provided by <a href="https://thetvdb.com" target="_blank">TheTVDB</a></small>
+                    <input type="password" id="settings-tvdb-api-key" class="form-control" placeholder="${settings.tvdb_api_key_set ? '••••••••' : 'Enter API key'}">
+                </div>
+                <button class="btn btn-primary" onclick="updateTvdbApiKey()">Update TVDB Key</button>
             </div>
 
             <div class="card">
@@ -2820,7 +3011,7 @@ async function renderSettings() {
                     <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
                         <label>Slow Import Count</label>
                         <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500">
-                        <small class="text-muted">Number of shows to import per slow import batch</small>
+                        <small class="text-muted">Number of shows to import per slow import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
                     </div>
                     <button class="btn btn-sm btn-primary" onclick="updateSlowImportCount()">Save</button>
                 </div>
@@ -2999,8 +3190,41 @@ async function updateApiKey() {
             method: 'PUT',
             body: JSON.stringify({ tmdb_api_key: apiKey })
         });
-        showToast('API key updated', 'success');
+        showToast('TMDB API key updated', 'success');
         renderSettings();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+async function updateTvdbApiKey() {
+    const apiKey = document.getElementById('settings-tvdb-api-key').value.trim();
+    if (!apiKey) {
+        showToast('Please enter an API key', 'warning');
+        return;
+    }
+
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ tvdb_api_key: apiKey })
+        });
+        showToast('TVDB API key updated', 'success');
+        renderSettings();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+async function updateDefaultMetadataSource(source) {
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ default_metadata_source: source })
+        });
+        state.settings.default_metadata_source = source;
+        initSearchSourceToggle();
+        showToast(`Default metadata source set to ${source.toUpperCase()}`, 'success');
     } catch (error) {
         // Error already shown
     }
@@ -4042,7 +4266,7 @@ async function searchForFixMatch() {
                 const year = show.first_air_date ? show.first_air_date.substring(0, 4) : '';
                 html += `
                     <div class="fix-match-result" onclick="selectFixMatchShow(${show.id}, '${escapeHtml(show.name).replace(/'/g, "\\'")}', true)">
-                        <img src="${show.poster_path ? TMDB_IMAGE_BASE + show.poster_path : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 60%22><rect fill=%22%23252542%22 width=%2240%22 height=%2260%22/></svg>'}" class="fix-match-poster">
+                        <img src="${show.poster_path ? getImageUrl(show.poster_path) : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 60%22><rect fill=%22%23252542%22 width=%2240%22 height=%2260%22/></svg>'}" class="fix-match-poster">
                         <div class="fix-match-info">
                             <div class="fix-match-name">${escapeHtml(show.name)}</div>
                             <div class="fix-match-year">${year} - In Library</div>
@@ -4063,7 +4287,7 @@ async function searchForFixMatch() {
                 const year = show.first_air_date ? show.first_air_date.substring(0, 4) : '';
                 html += `
                     <div class="fix-match-result" onclick="selectFixMatchShow(${show.id}, '${escapeHtml(show.name).replace(/'/g, "\\'")}', false)">
-                        <img src="${show.poster_path ? TMDB_IMAGE_BASE + show.poster_path : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 60%22><rect fill=%22%23252542%22 width=%2240%22 height=%2260%22/></svg>'}" class="fix-match-poster">
+                        <img src="${show.poster_path ? getImageUrl(show.poster_path) : 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 60%22><rect fill=%22%23252542%22 width=%2240%22 height=%2260%22/></svg>'}" class="fix-match-poster">
                         <div class="fix-match-info">
                             <div class="fix-match-name">${escapeHtml(show.name)}</div>
                             <div class="fix-match-year">${year}</div>

@@ -18,6 +18,8 @@ class SettingsUpdate(BaseModel):
     """Request model for updating settings."""
 
     tmdb_api_key: Optional[str] = None
+    tvdb_api_key: Optional[str] = None
+    default_metadata_source: Optional[str] = None
     episode_format: Optional[str] = None
     season_format: Optional[str] = None
     auto_scan_enabled: Optional[bool] = None
@@ -73,11 +75,22 @@ def set_setting(db: Session, key: str, value: str) -> None:
 @router.get("/settings")
 async def get_settings(db: Session = Depends(get_db)):
     """Get application settings."""
+    from ..config import TVDB_API_KEY_DEFAULT
+
     tmdb_key = get_setting(db, "tmdb_api_key", "")
+
+    # Seed TVDB API key from config default if not yet in DB
+    tvdb_key = get_setting(db, "tvdb_api_key", "")
+    if not tvdb_key:
+        set_setting(db, "tvdb_api_key", TVDB_API_KEY_DEFAULT)
+        tvdb_key = TVDB_API_KEY_DEFAULT
 
     return {
         "tmdb_api_key": "***" if tmdb_key else "",
         "tmdb_api_key_set": bool(tmdb_key),
+        "tvdb_api_key": "***" if tvdb_key else "",
+        "tvdb_api_key_set": bool(tvdb_key),
+        "default_metadata_source": get_setting(db, "default_metadata_source", "tmdb"),
         "episode_format": get_setting(db, "episode_format", "{season}x{episode:02d} - {title}"),
         "season_format": get_setting(db, "season_format", "Season {season}"),
         "auto_scan_enabled": get_setting(db, "auto_scan_enabled", "false") == "true",
@@ -101,6 +114,13 @@ async def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     """Update application settings."""
     if data.tmdb_api_key is not None:
         set_setting(db, "tmdb_api_key", data.tmdb_api_key)
+
+    if data.tvdb_api_key is not None:
+        set_setting(db, "tvdb_api_key", data.tvdb_api_key)
+
+    if data.default_metadata_source is not None:
+        if data.default_metadata_source in ("tmdb", "tvdb"):
+            set_setting(db, "default_metadata_source", data.default_metadata_source)
 
     if data.episode_format is not None:
         set_setting(db, "episode_format", data.episode_format)

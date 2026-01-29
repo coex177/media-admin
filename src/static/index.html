@@ -59,6 +59,16 @@
             <div class="global-search-bar" id="global-search-bar">
                 <input type="text" id="global-search-input" placeholder="Search for shows..."
                        oninput="debounceGlobalSearch(event)" onkeydown="handleSearchKeydown(event)">
+                <div class="search-source-toggle" id="global-search-source-toggle">
+                    <label class="active" onclick="setSearchSource('tmdb', this)">
+                        <input type="radio" name="global-search-source" value="tmdb" checked>
+                        <span>TMDB</span>
+                    </label>
+                    <label onclick="setSearchSource('tvdb', this)">
+                        <input type="radio" name="global-search-source" value="tvdb">
+                        <span>TVDB</span>
+                    </label>
+                </div>
                 <span class="search-icon">&#x1F50D;</span>
             </div>
             <div id="app-content">
