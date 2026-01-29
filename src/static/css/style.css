@@ -3106,3 +3106,640 @@ a.metadata-source-tag:hover {
     }
 }
 
+/* ── Media Watcher Settings ─────────────────────────────────────── */
+
+.watcher-status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-radius: 8px;
+    background-color: var(--darker-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 20px;
+}
+
+.watcher-status-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.watcher-status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.watcher-status-dot.stopped { background-color: var(--danger-color); }
+.watcher-status-dot.running { background-color: var(--success-color); animation: pulse-dot 2s infinite; }
+.watcher-status-dot.paused { background-color: var(--warning-color); }
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.watcher-status-label {
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.watcher-status-detail {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-left: 4px;
+}
+
+.watcher-status-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Prerequisites checklist */
+.prerequisites-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.prerequisites-list li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.95rem;
+}
+
+.prerequisites-list li:last-child {
+    border-bottom: none;
+}
+
+.prereq-icon {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 1rem;
+}
+
+.prereq-icon.met { color: var(--success-color); }
+.prereq-icon.unmet { color: var(--danger-color); }
+
+.prereq-detail {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-left: auto;
+    text-align: right;
+    max-width: 50%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Toggle switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--border-color);
+    border-radius: 24px;
+    transition: background-color 0.2s;
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: var(--primary-color);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(20px);
+}
+
+/* Setting rows */
+.watcher-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.watcher-setting-row:last-child {
+    border-bottom: none;
+}
+
+.watcher-setting-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.watcher-setting-label {
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+
+.watcher-setting-desc {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.watcher-setting-control {
+    flex-shrink: 0;
+    margin-left: 20px;
+}
+
+.watcher-setting-control .form-control {
+    width: auto;
+    min-width: 120px;
+}
+
+.watcher-setting-control input[type="number"] {
+    width: 90px;
+}
+
+.watcher-setting-control select {
+    width: auto;
+    min-width: 140px;
+    padding: 8px 12px;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.watcher-setting-control select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+/* Issues folder path input */
+.watcher-path-input {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.watcher-path-input .form-control {
+    flex: 1;
+}
+
+/* Companion types checkboxes */
+.companion-types-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.companion-type-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.companion-type-check input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+/* Quality priorities drag-and-drop */
+.quality-priorities-container {
+    margin-top: 12px;
+}
+
+.quality-priority-slots {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.quality-priority-slot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background-color: var(--darker-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: grab;
+    transition: background-color 0.15s, border-color 0.15s;
+    user-select: none;
+}
+
+.quality-priority-slot:active {
+    cursor: grabbing;
+}
+
+.quality-priority-slot.dragging {
+    opacity: 0.5;
+    border-color: var(--primary-color);
+}
+
+.quality-priority-slot.drag-over {
+    border-color: var(--primary-color);
+    background-color: var(--card-hover);
+}
+
+.priority-rank {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--primary-color);
+    min-width: 55px;
+    text-align: center;
+}
+
+.priority-handle {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    cursor: grab;
+    flex-shrink: 0;
+}
+
+.priority-factor-name {
+    flex: 1;
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+
+/* Sections inside watcher settings */
+.watcher-section {
+    margin-bottom: 20px;
+}
+
+.watcher-section:last-child {
+    margin-bottom: 0;
+}
+
+.watcher-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--text-primary);
+}
+
+.watcher-save-bar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 15px;
+    margin-top: 15px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Small input variant */
+.form-control-sm {
+    padding: 6px 10px;
+    font-size: 0.9rem;
+}
+
+@media (max-width: 600px) {
+    .watcher-status-bar {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+
+    .watcher-setting-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .watcher-setting-control {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .watcher-setting-control .form-control,
+    .watcher-setting-control select,
+    .watcher-setting-control input[type="number"] {
+        width: 100%;
+    }
+
+    .companion-types-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ── Sidebar watcher status indicator ────────────────────────── */
+
+.nav-watcher-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.nav-watcher-dot.status-running {
+    background-color: var(--success-color);
+    animation: watcher-pulse 2s ease-in-out infinite;
+}
+
+.nav-watcher-dot.status-paused {
+    background-color: var(--warning-color);
+}
+
+.nav-watcher-dot.status-stopped {
+    background-color: var(--danger-color);
+}
+
+@keyframes watcher-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ── Scan page tabs ──────────────────────────────────────────── */
+
+.scan-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.scan-tab {
+    padding: 12px 24px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    position: relative;
+    transition: color 0.2s;
+    white-space: nowrap;
+}
+
+.scan-tab:hover {
+    color: var(--text-primary);
+}
+
+.scan-tab.active {
+    color: var(--primary-color);
+}
+
+.scan-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: var(--primary-color);
+}
+
+/* ── Watcher log viewer ──────────────────────────────────────── */
+
+.watcher-log-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.watcher-log-controls input[type="date"] {
+    padding: 6px 10px;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.watcher-log-controls label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.watcher-log-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+}
+
+.watcher-log-date-group {
+    margin-bottom: 16px;
+}
+
+.watcher-log-date-header {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 4px;
+}
+
+.watcher-log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.watcher-log-entry:hover {
+    background-color: var(--card-hover);
+}
+
+.watcher-log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-entry-time {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    white-space: nowrap;
+    min-width: 55px;
+}
+
+.log-entry-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    min-width: 70px;
+    text-align: center;
+}
+
+.log-entry-badge.action-file_detected {
+    background-color: rgba(52, 152, 219, 0.15);
+    color: #3498db;
+}
+
+.log-entry-badge.action-match_found {
+    background-color: rgba(155, 89, 182, 0.15);
+    color: #9b59b6;
+}
+
+.log-entry-badge.action-moved_to_library {
+    background-color: rgba(39, 174, 96, 0.15);
+    color: var(--success-color);
+}
+
+.log-entry-badge.action-moved_to_issues {
+    background-color: rgba(243, 156, 18, 0.15);
+    color: var(--warning-color);
+}
+
+.log-entry-badge.action-error {
+    background-color: rgba(231, 76, 60, 0.15);
+    color: var(--danger-color);
+}
+
+.log-entry-badge.action-auto_import {
+    background-color: rgba(26, 188, 156, 0.15);
+    color: #1abc9c;
+}
+
+.log-entry-badge.action-watcher_started,
+.log-entry-badge.action-watcher_stopped {
+    background-color: rgba(149, 165, 166, 0.15);
+    color: #95a5a6;
+}
+
+.log-entry-summary {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.log-entry-result {
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.log-entry-result.result-success {
+    color: var(--success-color);
+}
+
+.log-entry-result.result-failed {
+    color: var(--danger-color);
+}
+
+.log-entry-result.result-skipped {
+    color: var(--warning-color);
+}
+
+/* Expanded details */
+.log-entry-details {
+    display: none;
+    padding: 8px 12px;
+    margin: 0 8px 8px 75px;
+    background-color: var(--darker-bg);
+    border-radius: 6px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.log-entry-details.open {
+    display: block;
+}
+
+.log-entry-details .detail-row {
+    display: flex;
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.log-entry-details .detail-label {
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 70px;
+    flex-shrink: 0;
+}
+
+.log-entry-details .detail-value {
+    word-break: break-all;
+}
+
+/* Pagination */
+.watcher-log-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px 0;
+    margin-top: 8px;
+}
+
+.watcher-log-pagination button {
+    padding: 6px 16px;
+}
+
+.watcher-log-pagination .page-info {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 600px) {
+    .scan-tabs {
+        overflow-x: auto;
+    }
+
+    .watcher-log-controls {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .watcher-log-entry {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .log-entry-details {
+        margin-left: 0;
+    }
+}
+

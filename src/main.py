@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_database
-from .routers import shows_router, scan_router, actions_router, settings_router
+from .routers import shows_router, scan_router, actions_router, settings_router, watcher_router
 
 # Configure logging
 logging.basicConfig(
@@ -107,9 +107,26 @@ async def lifespan(app: FastAPI):
     run_migrations()
     logger.info("Database initialized")
 
+    # Auto-start watcher if previously enabled
+    try:
+        from .database import get_session_maker
+        from .routers.watcher import auto_start_watcher
+        SessionLocal = get_session_maker()
+        db = SessionLocal()
+        try:
+            auto_start_watcher(db)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Watcher auto-start failed: {e}", exc_info=True)
+
     yield
 
     # Shutdown
+    from .services.watcher import watcher_service
+    if watcher_service.is_running:
+        logger.info("Stopping media watcher...")
+        watcher_service.stop()
     logger.info("Shutting down media-admin...")
 
 
@@ -135,6 +152,7 @@ app.include_router(shows_router)
 app.include_router(scan_router)
 app.include_router(actions_router)
 app.include_router(settings_router)
+app.include_router(watcher_router)
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"

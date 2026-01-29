@@ -45,9 +45,13 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
     import json
     from datetime import datetime
     from ..models import AppSettings
+    from ..services.watcher import watcher_service
 
     # Small delay to ensure any recent commits are visible
     time.sleep(0.5)
+
+    # Acquire scan lock so watcher queues files while we scan
+    watcher_service.acquire_scan_lock()
 
     SessionLocal = db_session_maker()
     db = SessionLocal()
@@ -103,6 +107,7 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
     finally:
         _scan_status["running"] = False
         db.close()
+        watcher_service.release_scan_lock()
 
 
 def _save_setting(db: Session, key: str, value: str):
@@ -122,9 +127,13 @@ def run_downloads_scan(db_session_maker):
     import time
     import json
     from datetime import datetime
+    from ..services.watcher import watcher_service
 
     # Small delay to ensure any recent commits are visible
     time.sleep(0.5)
+
+    # Acquire scan lock so watcher queues files while we scan
+    watcher_service.acquire_scan_lock()
 
     SessionLocal = db_session_maker()
     db = SessionLocal()
@@ -165,6 +174,7 @@ def run_downloads_scan(db_session_maker):
     finally:
         _scan_status["running"] = False
         db.close()
+        watcher_service.release_scan_lock()
 
 
 @router.post("")
@@ -450,8 +460,13 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
             "detail": detail,
         })
 
+    from ..services.watcher import watcher_service
+
     # Small delay to ensure any recent commits are visible
     time.sleep(0.3)
+
+    # Acquire scan lock so watcher queues files while we scan
+    watcher_service.acquire_scan_lock()
 
     SessionLocal = db_session_maker()
     db = SessionLocal()
@@ -777,6 +792,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
             pass
         loop.close()
         db.close()
+        watcher_service.release_scan_lock()
 
 
 def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> int:
