@@ -577,6 +577,46 @@ async def search_tvdb(
         raise HTTPException(status_code=400, detail=f"Search failed: {e}")
 
 
+@router.get("/preview/{source}/{provider_id}")
+async def preview_show(
+    source: str,
+    provider_id: int,
+    db: Session = Depends(get_db),
+    tmdb: TMDBService = Depends(get_tmdb_service),
+    tvdb: TVDBService = Depends(get_tvdb_service),
+):
+    """Preview full show data from a provider without adding to library."""
+    if source not in ("tmdb", "tvdb"):
+        raise HTTPException(status_code=400, detail="source must be 'tmdb' or 'tvdb'")
+
+    try:
+        if source == "tvdb":
+            show_data = await tvdb.get_show_with_episodes(provider_id)
+        else:
+            show_data = await tmdb.get_show_with_episodes(provider_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to fetch from {source.upper()}: {e}"
+        )
+
+    # Check if the show already exists in the local library
+    in_library = False
+    library_id = None
+    if source == "tvdb":
+        existing = db.query(Show).filter(Show.tvdb_id == provider_id).first()
+    else:
+        existing = db.query(Show).filter(Show.tmdb_id == provider_id).first()
+
+    if existing:
+        in_library = True
+        library_id = existing.id
+
+    show_data["in_library"] = in_library
+    show_data["library_id"] = library_id
+
+    return show_data
+
+
 async def _refresh_all_shows_async(db, tmdb, tvdb):
     """Async helper to refresh all shows."""
     global _refresh_status

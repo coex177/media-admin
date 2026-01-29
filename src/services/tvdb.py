@@ -14,6 +14,7 @@ class TVDBService:
     """Service for interacting with TheTVDB API v4."""
 
     BASE_URL = "https://api4.thetvdb.com/v4"
+    IMAGE_BASE_URL = "https://artworks.thetvdb.com"
 
     def __init__(self, api_key: str = ""):
         self.api_key = api_key
@@ -177,6 +178,13 @@ class TVDBService:
                 if episode_num is None:
                     continue
 
+                # Episode images from TVDB are relative paths; make them full URLs
+                raw_image = ep.get("image")
+                if raw_image and not raw_image.startswith("http"):
+                    still_url = f"{self.IMAGE_BASE_URL}{raw_image}"
+                else:
+                    still_url = raw_image
+
                 episodes.append({
                     "season": season_num,
                     "episode": episode_num,
@@ -184,7 +192,7 @@ class TVDBService:
                     "overview": ep.get("overview"),
                     "air_date": ep.get("aired"),
                     "tvdb_id": ep.get("id"),
-                    "still_path": ep.get("image"),
+                    "still_path": still_url,
                     "runtime": ep.get("runtime"),
                 })
 

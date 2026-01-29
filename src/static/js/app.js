@@ -363,13 +363,9 @@ function renderSearchResults(query, providerResults, localShows, searchSource = 
                         const inLibrary = searchSource === 'tvdb'
                             ? localShows.some(ls => ls.tvdb_id === showId)
                             : localShows.some(ls => ls.tmdb_id === showId);
-                        const escapedName = escapeHtml(show.name).replace(/'/g, "\\'").replace(/"/g, '&quot;');
                         const posterUrl = getImageUrlOrPlaceholder(show.poster_path);
-                        const onClickAction = inLibrary
-                            ? (searchSource === 'tvdb' ? `showShowDetailByTvdbId(${showId})` : `showShowDetailByTmdbId(${showId})`)
-                            : `addShowFromGlobalSearch(${showId}, '${escapedName}', '${searchSource}')`;
                         return `
-                            <div class="search-result-card ${inLibrary ? 'in-library' : ''}" onclick="${onClickAction}">
+                            <div class="search-result-card ${inLibrary ? 'in-library' : ''}" onclick="showPreviewModal(${showId}, '${searchSource}')">
                                 <img src="${posterUrl}"
                                      class="search-result-poster-large"
                                      onerror="this.src='${placeholder}'">
@@ -419,6 +415,127 @@ async function showShowDetailByTvdbId(tvdbId) {
     } catch (error) {
         showToast('Failed to find show', 'error');
     }
+}
+
+async function showPreviewModal(providerId, source) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Show Preview';
+    modalBody.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    modal.classList.add('active');
+    modal.classList.add('modal-wide');
+
+    try {
+        const data = await api(`/shows/preview/${source}/${providerId}`);
+
+        const posterUrl = getImageUrlOrPlaceholder(data.poster_path);
+        const sourceTag = source === 'tvdb'
+            ? '<span class="metadata-source-tag metadata-source-tvdb">TVDB</span>'
+            : '<span class="metadata-source-tag metadata-source-tmdb">TMDB</span>';
+
+        // Group episodes by season
+        const seasons = {};
+        (data.episodes || []).forEach(ep => {
+            if (!seasons[ep.season]) seasons[ep.season] = [];
+            seasons[ep.season].push(ep);
+        });
+        const seasonNums = Object.keys(seasons).map(Number).sort((a, b) => a - b);
+
+        const seasonsHtml = seasonNums.map(sNum => {
+            const eps = seasons[sNum];
+            eps.sort((a, b) => a.episode - b.episode);
+            const seasonLabel = sNum === 0 ? 'Specials' : `Season ${sNum}`;
+            return `
+                <div class="preview-season-card">
+                    <div class="preview-season-header" onclick="togglePreviewSeason(${sNum})">
+                        <span class="season-chevron" id="preview-season-chevron-${sNum}">&#9654;</span>
+                        <strong>${seasonLabel}</strong>
+                        <span class="text-muted" style="margin-left:auto;">${eps.length} episode${eps.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="preview-season-episodes" id="preview-season-${sNum}" style="display:none;">
+                        ${eps.map(ep => {
+                            const detailsId = `preview-ep-${sNum}-${ep.episode}`;
+                            const airDate = ep.air_date || 'TBA';
+                            return `
+                                <div class="preview-episode-row">
+                                    <div class="preview-episode-header" onclick="togglePreviewEpisode('${detailsId}')">
+                                        <span class="preview-ep-num">${ep.episode}</span>
+                                        <span class="preview-ep-title">${escapeHtml(ep.title || 'TBA')}</span>
+                                        <span class="preview-ep-air text-muted">${airDate}</span>
+                                        <span class="episode-chevron" id="${detailsId}-chevron">&#9654;</span>
+                                    </div>
+                                    <div class="preview-episode-details" id="${detailsId}" style="display:none;">
+                                        <p class="text-muted" style="font-size:0.85rem;padding:8px 12px;">${escapeHtml(ep.overview || 'No overview available.')}</p>
+                                    </div>
+                                </div>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+        }).join('');
+
+        // Action buttons
+        let actionButtons;
+        if (data.in_library) {
+            actionButtons = `
+                <button class="btn btn-primary" onclick="closeModal(); showShowDetail(${data.library_id});">View in Library</button>
+                <button class="btn btn-outline" onclick="closeModal()">Close</button>`;
+        } else {
+            const escapedName = escapeHtml(data.name).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            actionButtons = `
+                <button class="btn btn-success" onclick="closeModal(); addShowFromGlobalSearch(${providerId}, '${escapedName}', '${source}');">+ Add Show</button>
+                <button class="btn btn-outline" onclick="closeModal()">Close</button>`;
+        }
+
+        modalBody.innerHTML = `
+            <div class="preview-show-header">
+                <img src="${posterUrl}" class="preview-poster" onerror="this.src='${getImageUrlOrPlaceholder(null)}'">
+                <div class="preview-info">
+                    <h2 style="margin-bottom:6px;">${escapeHtml(data.name)} ${sourceTag}</h2>
+                    <div class="preview-meta">
+                        ${data.status ? `<p><strong>Status:</strong> ${escapeHtml(data.status)}</p>` : ''}
+                        ${data.first_air_date ? `<p><strong>First Aired:</strong> ${data.first_air_date}</p>` : ''}
+                        <p><strong>Seasons:</strong> ${data.number_of_seasons || seasonNums.filter(n => n > 0).length}</p>
+                        <p><strong>Episodes:</strong> ${data.number_of_episodes || (data.episodes || []).length}</p>
+                        ${data.genres ? `<p><strong>Genres:</strong> ${escapeHtml(data.genres)}</p>` : ''}
+                        ${data.networks ? `<p><strong>Networks:</strong> ${escapeHtml(data.networks)}</p>` : ''}
+                    </div>
+                    ${data.overview ? `<div class="preview-overview"><p class="text-muted">${escapeHtml(data.overview)}</p></div>` : ''}
+                </div>
+            </div>
+            <div class="preview-seasons" style="margin-top:15px;">
+                ${seasonsHtml || '<p class="text-muted">No episode data available.</p>'}
+            </div>
+            <div class="modal-buttons">
+                ${actionButtons}
+            </div>`;
+    } catch (error) {
+        modalBody.innerHTML = `
+            <p class="text-muted">Failed to load show preview.</p>
+            <p class="text-muted" style="font-size:0.85rem;">${escapeHtml(String(error))}</p>
+            <div class="modal-buttons">
+                <button class="btn btn-outline" onclick="closeModal()">Close</button>
+            </div>`;
+    }
+}
+
+function togglePreviewSeason(seasonNum) {
+    const el = document.getElementById(`preview-season-${seasonNum}`);
+    const chevron = document.getElementById(`preview-season-chevron-${seasonNum}`);
+    if (!el) return;
+    const isHidden = el.style.display === 'none';
+    el.style.display = isHidden ? 'block' : 'none';
+    if (chevron) chevron.innerHTML = isHidden ? '&#9660;' : '&#9654;';
+}
+
+function togglePreviewEpisode(detailsId) {
+    const el = document.getElementById(detailsId);
+    const chevron = document.getElementById(`${detailsId}-chevron`);
+    if (!el) return;
+    const isHidden = el.style.display === 'none';
+    el.style.display = isHidden ? 'block' : 'none';
+    if (chevron) chevron.innerHTML = isHidden ? '&#9660;' : '&#9654;';
 }
 
 function addShowFromGlobalSearch(showId, showName, source = 'tmdb') {
@@ -2498,7 +2615,9 @@ function toggleRefreshFilter(filter) {
 }
 
 function closeModal() {
-    document.getElementById('modal').classList.remove('active');
+    const modal = document.getElementById('modal');
+    modal.classList.remove('active');
+    modal.classList.remove('modal-wide');
 }
 
 // Scan
