@@ -20,6 +20,9 @@ defaultCardOrder.forEach(cardId => {
 });
 let dashboardCardStates = JSON.parse(localStorage.getItem('dashboardCardStates')) || {};
 
+// Snapshot of card states before bulk expand/collapse (for restore)
+let _cardStateSnapshot = null;
+
 // Dashboard data cache for re-rendering after drag
 let dashboardData = {};
 
@@ -75,7 +78,6 @@ function renderDashboardContent() {
     const upcomingDays = settings?.upcoming_days || 14;
     const recentlyAiredDays = settings?.recently_aired_days || 14;
     const displayEpFormat = settings?.display_episode_format || '{season}x{episode:02d}';
-    const allExpanded = dashboardCardOrder.every(id => dashboardCardStates[id]);
 
     // Calculate collection progress (ignored + specials count as collected)
     const collectedEpisodes = stats.found_episodes + (stats.ignored_episodes || 0) + (stats.special_episodes || 0);
@@ -559,9 +561,12 @@ function renderDashboardContent() {
     appContent.innerHTML = `
         <div class="page-header">
             <h1 class="page-title">Dashboard</h1>
-            <button class="btn btn-sm btn-secondary" onclick="toggleAllDashboardCards()" id="expand-collapse-btn">
-                ${allExpanded ? '&#9650; Collapse All' : '&#9660; Expand All'}
-            </button>
+            <div class="card-control-btns">
+                <button class="card-control-btn" onclick="collapseAllCards()" title="Collapse all">&#9650;</button>
+                <button class="card-control-btn" onclick="expandAllCards()" title="Expand all">&#9660;</button>
+                <button class="card-control-btn" onclick="restoreSavedCards()" title="Restore saved layout">&#8617;</button>
+                <button class="card-control-btn" onclick="clearSavedCards()" title="Reset to default (all collapsed)">&#10227;</button>
+            </div>
         </div>
 
         <div class="stats-grid">
@@ -671,46 +676,58 @@ function toggleDashboardCard(cardId) {
     // Save state to localStorage
     dashboardCardStates[cardId] = isOpen;
     localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
-
-    // Update expand/collapse all button state
-    updateExpandCollapseButton();
 }
 
-function toggleAllDashboardCards() {
-    const allExpanded = dashboardCardOrder.every(id => dashboardCardStates[id]);
-    const newState = !allExpanded;
-
+function _applyCardStates(stateMap) {
     dashboardCardOrder.forEach(cardId => {
         const content = document.getElementById(`content-${cardId}`);
         const chevron = document.getElementById(`chevron-${cardId}`);
-
-        dashboardCardStates[cardId] = newState;
+        const isOpen = !!stateMap[cardId];
 
         if (content) {
-            if (newState) {
-                content.classList.add('open');
-            } else {
-                content.classList.remove('open');
-            }
+            content.classList.toggle('open', isOpen);
         }
         if (chevron) {
-            chevron.innerHTML = newState ? '&#9660;' : '&#9658;';
+            chevron.innerHTML = isOpen ? '&#9660;' : '&#9658;';
         }
     });
-
-    // Save state to localStorage
-    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
-
-    updateExpandCollapseButton();
 }
 
-function updateExpandCollapseButton() {
-    const allExpanded = dashboardCardOrder.every(id => dashboardCardStates[id]);
+function expandAllCards() {
+    // Snapshot current saved state before bulk change
+    _cardStateSnapshot = { ...dashboardCardStates };
 
-    const btn = document.getElementById('expand-collapse-btn');
-    if (btn) {
-        btn.innerHTML = allExpanded ? '&#9650; Collapse All' : '&#9660; Expand All';
+    dashboardCardOrder.forEach(cardId => {
+        dashboardCardStates[cardId] = true;
+    });
+    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+    _applyCardStates(dashboardCardStates);
+}
+
+function collapseAllCards() {
+    // Snapshot current saved state before bulk change
+    _cardStateSnapshot = { ...dashboardCardStates };
+
+    dashboardCardOrder.forEach(cardId => {
+        dashboardCardStates[cardId] = false;
+    });
+    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+    _applyCardStates(dashboardCardStates);
+}
+
+function restoreSavedCards() {
+    if (_cardStateSnapshot) {
+        dashboardCardStates = { ..._cardStateSnapshot };
     }
+    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+    _applyCardStates(dashboardCardStates);
+}
+
+function clearSavedCards() {
+    _cardStateSnapshot = null;
+    dashboardCardStates = {};
+    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+    _applyCardStates(dashboardCardStates);
 }
 
 // Drag and drop handlers for dashboard cards

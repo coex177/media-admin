@@ -2056,6 +2056,33 @@ tr:hover {
     font-weight: 600;
 }
 
+/* Dashboard card control buttons */
+.card-control-btns {
+    display: flex;
+    gap: 4px;
+}
+
+.card-control-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.card-control-btn:hover {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+}
+
 /* Empty State */
 .empty-state {
     text-align: center;
