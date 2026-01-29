@@ -5,39 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Media Admin</title>
     <link rel="stylesheet" href="/static/css/style.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
+    <link rel="icon" href="/static/images/favicon.png" type="image/png">
 </head>
 <body>
     <div class="app-container">
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>Media Admin</h1>
-                <p>TV Show Organization</p>
+                <img src="/static/images/app-icon.png" alt="Media Admin" class="sidebar-logo">
+                <div>
+                    <h1>Media Admin</h1>
+                    <p>TV Show Organization</p>
+                </div>
             </div>
             <nav>
                 <ul class="nav-menu">
                     <li>
                         <a href="#" data-page="dashboard" class="active">
-                            <span class="nav-icon">&#x1F3E0;</span>
+                            <img src="/static/images/nav-dashboard.png" alt="" class="nav-icon-img">
                             Dashboard
                         </a>
                     </li>
                     <li>
                         <a href="#" data-page="shows">
-                            <span class="nav-icon">&#x1F4FA;</span>
+                            <img src="/static/images/nav-shows.png" alt="" class="nav-icon-img">
                             Shows
                         </a>
                     </li>
                     <li>
                         <a href="#" data-page="scan">
-                            <span class="nav-icon">&#x1F50D;</span>
+                            <img src="/static/images/nav-scan.png" alt="" class="nav-icon-img">
                             Scan
                         </a>
                     </li>
                     <li>
                         <a href="#" data-page="settings">
-                            <span class="nav-icon">&#x2699;</span>
+                            <img src="/static/images/nav-settings.png" alt="" class="nav-icon-img">
                             Settings
                         </a>
                     </li>
@@ -60,7 +63,7 @@
                 <div class="search-input-row">
                     <input type="text" id="global-search-input" placeholder="Search for shows..."
                            oninput="debounceGlobalSearch(event)" onkeydown="handleSearchKeydown(event)">
-                    <span class="search-icon">&#x1F50D;</span>
+                    <img src="/static/images/search.png" alt="" class="search-icon-img">
                 </div>
                 <div class="search-source-toggle" id="global-search-source-toggle" style="margin-top: 8px;">
                     <label class="active" onclick="setSearchSource('tmdb', this)">

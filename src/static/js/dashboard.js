@@ -559,10 +559,10 @@ function renderDashboardContent() {
         <div class="page-header">
             <h1 class="page-title">Dashboard</h1>
             <div class="card-control-btns">
-                <button class="card-control-btn" onclick="collapseAllCards()" title="Collapse all">&#9650;</button>
-                <button class="card-control-btn" onclick="expandAllCards()" title="Expand all">&#9660;</button>
-                <button class="card-control-btn" onclick="restoreSavedCards()" title="Restore saved layout">&#8617;</button>
-                <button class="card-control-btn" onclick="clearSavedCards()" title="Reset to default (all collapsed)">&#10227;</button>
+                <button class="card-control-btn" onclick="collapseAllCards()" title="Collapse all"><img src="/static/images/collapse.png" alt="Collapse"></button>
+                <button class="card-control-btn" onclick="expandAllCards()" title="Expand all"><img src="/static/images/expand.png" alt="Expand"></button>
+                <button class="card-control-btn" onclick="restoreSavedCards()" title="Restore saved layout"><img src="/static/images/restore.png" alt="Restore"></button>
+                <button class="card-control-btn" onclick="clearSavedCards()" title="Reset to default (all collapsed)"><img src="/static/images/reset-layout.png" alt="Reset"></button>
             </div>
         </div>
 

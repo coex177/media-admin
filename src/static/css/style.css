@@ -187,6 +187,17 @@ a:hover {
     pointer-events: none;
 }
 
+.global-search-bar .search-icon-img {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    pointer-events: none;
+    opacity: 0.6;
+}
+
 /* Search Results Grid */
 .search-results-grid {
     display: grid;
@@ -240,6 +251,14 @@ a:hover {
     padding: 0 20px 20px;
     border-bottom: 1px solid var(--border-color);
     margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sidebar-logo {
+    width: 40px;
+    height: 40px;
 }
 
 .sidebar-header h1 {
@@ -285,6 +304,12 @@ a:hover {
 .nav-icon {
     width: 20px;
     text-align: center;
+}
+
+.nav-icon-img {
+    width: 20px;
+    height: 20px;
+    vertical-align: middle;
 }
 
 /* Back button in sidebar */
@@ -2077,9 +2102,13 @@ tr:hover {
     transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
+.card-control-btn img {
+    width: 20px;
+    height: 20px;
+}
+
 .card-control-btn:hover {
     background: var(--primary-color);
-    color: #fff;
     border-color: var(--primary-color);
 }
 
