@@ -114,18 +114,6 @@ function getPageFromHash() {
 
 // Navigation
 function navigateTo(page, skipUnsavedCheck = false, skipHashUpdate = false) {
-    // Check for unsaved settings when leaving settings page
-    if (!skipUnsavedCheck && state.currentPage === 'settings' && hasUnsavedSettings()) {
-        showUnsavedSettingsModal(page);
-        return;
-    }
-
-    // Clear unsaved flags when navigating away
-    if (state.currentPage === 'settings') {
-        settingsChanged.formats = false;
-        settingsChanged.dashboard = false;
-    }
-
     state.currentPage = page;
 
     // Update URL hash (unless triggered by hashchange event)
@@ -601,41 +589,6 @@ async function confirmAddShow(showId, shouldScan, source = 'tmdb') {
     } catch (error) {
         // Error already shown
     }
-}
-
-function showUnsavedSettingsModal(targetPage) {
-    const modal = document.getElementById('modal');
-    const modalBody = document.getElementById('modal-body');
-    const modalTitle = document.getElementById('modal-title');
-
-    modalTitle.textContent = 'Unsaved Changes';
-    modalBody.innerHTML = `
-        <p>You have unsaved changes in Settings. What would you like to do?</p>
-        <div class="modal-buttons">
-            <button class="btn btn-primary" onclick="saveAllSettingsAndNavigate('${targetPage}')">Save Changes</button>
-            <button class="btn btn-danger" onclick="discardSettingsAndNavigate('${targetPage}')">Discard Changes</button>
-            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        </div>
-    `;
-
-    modal.classList.add('active');
-}
-
-async function saveAllSettingsAndNavigate(targetPage) {
-    // Save any changed sections
-    if (settingsChanged.formats) {
-        await updateFormats();
-    }
-    if (settingsChanged.dashboard) {
-        await updateDashboardSettings();
-    }
-    closeModal();
-    navigateTo(targetPage, true);
-}
-
-function discardSettingsAndNavigate(targetPage) {
-    closeModal();
-    navigateTo(targetPage, true);
 }
 
 // API Functions
@@ -3283,43 +3236,43 @@ function renderSettingsGeneral(settings) {
             <div class="dashboard-settings-grid">
                 <div class="dashboard-setting-item">
                     <label>Upcoming Episodes</label>
-                    <select id="settings-upcoming-days" class="form-control" onchange="markSettingsChanged('dashboard')">
+                    <select id="settings-upcoming-days" class="form-control" onchange="autoSaveDashboardSettings()">
                         ${generateSelectOptions(30, settings.upcoming_days, '{n} Days ahead')}
                     </select>
                 </div>
                 <div class="dashboard-setting-item">
                     <label>Recently Aired</label>
-                    <select id="settings-recently-aired-days" class="form-control" onchange="markSettingsChanged('dashboard')">
+                    <select id="settings-recently-aired-days" class="form-control" onchange="autoSaveDashboardSettings()">
                         ${generateSelectOptions(30, settings.recently_aired_days, '{n} Days back')}
                     </select>
                 </div>
                 <div class="dashboard-setting-item">
                     <label>Recently Added</label>
-                    <select id="settings-recently-added-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                    <select id="settings-recently-added-count" class="form-control" onchange="autoSaveDashboardSettings()">
                         ${generateSelectOptions(30, settings.recently_added_count, '{n} Shows')}
                     </select>
                 </div>
                 <div class="dashboard-setting-item">
                     <label>Recently Matched</label>
-                    <select id="settings-recently-matched-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                    <select id="settings-recently-matched-count" class="form-control" onchange="autoSaveDashboardSettings()">
                         ${generateSelectOptions(30, settings.recently_matched_count, '{n} Episodes')}
                     </select>
                 </div>
                 <div class="dashboard-setting-item">
                     <label>Returning Soon</label>
-                    <select id="settings-returning-soon-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                    <select id="settings-returning-soon-count" class="form-control" onchange="autoSaveDashboardSettings()">
                         ${generateSelectOptions(30, settings.returning_soon_count, '{n} Shows')}
                     </select>
                 </div>
                 <div class="dashboard-setting-item">
                     <label>Recently Ended</label>
-                    <select id="settings-recently-ended-count" class="form-control" onchange="markSettingsChanged('dashboard')">
+                    <select id="settings-recently-ended-count" class="form-control" onchange="autoSaveDashboardSettings()">
                         ${generateSelectOptions(30, settings.recently_ended_count, '{n} Shows')}
                     </select>
                 </div>
                 <div class="dashboard-setting-item">
                     <label>Shows Per Page</label>
-                    <select id="settings-shows-per-page" class="form-control" onchange="markSettingsChanged('dashboard')">
+                    <select id="settings-shows-per-page" class="form-control" onchange="autoSaveDashboardSettings()">
                         ${[[100,'100 Shows'],[300,'300 Shows'],[500,'500 Shows'],[1000,'1000 Shows'],[3000,'3000 Shows'],[5000,'5000 Shows'],[0,'All Shows']].map(([v,l]) => `<option value="${v}" ${settings.shows_per_page === v ? 'selected' : ''}>${l}</option>`).join('')}
                     </select>
                 </div>
@@ -3327,16 +3280,12 @@ function renderSettingsGeneral(settings) {
             <div class="dashboard-settings-divider"></div>
             <div class="form-group">
                 <label class="dashboard-setting-label">Episode Display Format</label>
-                <input type="text" id="settings-display-episode-format" class="form-control" value="${escapeHtml(settings.display_episode_format)}" oninput="updateFormatPreviews(); markSettingsChanged('dashboard')">
+                <input type="text" id="settings-display-episode-format" class="form-control" value="${escapeHtml(settings.display_episode_format)}" oninput="updateFormatPreviews()" onchange="autoSaveDashboardSettings()">
                 <div class="format-preview">Preview: <strong id="preview-display-episode-format"></strong></div>
                 <small class="text-muted">
                     Variables: <code>{season}</code>, <code>{episode}</code><br>
                     Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 03, <code>{episode:02d}</code> = 04)
                 </small>
-            </div>
-            <div class="settings-buttons">
-                <button class="btn btn-primary" onclick="updateDashboardSettings()">Save Dashboard Settings</button>
-                <button class="btn btn-secondary" onclick="resetDashboardSettings()" id="reset-dashboard-btn" style="display: none;">Reset</button>
             </div>
         </div>
     `;
@@ -3363,15 +3312,13 @@ function renderSettingsMetadata(settings) {
             <div class="form-group" style="margin-top: 20px;">
                 <label>TMDB API Key ${settings.tmdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
                 <small class="text-muted">Metadata provided by <a href="https://www.themoviedb.org" target="_blank">The Movie Database (TMDB)</a></small>
-                <input type="password" id="settings-api-key" class="form-control" placeholder="${settings.tmdb_api_key_set ? '••••••••' : 'Enter API key'}">
+                <input type="password" id="settings-api-key" class="form-control" placeholder="${settings.tmdb_api_key_set ? '••••••••' : 'Enter API key'}" onchange="autoSaveApiKey('tmdb')">
             </div>
-            <button class="btn btn-primary" onclick="updateApiKey()">Update TMDB Key</button>
             <div class="form-group" style="margin-top: 20px;">
                 <label>TVDB API Key ${settings.tvdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
                 <small class="text-muted">Metadata provided by <a href="https://thetvdb.com" target="_blank">TheTVDB</a></small>
-                <input type="password" id="settings-tvdb-api-key" class="form-control" placeholder="${settings.tvdb_api_key_set ? '••••••••' : 'Enter API key'}">
+                <input type="password" id="settings-tvdb-api-key" class="form-control" placeholder="${settings.tvdb_api_key_set ? '••••••••' : 'Enter API key'}" onchange="autoSaveApiKey('tvdb')">
             </div>
-            <button class="btn btn-primary" onclick="updateTvdbApiKey()">Update TVDB Key</button>
         </div>
     `;
 }
@@ -3385,7 +3332,7 @@ function renderSettingsLibrary(settings, folders) {
             <h2 class="card-title mb-20">Naming Formats</h2>
             <div class="form-group">
                 <label>Episode Filename Format</label>
-                <input type="text" id="settings-episode-format" class="form-control" value="${escapeHtml(settings.episode_format)}" oninput="updateFormatPreviews(); markSettingsChanged('formats')">
+                <input type="text" id="settings-episode-format" class="form-control" value="${escapeHtml(settings.episode_format)}" oninput="updateFormatPreviews()" onchange="autoSaveFormats()">
                 <div class="format-preview">Preview: <strong id="preview-episode-format"></strong></div>
                 <small class="text-muted">
                     Variables: <code>{season}</code>, <code>{episode}</code>, <code>{title}</code><br>
@@ -3394,16 +3341,12 @@ function renderSettingsLibrary(settings, folders) {
             </div>
             <div class="form-group">
                 <label>Season Folder Format</label>
-                <input type="text" id="settings-season-format" class="form-control" value="${escapeHtml(settings.season_format)}" oninput="updateFormatPreviews(); markSettingsChanged('formats')">
+                <input type="text" id="settings-season-format" class="form-control" value="${escapeHtml(settings.season_format)}" oninput="updateFormatPreviews()" onchange="autoSaveFormats()">
                 <div class="format-preview">Preview: <strong id="preview-season-format"></strong></div>
                 <small class="text-muted">
                     Variables: <code>{season}</code><br>
                     Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 04 instead of 4)
                 </small>
-            </div>
-            <div class="settings-buttons">
-                <button class="btn btn-primary" onclick="updateFormats()">Save Formats</button>
-                <button class="btn btn-secondary" onclick="resetFormats()" id="reset-formats-btn" style="display: none;">Reset</button>
             </div>
         </div>
 
@@ -3441,10 +3384,9 @@ function renderSettingsLibrary(settings, folders) {
             <div style="padding: 15px 15px 5px; border-top: 1px solid var(--border-color); margin-top: 10px;">
                 <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
                     <label>Managed Import Count</label>
-                    <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500">
+                    <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500" onchange="autoSaveSlowImportCount()">
                     <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
                 </div>
-                <button class="btn btn-sm btn-primary" onclick="updateSlowImportCount()">Save</button>
             </div>
         </div>
 
@@ -3485,7 +3427,6 @@ function renderSettingsLibrary(settings, folders) {
 // ── Media Watcher state ─────────────────────────────────────────
 let watcherSettings = null;
 let watcherStatus = null;
-let watcherSettingsDirty = false;
 
 function renderSettingsWatcher() {
     // Return a loading shell; actual data loads async
@@ -3501,7 +3442,6 @@ async function loadWatcherData() {
         ]);
         watcherSettings = settings;
         watcherStatus = status;
-        watcherSettingsDirty = false;
         const container = document.getElementById('watcher-settings-container');
         if (container) container.innerHTML = renderWatcherContent();
         initWatcherDragDrop();
@@ -3579,8 +3519,7 @@ function renderWatcherContent() {
                 <input type="text" class="form-control" id="watcher-issues-folder"
                     value="${escapeHtml(s.watcher_issues_folder || '')}"
                     placeholder="/path/to/issues/folder"
-                    onchange="markWatcherDirty()">
-                <button class="btn btn-sm btn-secondary" onclick="saveIssuesFolder()">Set</button>
+                    onchange="autoSaveIssuesFolder()">
             </div>
         </div>
 
@@ -3595,7 +3534,7 @@ function renderWatcherContent() {
                 </div>
                 <div class="watcher-setting-control">
                     <label class="toggle-switch">
-                        <input type="checkbox" id="watcher-monitor-subfolders" ${s.watcher_monitor_subfolders ? 'checked' : ''} onchange="markWatcherDirty()">
+                        <input type="checkbox" id="watcher-monitor-subfolders" ${s.watcher_monitor_subfolders ? 'checked' : ''} onchange="autoSaveWatcherSettings()">
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
@@ -3608,7 +3547,7 @@ function renderWatcherContent() {
                 </div>
                 <div class="watcher-setting-control">
                     <label class="toggle-switch">
-                        <input type="checkbox" id="watcher-delete-empty" ${s.watcher_delete_empty_folders ? 'checked' : ''} onchange="markWatcherDirty()">
+                        <input type="checkbox" id="watcher-delete-empty" ${s.watcher_delete_empty_folders ? 'checked' : ''} onchange="autoSaveWatcherSettings()">
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
@@ -3620,7 +3559,7 @@ function renderWatcherContent() {
                     <div class="watcher-setting-desc">Files smaller than this are considered samples and skipped</div>
                 </div>
                 <div class="watcher-setting-control">
-                    <input type="number" class="form-control form-control-sm" id="watcher-min-size" value="${s.watcher_min_file_size_mb}" min="0" step="10" onchange="markWatcherDirty()"> <span class="text-muted" style="font-size:0.85rem;">MB</span>
+                    <input type="number" class="form-control form-control-sm" id="watcher-min-size" value="${s.watcher_min_file_size_mb}" min="0" step="10" onchange="autoSaveWatcherSettings()"> <span class="text-muted" style="font-size:0.85rem;">MB</span>
                 </div>
             </div>
 
@@ -3630,7 +3569,7 @@ function renderWatcherContent() {
                     <div class="watcher-setting-desc">Pause watcher after no browser activity (minimum 5 minutes)</div>
                 </div>
                 <div class="watcher-setting-control">
-                    <input type="number" class="form-control form-control-sm" id="watcher-inactivity" value="${s.watcher_inactivity_minutes}" min="5" step="1" onchange="markWatcherDirty()"> <span class="text-muted" style="font-size:0.85rem;">min</span>
+                    <input type="number" class="form-control form-control-sm" id="watcher-inactivity" value="${s.watcher_inactivity_minutes}" min="5" step="1" onchange="autoSaveWatcherSettings()"> <span class="text-muted" style="font-size:0.85rem;">min</span>
                 </div>
             </div>
         </div>
@@ -3645,7 +3584,7 @@ function renderWatcherContent() {
                     <div class="watcher-setting-desc">How files in the Issues folder are organized</div>
                 </div>
                 <div class="watcher-setting-control">
-                    <select id="watcher-issues-org" class="form-control form-control-sm" onchange="markWatcherDirty()">
+                    <select id="watcher-issues-org" class="form-control form-control-sm" onchange="autoSaveWatcherSettings()">
                         <option value="date" ${s.watcher_issues_organization === 'date' ? 'selected' : ''}>By Date</option>
                         <option value="reason" ${s.watcher_issues_organization === 'reason' ? 'selected' : ''}>By Reason</option>
                         <option value="flat" ${s.watcher_issues_organization === 'flat' ? 'selected' : ''}>Flat</option>
@@ -3659,7 +3598,7 @@ function renderWatcherContent() {
                     <div class="watcher-setting-desc">Automatically delete old files in the Issues folder</div>
                 </div>
                 <div class="watcher-setting-control">
-                    <select id="watcher-auto-purge" class="form-control form-control-sm" onchange="markWatcherDirty()">
+                    <select id="watcher-auto-purge" class="form-control form-control-sm" onchange="autoSaveWatcherSettings()">
                         <option value="0" ${s.watcher_auto_purge_days === 0 ? 'selected' : ''}>Off</option>
                         <option value="7" ${s.watcher_auto_purge_days === 7 ? 'selected' : ''}>7 days</option>
                         <option value="14" ${s.watcher_auto_purge_days === 14 ? 'selected' : ''}>14 days</option>
@@ -3678,7 +3617,7 @@ function renderWatcherContent() {
             <div class="companion-types-grid">
                 ${allCompanionTypes.map(ext => `
                     <label class="companion-type-check">
-                        <input type="checkbox" value="${ext}" ${selectedCompanions.includes(ext) ? 'checked' : ''} onchange="markWatcherDirty()">
+                        <input type="checkbox" value="${ext}" ${selectedCompanions.includes(ext) ? 'checked' : ''} onchange="autoSaveWatcherSettings()">
                         ${ext}
                     </label>
                 `).join('')}
@@ -3702,28 +3641,16 @@ function renderWatcherContent() {
             </div>
         </div>
 
-        <!-- Save bar -->
-        <div class="watcher-save-bar" id="watcher-save-bar" style="display:none;">
-            <button class="btn btn-secondary" onclick="loadWatcherData()">Discard</button>
-            <button class="btn btn-primary" onclick="saveWatcherSettings()">Save Changes</button>
-        </div>
     `;
 }
 
-function markWatcherDirty() {
-    watcherSettingsDirty = true;
-    const bar = document.getElementById('watcher-save-bar');
-    if (bar) bar.style.display = 'flex';
-}
-
-async function saveIssuesFolder() {
+async function autoSaveIssuesFolder() {
     const input = document.getElementById('watcher-issues-folder');
     if (!input) return;
-    const path = input.value.trim();
     try {
         await api('/watcher/settings', {
             method: 'PUT',
-            body: JSON.stringify({ watcher_issues_folder: path }),
+            body: JSON.stringify({ watcher_issues_folder: input.value.trim() }),
         });
         showToast('Issues folder updated', 'success');
         loadWatcherData();
@@ -3732,7 +3659,7 @@ async function saveIssuesFolder() {
     }
 }
 
-async function saveWatcherSettings() {
+async function autoSaveWatcherSettings() {
     const data = {};
 
     const monitorSubfolders = document.getElementById('watcher-monitor-subfolders');
@@ -3774,11 +3701,6 @@ async function saveWatcherSettings() {
             method: 'PUT',
             body: JSON.stringify(data),
         });
-        showToast('Watcher settings saved', 'success');
-        watcherSettingsDirty = false;
-        const bar = document.getElementById('watcher-save-bar');
-        if (bar) bar.style.display = 'none';
-        loadWatcherData();
     } catch (e) {
         // error shown by api()
     }
@@ -3827,7 +3749,7 @@ function initWatcherDragDrop() {
             draggedEl = null;
             // Update point labels after reorder
             updatePriorityPoints();
-            markWatcherDirty();
+            autoSaveWatcherSettings();
         });
 
         slot.addEventListener('dragover', (e) => {
@@ -3935,13 +3857,6 @@ async function updateWatcherStatusDot() {
 
 function switchSettingsTab(tabName) {
     if (tabName === state.activeSettingsTab) return;
-
-    // Check for unsaved changes on the current tab
-    if (hasUnsavedSettingsForTab(state.activeSettingsTab)) {
-        showUnsavedTabModal(state.activeSettingsTab, tabName);
-        return;
-    }
-
     applySettingsTab(tabName);
 }
 
@@ -3982,52 +3897,7 @@ function renderSettingsTabContent(tabName) {
     updateFormatPreviews();
 }
 
-function hasUnsavedSettingsForTab(tabName) {
-    if (tabName === 'general') return settingsChanged.dashboard;
-    if (tabName === 'library') return settingsChanged.formats;
-    if (tabName === 'watcher') return watcherSettingsDirty;
-    return false;
-}
 
-function showUnsavedTabModal(currentTab, targetTab) {
-    const modal = document.getElementById('modal');
-    const modalBody = document.getElementById('modal-body');
-    const modalTitle = document.getElementById('modal-title');
-
-    modalTitle.textContent = 'Unsaved Changes';
-    modalBody.innerHTML = `
-        <p>You have unsaved changes. What would you like to do?</p>
-        <div class="modal-buttons">
-            <button class="btn btn-primary" onclick="saveTabAndSwitch('${currentTab}', '${targetTab}')">Save Changes</button>
-            <button class="btn btn-danger" onclick="discardTabAndSwitch('${currentTab}', '${targetTab}')">Discard Changes</button>
-            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        </div>
-    `;
-
-    modal.classList.add('active');
-}
-
-async function saveTabAndSwitch(currentTab, targetTab) {
-    if (currentTab === 'general' && settingsChanged.dashboard) {
-        await updateDashboardSettings();
-    }
-    if (currentTab === 'library' && settingsChanged.formats) {
-        await updateFormats();
-    }
-    closeModal();
-    applySettingsTab(targetTab);
-}
-
-function discardTabAndSwitch(currentTab, targetTab) {
-    if (currentTab === 'general') {
-        settingsChanged.dashboard = false;
-    }
-    if (currentTab === 'library') {
-        settingsChanged.formats = false;
-    }
-    closeModal();
-    applySettingsTab(targetTab);
-}
 
 function updateFormatPreviews() {
     // Sample data for previews
@@ -4082,72 +3952,75 @@ function updateFormatPreviews() {
     }
 }
 
-// Track unsaved changes in settings
-const settingsChanged = {
-    formats: false,
-    dashboard: false
-};
+async function autoSaveApiKey(provider) {
+    const inputId = provider === 'tmdb' ? 'settings-api-key' : 'settings-tvdb-api-key';
+    const bodyKey = provider === 'tmdb' ? 'tmdb_api_key' : 'tvdb_api_key';
+    const apiKey = document.getElementById(inputId)?.value.trim();
+    if (!apiKey) return;
 
-function markSettingsChanged(section) {
-    settingsChanged[section] = true;
-    const resetBtn = document.getElementById(`reset-${section}-btn`);
-    if (resetBtn) {
-        resetBtn.style.display = 'inline-block';
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ [bodyKey]: apiKey })
+        });
+        showToast(`${provider.toUpperCase()} API key updated`, 'success');
+        renderSettings();
+    } catch (error) {
+        // Error already shown
     }
 }
 
-function hasUnsavedSettings() {
-    return settingsChanged.formats || settingsChanged.dashboard;
-}
+async function autoSaveFormats() {
+    const episodeFormat = document.getElementById('settings-episode-format')?.value.trim();
+    const seasonFormat = document.getElementById('settings-season-format')?.value.trim();
+    if (!episodeFormat || !seasonFormat) return;
 
-function clearSettingsChanged(section) {
-    settingsChanged[section] = false;
-    const resetBtn = document.getElementById(`reset-${section}-btn`);
-    if (resetBtn) {
-        resetBtn.style.display = 'none';
-    }
-    // Update original settings to current values
-    if (state.originalSettings && state.settings) {
-        if (section === 'formats') {
-            state.originalSettings.episode_format = state.settings.episode_format;
-            state.originalSettings.season_format = state.settings.season_format;
-        } else if (section === 'dashboard') {
-            state.originalSettings.upcoming_days = state.settings.upcoming_days;
-            state.originalSettings.recently_aired_days = state.settings.recently_aired_days;
-            state.originalSettings.display_episode_format = state.settings.display_episode_format;
-            state.originalSettings.shows_per_page = state.settings.shows_per_page;
-        }
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ episode_format: episodeFormat, season_format: seasonFormat })
+        });
+        state.settings.episode_format = episodeFormat;
+        state.settings.season_format = seasonFormat;
+    } catch (error) {
+        // Error already shown
     }
 }
 
-function resetFormats() {
-    if (!state.originalSettings) return;
+async function autoSaveDashboardSettings() {
+    const data = {};
+    const el = (id) => document.getElementById(id);
 
-    document.getElementById('settings-episode-format').value = state.originalSettings.episode_format;
-    document.getElementById('settings-season-format').value = state.originalSettings.season_format;
+    if (el('settings-upcoming-days')) data.upcoming_days = parseInt(el('settings-upcoming-days').value);
+    if (el('settings-recently-aired-days')) data.recently_aired_days = parseInt(el('settings-recently-aired-days').value);
+    if (el('settings-recently-added-count')) data.recently_added_count = parseInt(el('settings-recently-added-count').value);
+    if (el('settings-recently-matched-count')) data.recently_matched_count = parseInt(el('settings-recently-matched-count').value);
+    if (el('settings-returning-soon-count')) data.returning_soon_count = parseInt(el('settings-returning-soon-count').value);
+    if (el('settings-recently-ended-count')) data.recently_ended_count = parseInt(el('settings-recently-ended-count').value);
+    if (el('settings-display-episode-format')) data.display_episode_format = el('settings-display-episode-format').value.trim();
+    if (el('settings-shows-per-page')) data.shows_per_page = parseInt(el('settings-shows-per-page').value);
 
-    updateFormatPreviews();
-    settingsChanged.formats = false;
-    document.getElementById('reset-formats-btn').style.display = 'none';
-    showToast('Formats reset to saved values', 'info');
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+        Object.assign(state.settings, data);
+    } catch (error) {
+        // Error already shown
+    }
 }
 
-function resetDashboardSettings() {
-    if (!state.originalSettings) return;
-
-    document.getElementById('settings-upcoming-days').value = state.originalSettings.upcoming_days;
-    document.getElementById('settings-recently-aired-days').value = state.originalSettings.recently_aired_days;
-    document.getElementById('settings-recently-added-count').value = state.originalSettings.recently_added_count;
-    document.getElementById('settings-recently-matched-count').value = state.originalSettings.recently_matched_count;
-    document.getElementById('settings-returning-soon-count').value = state.originalSettings.returning_soon_count;
-    document.getElementById('settings-recently-ended-count').value = state.originalSettings.recently_ended_count;
-    document.getElementById('settings-display-episode-format').value = state.originalSettings.display_episode_format;
-    document.getElementById('settings-shows-per-page').value = state.originalSettings.shows_per_page;
-
-    updateFormatPreviews();
-    settingsChanged.dashboard = false;
-    document.getElementById('reset-dashboard-btn').style.display = 'none';
-    showToast('Dashboard settings reset to saved values', 'info');
+async function autoSaveSlowImportCount() {
+    const val = parseInt(document.getElementById('settings-slow-import-count')?.value) || 10;
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ slow_import_count: val })
+        });
+    } catch (error) {
+        // Error already shown
+    }
 }
 
 async function updateApiKey() {
@@ -4202,83 +4075,10 @@ async function updateDefaultMetadataSource(source) {
     }
 }
 
-async function updateFormats() {
-    const episodeFormat = document.getElementById('settings-episode-format').value.trim();
-    const seasonFormat = document.getElementById('settings-season-format').value.trim();
-
-    try {
-        await api('/settings', {
-            method: 'PUT',
-            body: JSON.stringify({
-                episode_format: episodeFormat,
-                season_format: seasonFormat
-            })
-        });
-        // Update state with new values
-        state.settings.episode_format = episodeFormat;
-        state.settings.season_format = seasonFormat;
-        clearSettingsChanged('formats');
-        showToast('Formats updated', 'success');
-    } catch (error) {
-        // Error already shown
-    }
-}
-
-async function updateDashboardSettings() {
-    const upcomingDays = parseInt(document.getElementById('settings-upcoming-days').value) || 5;
-    const recentlyAiredDays = parseInt(document.getElementById('settings-recently-aired-days').value) || 5;
-    const recentlyAddedCount = parseInt(document.getElementById('settings-recently-added-count').value) || 5;
-    const recentlyMatchedCount = parseInt(document.getElementById('settings-recently-matched-count').value) || 5;
-    const returningSoonCount = parseInt(document.getElementById('settings-returning-soon-count').value) || 5;
-    const recentlyEndedCount = parseInt(document.getElementById('settings-recently-ended-count').value) || 5;
-    const displayEpisodeFormat = document.getElementById('settings-display-episode-format').value.trim() || '{season}x{episode:02d}';
-    const showsPerPage = parseInt(document.getElementById('settings-shows-per-page').value) || 0;
-
-    try {
-        await api('/settings', {
-            method: 'PUT',
-            body: JSON.stringify({
-                upcoming_days: upcomingDays,
-                recently_aired_days: recentlyAiredDays,
-                recently_added_count: recentlyAddedCount,
-                recently_matched_count: recentlyMatchedCount,
-                returning_soon_count: returningSoonCount,
-                recently_ended_count: recentlyEndedCount,
-                display_episode_format: displayEpisodeFormat,
-                shows_per_page: showsPerPage
-            })
-        });
-        // Update state so dashboard reflects changes immediately
-        state.settings.upcoming_days = upcomingDays;
-        state.settings.recently_aired_days = recentlyAiredDays;
-        state.settings.recently_added_count = recentlyAddedCount;
-        state.settings.recently_matched_count = recentlyMatchedCount;
-        state.settings.returning_soon_count = returningSoonCount;
-        state.settings.recently_ended_count = recentlyEndedCount;
-        state.settings.display_episode_format = displayEpisodeFormat;
-        state.settings.shows_per_page = showsPerPage;
-        state.showsPerPage = showsPerPage;
-        state.showsPage = 1;  // Reset to page 1 when page size changes
-        clearSettingsChanged('dashboard');
-        showToast('Dashboard settings updated', 'success');
-    } catch (error) {
-        // Error already shown
-    }
-}
-
-async function updateSlowImportCount() {
-    const count = parseInt(document.getElementById('settings-slow-import-count').value) || 10;
-    try {
-        await api('/settings', {
-            method: 'PUT',
-            body: JSON.stringify({ slow_import_count: count })
-        });
-        state.settings.slow_import_count = count;
-        showToast('Managed import count updated', 'success');
-    } catch (error) {
-        // Error already shown
-    }
-}
+// Legacy save functions kept for any remaining callers
+async function updateFormats() { await autoSaveFormats(); }
+async function updateDashboardSettings() { await autoSaveDashboardSettings(); }
+async function updateSlowImportCount() { await autoSaveSlowImportCount(); }
 
 function showAddFolderModal(folderType) {
     const modal = document.getElementById('modal');
