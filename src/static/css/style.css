@@ -2825,6 +2825,18 @@ tr:hover {
     user-select: none;
 }
 
+.shows-per-page-select {
+    margin-left: auto;
+    height: 36px;
+    padding: 0 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--card-bg);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
 /* Theme Selector */
 .theme-selector {
     display: flex;

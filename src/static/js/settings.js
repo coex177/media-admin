@@ -153,12 +153,7 @@ function renderSettingsGeneral(settings) {
                         ${generateSelectOptions(30, settings.recently_ended_count, '{n} Shows')}
                     </select>
                 </div>
-                <div class="dashboard-setting-item">
-                    <label>Shows Per Page</label>
-                    <select id="settings-shows-per-page" class="form-control" onchange="autoSaveDashboardSettings()">
-                        ${[[100,'100 Shows'],[300,'300 Shows'],[500,'500 Shows'],[1000,'1000 Shows'],[3000,'3000 Shows'],[5000,'5000 Shows'],[0,'All Shows']].map(([v,l]) => `<option value="${v}" ${settings.shows_per_page === v ? 'selected' : ''}>${l}</option>`).join('')}
-                    </select>
-                </div>
+
             </div>
             <div class="dashboard-settings-divider"></div>
             <div class="form-group">
@@ -406,7 +401,7 @@ async function autoSaveDashboardSettings() {
     if (el('settings-returning-soon-count')) data.returning_soon_count = parseInt(el('settings-returning-soon-count').value);
     if (el('settings-recently-ended-count')) data.recently_ended_count = parseInt(el('settings-recently-ended-count').value);
     if (el('settings-display-episode-format')) data.display_episode_format = el('settings-display-episode-format').value.trim();
-    if (el('settings-shows-per-page')) data.shows_per_page = parseInt(el('settings-shows-per-page').value);
+
 
     try {
         await api('/settings', {

@@ -209,7 +209,7 @@ async function renderShowsList() {
                 </div>
             </div>
 
-            ${totalPages > 1 ? renderPagination(state.showsPage, totalPages, state.pageLabels) : ''}
+            ${renderPagination(state.showsPage, totalPages, state.pageLabels)}
 
             <div class="card">
                 <div id="shows-container">
@@ -217,7 +217,7 @@ async function renderShowsList() {
                 </div>
             </div>
 
-            ${totalPages > 1 ? renderPagination(state.showsPage, totalPages, state.pageLabels) : ''}
+            ${renderPagination(state.showsPage, totalPages, state.pageLabels)}
         `;
 
         // Check if refresh is in progress on page load
@@ -228,9 +228,23 @@ async function renderShowsList() {
     }
 }
 
-function renderPagination(currentPage, totalPages, pageLabels) {
-    let pageButtons = '';
+function renderShowsPerPageSelect() {
+    const val = state.showsPerPage || 0;
+    return `<select class="shows-per-page-select" onchange="changeShowsPerPage(this.value)">
+        ${[[50,'50'],[100,'100'],[300,'300'],[500,'500'],[1000,'1000'],[0,'All']].map(([v,l]) =>
+            `<option value="${v}" ${val === v ? 'selected' : ''}>${l}</option>`
+        ).join('')}
+    </select>`;
+}
 
+function renderPagination(currentPage, totalPages, pageLabels) {
+    const perPageSelect = renderShowsPerPageSelect();
+
+    if (totalPages <= 1) {
+        return `<div class="pagination">${perPageSelect}</div>`;
+    }
+
+    let pageButtons = '';
     for (let i = 1; i <= totalPages; i++) {
         const label = pageLabels && pageLabels[i - 1] ? pageLabels[i - 1] : i;
         pageButtons += `<button class="pagination-btn ${i === currentPage ? 'active' : ''}" onclick="goToShowsPage(${i})">${label}</button>`;
@@ -241,8 +255,28 @@ function renderPagination(currentPage, totalPages, pageLabels) {
             <button class="pagination-btn" onclick="goToShowsPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>Previous</button>
             ${pageButtons}
             <button class="pagination-btn" onclick="goToShowsPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Next</button>
+            ${perPageSelect}
         </div>
     `;
+}
+
+async function changeShowsPerPage(value) {
+    const newVal = parseInt(value);
+    state.showsPerPage = newVal;
+    state.showsPage = 1;
+
+    // Save to backend
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ shows_per_page: newVal })
+        });
+        if (state.settings) state.settings.shows_per_page = newVal;
+    } catch (error) {
+        // Continue with re-render even if save fails
+    }
+
+    renderShowsList();
 }
 
 function goToShowsPage(page) {
