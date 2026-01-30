@@ -580,7 +580,7 @@ function renderDashboardContent() {
                                             <div class="recent-show-info">
                                                 <div class="recent-show-name">${escapeHtml(show.name)}</div>
                                                 <div class="recent-show-meta">
-                                                    <span>${show.db_episodes} episodes</span>
+                                                    <span>${show.matched_episodes} matched</span>
                                                     <span class="text-muted">|</span>
                                                     <span>${show.disk_files} files</span>
                                                 </div>

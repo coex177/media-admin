@@ -774,7 +774,7 @@ async def get_network_distribution(db: Session = Depends(get_db)):
 
 @router.get("/extra-files")
 async def get_extra_files(db: Session = Depends(get_db)):
-    """Get shows with more video files on disk than episodes tracked in the DB."""
+    """Get shows with more video files on disk than matched episodes in the DB."""
     from ..models import Show, Episode
     from ..config import settings
     import os
@@ -789,7 +789,10 @@ async def get_extra_files(db: Session = Depends(get_db)):
         if not show.folder_path or not os.path.isdir(show.folder_path):
             continue
 
-        db_episodes = db.query(Episode).filter(Episode.show_id == show.id).count()
+        matched_episodes = db.query(Episode).filter(
+            Episode.show_id == show.id,
+            Episode.file_status != "missing",
+        ).count()
 
         disk_files = 0
         try:
@@ -800,14 +803,14 @@ async def get_extra_files(db: Session = Depends(get_db)):
         except (PermissionError, OSError):
             continue
 
-        if disk_files > db_episodes:
+        if disk_files > matched_episodes:
             result.append({
                 "id": show.id,
                 "name": show.name,
                 "poster_path": show.poster_path,
-                "db_episodes": db_episodes,
+                "matched_episodes": matched_episodes,
                 "disk_files": disk_files,
-                "extra": disk_files - db_episodes,
+                "extra": disk_files - matched_episodes,
             })
 
     result.sort(key=lambda x: x["extra"], reverse=True)
