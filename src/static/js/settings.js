@@ -46,7 +46,7 @@ function switchSettingsTab(tabName) {
 
 function applySettingsTab(tabName) {
     state.activeSettingsTab = tabName;
-    localStorage.setItem('settingsActiveTab', tabName);
+    setUiPref('settingsActiveTab', tabName);
 
     // Update active class on tab buttons
     document.querySelectorAll('.settings-tab').forEach(btn => {

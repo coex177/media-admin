@@ -4,7 +4,7 @@
 
 function setShowsView(view) {
     currentShowsView = view;
-    localStorage.setItem('showsViewMode', view);
+    setUiPref('showsViewMode', view);
 
     // Update button states
     document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
@@ -78,11 +78,12 @@ function renderShowCardCompact(show) {
 }
 
 function getShowListExpandDefault() {
-    try { return localStorage.getItem('showsListExpandDefault') === 'true'; } catch { return false; }
+    const v = getUiPref('showsListExpandDefault', false);
+    return v === true || v === 'true';
 }
 
 function getShowListExpandOverrides() {
-    try { return JSON.parse(localStorage.getItem('showsListExpandOverrides') || '{}'); } catch { return {}; }
+    return getUiPref('showsListExpandOverrides', {});
 }
 
 function isShowListItemExpanded(showId) {
@@ -92,17 +93,14 @@ function isShowListItemExpanded(showId) {
 }
 
 function setShowListExpandState(showId, expanded) {
-    try {
-        const overrides = getShowListExpandOverrides();
-        const defaultState = getShowListExpandDefault();
-        if (expanded === defaultState) {
-            // Matches default, remove override
-            delete overrides[showId];
-        } else {
-            overrides[showId] = expanded;
-        }
-        localStorage.setItem('showsListExpandOverrides', JSON.stringify(overrides));
-    } catch { /* ignore */ }
+    const overrides = getShowListExpandOverrides();
+    const defaultState = getShowListExpandDefault();
+    if (expanded === defaultState) {
+        delete overrides[showId];
+    } else {
+        overrides[showId] = expanded;
+    }
+    setUiPref('showsListExpandOverrides', overrides);
 }
 
 function renderShowListItem(show) {
@@ -156,8 +154,8 @@ function toggleShowListItem(showId) {
 
 function collapseAllShowListItems() {
     // Set default to collapsed, clear all overrides
-    localStorage.setItem('showsListExpandDefault', 'false');
-    localStorage.setItem('showsListExpandOverrides', '{}');
+    setUiPref('showsListExpandDefault', false);
+    setUiPref('showsListExpandOverrides', {});
     document.querySelectorAll('.show-list-item').forEach(item => {
         const showId = item.id.replace('show-list-item-', '');
         const details = document.getElementById(`show-list-details-${showId}`);
@@ -169,8 +167,8 @@ function collapseAllShowListItems() {
 
 function expandAllShowListItems() {
     // Set default to expanded, clear all overrides
-    localStorage.setItem('showsListExpandDefault', 'true');
-    localStorage.setItem('showsListExpandOverrides', '{}');
+    setUiPref('showsListExpandDefault', true);
+    setUiPref('showsListExpandOverrides', {});
     document.querySelectorAll('.show-list-item').forEach(item => {
         const showId = item.id.replace('show-list-item-', '');
         const details = document.getElementById(`show-list-details-${showId}`);

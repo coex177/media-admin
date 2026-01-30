@@ -2,23 +2,17 @@
  * Media Admin - Dashboard (rendering, card drag-drop, distribution toggles)
  */
 
-// Dashboard view state
-let currentShowsView = localStorage.getItem('showsViewMode') || 'cards';
+// Dashboard view state (loaded from DB in checkSetup)
+let currentShowsView = 'cards';
 
-// Dashboard card states - load from localStorage
+// Dashboard card states (loaded from DB in checkSetup)
 const defaultCardOrder = [
     'recently-aired', 'upcoming', 'recently-added', 'recently-ended',
     'most-incomplete', 'recently-matched', 'returning-soon',
     'last-scan', 'storage-stats', 'genre-distribution', 'network-distribution'
 ];
-let dashboardCardOrder = JSON.parse(localStorage.getItem('dashboardCardOrder')) || [...defaultCardOrder];
-// Ensure any new cards are added to existing user's order
-defaultCardOrder.forEach(cardId => {
-    if (!dashboardCardOrder.includes(cardId)) {
-        dashboardCardOrder.push(cardId);
-    }
-});
-let dashboardCardStates = JSON.parse(localStorage.getItem('dashboardCardStates')) || {};
+let dashboardCardOrder = [...defaultCardOrder];
+let dashboardCardStates = {};
 
 // Dashboard data cache for re-rendering after drag
 let dashboardData = {};
@@ -643,19 +637,18 @@ function toggleDistributionShows(type, name) {
     const isVisible = el.style.display !== 'none';
     el.style.display = isVisible ? 'none' : 'block';
 
-    // Persist expanded state in localStorage
-    const stored = JSON.parse(localStorage.getItem('expandedDistributions') || '{}');
+    const stored = getUiPref('expandedDistributions', {});
     if (!stored[type]) stored[type] = [];
     if (isVisible) {
         stored[type] = stored[type].filter(n => n !== name);
     } else {
         if (!stored[type].includes(name)) stored[type].push(name);
     }
-    localStorage.setItem('expandedDistributions', JSON.stringify(stored));
+    setUiPref('expandedDistributions', stored);
 }
 
 function isDistributionExpanded(type, name) {
-    const stored = JSON.parse(localStorage.getItem('expandedDistributions') || '{}');
+    const stored = getUiPref('expandedDistributions', {});
     return (stored[type] || []).includes(name);
 }
 
@@ -673,9 +666,9 @@ function toggleDashboardCard(cardId) {
     // Update in-memory state
     dashboardCardStates[cardId] = isOpen;
 
-    // Only persist to localStorage when the layout is mixed (not all same)
+    // Only persist when the layout is mixed (not all same)
     if (_isCardStateMixed()) {
-        localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+        setUiPref('dashboardCardStates', dashboardCardStates);
     }
 }
 
@@ -716,15 +709,15 @@ function collapseAllCards() {
 }
 
 function restoreSavedCards() {
-    // Load the last saved layout from localStorage
-    dashboardCardStates = JSON.parse(localStorage.getItem('dashboardCardStates')) || {};
+    // Load the last saved layout from DB prefs
+    dashboardCardStates = getUiPref('dashboardCardStates', {});
     _applyCardStates(dashboardCardStates);
 }
 
 function clearSavedCards() {
     // Collapse all AND persist as the saved layout
     dashboardCardStates = {};
-    localStorage.setItem('dashboardCardStates', JSON.stringify(dashboardCardStates));
+    setUiPref('dashboardCardStates', dashboardCardStates);
     _applyCardStates(dashboardCardStates);
 }
 
@@ -777,8 +770,8 @@ function handleCardDrop(event) {
         // Insert at target position
         dashboardCardOrder.splice(targetIndex, 0, draggedCardId);
 
-        // Save to localStorage
-        localStorage.setItem('dashboardCardOrder', JSON.stringify(dashboardCardOrder));
+        // Save to DB prefs
+        setUiPref('dashboardCardOrder', dashboardCardOrder);
 
         // Re-render the dashboard cards
         renderDashboardContent();

@@ -411,50 +411,34 @@ async function pollScanStatus() {
 
 // Missing Episodes - Collapse State Management
 function getMissingGroupCollapseState(showId) {
-    try {
-        const states = JSON.parse(localStorage.getItem('missingGroupCollapseStates') || '{}');
-        return states[showId] === true;
-    } catch {
-        return false;
-    }
+    const states = getUiPref('missingGroupCollapseStates', {});
+    return states[showId] === true;
 }
 
 function setMissingGroupCollapseState(showId, collapsed) {
-    try {
-        const states = JSON.parse(localStorage.getItem('missingGroupCollapseStates') || '{}');
-        if (collapsed) {
-            states[showId] = true;
-        } else {
-            delete states[showId];
-        }
-        localStorage.setItem('missingGroupCollapseStates', JSON.stringify(states));
-    } catch {
-        // Ignore localStorage errors
+    const states = getUiPref('missingGroupCollapseStates', {});
+    if (collapsed) {
+        states[showId] = true;
+    } else {
+        delete states[showId];
     }
+    setUiPref('missingGroupCollapseStates', states);
 }
 
 // Missing Episodes - Season Collapse State Management
 function getMissingSeasonCollapseState(seasonKey) {
-    try {
-        const states = JSON.parse(localStorage.getItem('missingSeasonCollapseStates') || '{}');
-        return states[seasonKey] === true;
-    } catch {
-        return false;
-    }
+    const states = getUiPref('missingSeasonCollapseStates', {});
+    return states[seasonKey] === true;
 }
 
 function setMissingSeasonCollapseState(seasonKey, collapsed) {
-    try {
-        const states = JSON.parse(localStorage.getItem('missingSeasonCollapseStates') || '{}');
-        if (collapsed) {
-            states[seasonKey] = true;
-        } else {
-            delete states[seasonKey];
-        }
-        localStorage.setItem('missingSeasonCollapseStates', JSON.stringify(states));
-    } catch {
-        // Ignore localStorage errors
+    const states = getUiPref('missingSeasonCollapseStates', {});
+    if (collapsed) {
+        states[seasonKey] = true;
+    } else {
+        delete states[seasonKey];
     }
+    setUiPref('missingSeasonCollapseStates', states);
 }
 
 function toggleMissingSeason(seasonKey, headerRow) {

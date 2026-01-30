@@ -26,7 +26,8 @@ const state = {
     showsPerPage: 0,
     totalShows: 0,
     totalPages: 1,
-    activeSettingsTab: localStorage.getItem('settingsActiveTab') || 'general'
+    activeSettingsTab: 'general',
+    uiPrefs: {}
 };
 
 // DOM Elements
@@ -612,12 +613,94 @@ async function api(endpoint, options = {}) {
     }
 }
 
+// ── UI Preferences (DB-backed) ──────────────────────────────────
+let _uiPrefsPending = {};
+let _uiPrefsFlushTimer = null;
+
+function getUiPref(key, defaultValue) {
+    const v = state.uiPrefs[key];
+    return v !== undefined ? v : defaultValue;
+}
+
+function setUiPref(key, value) {
+    state.uiPrefs[key] = value;
+    _uiPrefsPending[key] = value;
+    if (_uiPrefsFlushTimer) clearTimeout(_uiPrefsFlushTimer);
+    _uiPrefsFlushTimer = setTimeout(_flushUiPrefs, 500);
+}
+
+async function _flushUiPrefs() {
+    const batch = _uiPrefsPending;
+    _uiPrefsPending = {};
+    _uiPrefsFlushTimer = null;
+    if (Object.keys(batch).length === 0) return;
+    try {
+        await fetch(`${API_BASE}/ui-prefs`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefs: batch })
+        });
+    } catch (e) {
+        // silently fail — prefs are still in memory
+    }
+}
+
+async function loadUiPrefs() {
+    try {
+        const prefs = await fetch(`${API_BASE}/ui-prefs`).then(r => r.json());
+        state.uiPrefs = prefs && typeof prefs === 'object' ? prefs : {};
+    } catch (e) {
+        state.uiPrefs = {};
+    }
+
+    // One-time migration: if DB is empty and localStorage has data
+    if (Object.keys(state.uiPrefs).length === 0 && localStorage.getItem('showsViewMode')) {
+        const migrationKeys = [
+            'showsViewMode', 'dashboardCardOrder', 'dashboardCardStates',
+            'expandedDistributions', 'settingsActiveTab',
+            'showsListExpandDefault', 'showsListExpandOverrides',
+            'missingGroupCollapseStates', 'missingSeasonCollapseStates',
+            'watcherLogManualState'
+        ];
+        const migration = {};
+        migrationKeys.forEach(key => {
+            const raw = localStorage.getItem(key);
+            if (raw !== null) {
+                try { migration[key] = JSON.parse(raw); } catch { migration[key] = raw; }
+            }
+        });
+        if (Object.keys(migration).length > 0) {
+            state.uiPrefs = migration;
+            try {
+                await fetch(`${API_BASE}/ui-prefs`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prefs: migration })
+                });
+            } catch (e) { /* ignore */ }
+            migrationKeys.forEach(key => localStorage.removeItem(key));
+        }
+    }
+}
+
 // Check Setup Status
 async function checkSetup() {
     try {
-        const settings = await api('/settings');
+        const [settings] = await Promise.all([api('/settings'), loadUiPrefs()]);
         state.settings = settings;
         state.setupCompleted = settings.setup_completed;
+
+        // Apply DB-backed prefs to module-level vars
+        state.activeSettingsTab = getUiPref('settingsActiveTab', 'general');
+        currentShowsView = getUiPref('showsViewMode', 'cards');
+        dashboardCardOrder = getUiPref('dashboardCardOrder', null) || [...defaultCardOrder];
+        // Ensure any new cards are added to existing user's order
+        defaultCardOrder.forEach(cardId => {
+            if (!dashboardCardOrder.includes(cardId)) {
+                dashboardCardOrder.push(cardId);
+            }
+        });
+        dashboardCardStates = getUiPref('dashboardCardStates', {});
 
         // Apply saved theme
         applyTheme(settings.theme || 'midnight');

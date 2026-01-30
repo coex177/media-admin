@@ -428,30 +428,26 @@ async function loadWatcherLog() {
 }
 
 function getWatcherLogManualState() {
-    try { return JSON.parse(localStorage.getItem('watcherLogManualState') || '{}'); } catch { return {}; }
+    return getUiPref('watcherLogManualState', {});
 }
 
 function setWatcherLogManualState(key, expanded) {
-    try {
-        const states = getWatcherLogManualState();
-        states[key] = expanded;
-        localStorage.setItem('watcherLogManualState', JSON.stringify(states));
-    } catch { /* ignore */ }
+    const states = getWatcherLogManualState();
+    states[key] = expanded;
+    setUiPref('watcherLogManualState', states);
 }
 
 function cleanupStaleManualStates(activeKeys) {
-    try {
-        const states = getWatcherLogManualState();
-        const activeSet = new Set(activeKeys);
-        let changed = false;
-        for (const key of Object.keys(states)) {
-            if (!activeSet.has(key)) {
-                delete states[key];
-                changed = true;
-            }
+    const states = getWatcherLogManualState();
+    const activeSet = new Set(activeKeys);
+    let changed = false;
+    for (const key of Object.keys(states)) {
+        if (!activeSet.has(key)) {
+            delete states[key];
+            changed = true;
         }
-        if (changed) localStorage.setItem('watcherLogManualState', JSON.stringify(states));
-    } catch { /* ignore */ }
+    }
+    if (changed) setUiPref('watcherLogManualState', states);
 }
 
 function isNodeExpanded(key, defaultExpanded) {

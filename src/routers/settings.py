@@ -74,6 +74,34 @@ def set_setting(db: Session, key: str, value: str) -> None:
     db.commit()
 
 
+@router.get("/ui-prefs")
+async def get_ui_prefs(db: Session = Depends(get_db)):
+    """Get UI preferences blob."""
+    raw = get_setting(db, "ui_preferences", "{}")
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+@router.put("/ui-prefs")
+async def update_ui_prefs(data: dict, db: Session = Depends(get_db)):
+    """Merge UI preferences. Expects { prefs: { key: value, ... } }."""
+    incoming = data.get("prefs")
+    if not isinstance(incoming, dict):
+        raise HTTPException(status_code=400, detail="Expected { prefs: { ... } }")
+
+    raw = get_setting(db, "ui_preferences", "{}")
+    try:
+        existing = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        existing = {}
+
+    existing.update(incoming)
+    set_setting(db, "ui_preferences", json.dumps(existing))
+    return existing
+
+
 @router.get("/settings")
 async def get_settings(db: Session = Depends(get_db)):
     """Get application settings."""
