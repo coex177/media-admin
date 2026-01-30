@@ -25,6 +25,7 @@ const state = {
     showsPage: 1,
     showsPerPage: 0,
     totalShows: 0,
+    totalPages: 1,
     activeSettingsTab: localStorage.getItem('settingsActiveTab') || 'general'
 };
 
@@ -303,7 +304,7 @@ async function performGlobalSearch(query) {
         // Search provider and local library
         const [providerResults, localShowsResp] = await Promise.all([
             api(searchEndpoint),
-            api('/shows?limit=10000')
+            api('/shows')
         ]);
         const localShows = localShowsResp.shows;
 
@@ -396,7 +397,7 @@ function renderSearchResults(query, providerResults, localShows, searchSource = 
 async function showShowDetailByTmdbId(tmdbId) {
     // Find the local show by TMDB ID
     try {
-        const resp = await api('/shows?limit=10000');
+        const resp = await api('/shows');
         const localShow = resp.shows.find(s => s.tmdb_id === tmdbId);
         if (localShow) {
             showShowDetail(localShow.id);
@@ -409,7 +410,7 @@ async function showShowDetailByTmdbId(tmdbId) {
 async function showShowDetailByTvdbId(tvdbId) {
     // Find the local show by TVDB ID
     try {
-        const resp = await api('/shows?limit=10000');
+        const resp = await api('/shows');
         const localShow = resp.shows.find(s => s.tvdb_id === tvdbId);
         if (localShow) {
             showShowDetail(localShow.id);

@@ -158,15 +158,14 @@ async function renderShowsList() {
         }
         state.showsPerPage = state.settings.shows_per_page ?? 0;
 
-        const skip = state.showsPerPage > 0 ? (state.showsPage - 1) * state.showsPerPage : 0;
-        const limit = state.showsPerPage > 0 ? state.showsPerPage : 10000;
-        const resp = await api(`/shows?skip=${skip}&limit=${limit}`);
+        const resp = await api(`/shows?page=${state.showsPage}&per_page=${state.showsPerPage}`);
         const shows = resp.shows;
         state.shows = shows;
         state.totalShows = resp.total;
         state.pageLabels = resp.page_labels || [];
+        state.totalPages = resp.total_pages || 1;
 
-        const totalPages = state.showsPerPage > 0 ? Math.ceil(state.totalShows / state.showsPerPage) : 1;
+        const totalPages = state.totalPages;
         // Clamp current page
         if (state.showsPage > totalPages && totalPages > 0) {
             state.showsPage = totalPages;
@@ -280,7 +279,7 @@ async function changeShowsPerPage(value) {
 }
 
 function goToShowsPage(page) {
-    const totalPages = Math.ceil(state.totalShows / state.showsPerPage);
+    const totalPages = state.totalPages || 1;
     if (page < 1 || page > totalPages) return;
     state.showsPage = page;
     window.scrollTo(0, 0);
@@ -380,10 +379,11 @@ async function checkRefreshStatus() {
                 showRefreshResultsModal(status);
 
                 // Reload the shows list without triggering another status check
-                const skip = (state.showsPage - 1) * state.showsPerPage;
-                const resp = await api(`/shows?skip=${skip}&limit=${state.showsPerPage}`);
+                const resp = await api(`/shows?page=${state.showsPage}&per_page=${state.showsPerPage}`);
                 state.shows = resp.shows;
                 state.totalShows = resp.total;
+                state.totalPages = resp.total_pages || 1;
+                state.pageLabels = resp.page_labels || [];
                 const showsContainer = document.getElementById('shows-container');
                 if (showsContainer) {
                     showsContainer.innerHTML = renderShowsView(resp.shows);

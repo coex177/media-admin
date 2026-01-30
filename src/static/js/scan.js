@@ -741,7 +741,7 @@ async function searchForFixMatch() {
         // Search both local library and TMDB
         const [tmdbResults, localShowsResp] = await Promise.all([
             api(`/shows/search/tmdb?q=${encodeURIComponent(query)}`),
-            api('/shows?limit=10000')
+            api('/shows')
         ]);
         const localShows = localShowsResp.shows;
 
