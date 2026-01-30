@@ -3014,6 +3014,9 @@ a.metadata-source-tag:hover {
     position: relative;
     transition: color 0.2s;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .settings-tab:hover {
@@ -3563,6 +3566,9 @@ a.metadata-source-tag:hover {
     position: relative;
     transition: color 0.2s;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .scan-tab:hover {
@@ -3795,5 +3801,19 @@ a.metadata-source-tag:hover {
     .log-entry-details {
         margin-left: 0;
     }
+}
+
+/* ── Tab & list view icons ──────────────────────────────────── */
+
+.tab-icon-img {
+    width: 20px;
+    height: 20px;
+    vertical-align: middle;
+}
+
+.show-list-chevron-img {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
 }
 

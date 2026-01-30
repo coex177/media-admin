@@ -75,7 +75,7 @@ function renderShowListItem(show) {
     return `
         <div class="show-list-item" id="show-list-item-${show.id}">
             <div class="show-list-header" onclick="toggleShowListItem(${show.id})">
-                <span class="show-list-chevron" id="show-list-chevron-${show.id}">&#9658;</span>
+                <img src="/static/images/show-expand.png" class="show-list-chevron-img" id="show-list-chevron-${show.id}" alt="">
                 <span class="show-list-name">${escapeHtml(show.name)}</span>
                 <span class="show-list-status">
                     <span class="text-muted">${show.episodes_found}/${totalAired}</span>
@@ -110,7 +110,7 @@ function toggleShowListItem(showId) {
     // Toggle current item
     details.classList.toggle('open');
     if (chevron) {
-        chevron.innerHTML = isOpen ? '&#9658;' : '&#9660;';
+        chevron.src = isOpen ? '/static/images/show-expand.png' : '/static/images/show-collapse.png';
     }
 }
 

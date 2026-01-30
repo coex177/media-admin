@@ -23,8 +23,8 @@ async function renderScan() {
             </div>
 
             <div class="scan-tabs">
-                <button class="scan-tab ${activeScanTab === 'operations' ? 'active' : ''}" onclick="switchScanTab('operations')">Operations</button>
-                <button class="scan-tab ${activeScanTab === 'watcher-log' ? 'active' : ''}" onclick="switchScanTab('watcher-log')">Watcher Log</button>
+                <button class="scan-tab ${activeScanTab === 'operations' ? 'active' : ''}" onclick="switchScanTab('operations')"><img src="/static/images/operations.png" class="tab-icon-img" alt="">Operations</button>
+                <button class="scan-tab ${activeScanTab === 'watcher-log' ? 'active' : ''}" onclick="switchScanTab('watcher-log')"><img src="/static/images/watcher-log.png" class="tab-icon-img" alt="">Watcher Log</button>
             </div>
 
             <div id="scan-tab-content"></div>

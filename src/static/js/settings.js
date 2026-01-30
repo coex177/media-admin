@@ -25,10 +25,10 @@ async function renderSettings() {
                 <h1 class="page-title">Settings</h1>
             </div>
             <div class="settings-tabs">
-                <button class="settings-tab ${activeTab === 'general' ? 'active' : ''}" onclick="switchSettingsTab('general')">General</button>
-                <button class="settings-tab ${activeTab === 'metadata' ? 'active' : ''}" onclick="switchSettingsTab('metadata')">Metadata</button>
-                <button class="settings-tab ${activeTab === 'library' ? 'active' : ''}" onclick="switchSettingsTab('library')">Library</button>
-                <button class="settings-tab ${activeTab === 'watcher' ? 'active' : ''}" onclick="switchSettingsTab('watcher')">Media Watcher</button>
+                <button class="settings-tab ${activeTab === 'general' ? 'active' : ''}" onclick="switchSettingsTab('general')"><img src="/static/images/settings-general.png" class="tab-icon-img" alt="">General</button>
+                <button class="settings-tab ${activeTab === 'metadata' ? 'active' : ''}" onclick="switchSettingsTab('metadata')"><img src="/static/images/settings-metadata.png" class="tab-icon-img" alt="">Metadata</button>
+                <button class="settings-tab ${activeTab === 'library' ? 'active' : ''}" onclick="switchSettingsTab('library')"><img src="/static/images/settings-library.png" class="tab-icon-img" alt="">Library</button>
+                <button class="settings-tab ${activeTab === 'watcher' ? 'active' : ''}" onclick="switchSettingsTab('watcher')"><img src="/static/images/settings-media-watcher.png" class="tab-icon-img" alt="">Media Watcher</button>
             </div>
             <div id="settings-tab-content"></div>
         `;
@@ -931,7 +931,7 @@ function minimizeScanResults() {
     li.id = 'scan-results-indicator';
     li.innerHTML = `
         <a href="#" onclick="restoreScanResults(); return false;" style="color: var(--success-color);">
-            <span class="nav-icon">&#x1F4CB;</span>
+            <img src="/static/images/minimized-window.png" class="nav-icon-img" alt="">
             Import Results
         </a>
     `;
