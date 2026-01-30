@@ -762,13 +762,17 @@ def _rename_episodes_to_match_metadata(db: Session, show: Show) -> int:
         if not current_path.exists():
             continue
 
-        # Use the lowest-numbered episode for generating the filename
-        primary_ep = min(eps, key=lambda e: (e.season, e.episode))
         extension = current_path.suffix
 
-        expected_path = Path(
-            renamer.generate_episode_path(show, primary_ep, extension)
-        )
+        if len(eps) > 1:
+            # Multi-episode file: generate combined filename
+            expected_path = Path(
+                renamer.generate_multi_episode_path(show, eps, extension)
+            )
+        else:
+            expected_path = Path(
+                renamer.generate_episode_path(show, eps[0], extension)
+            )
 
         if current_path == expected_path:
             continue  # Already named correctly

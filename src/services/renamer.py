@@ -46,6 +46,57 @@ class RenamerService:
 
         return filename + extension
 
+    def generate_multi_episode_filename(
+        self, show: Show, episodes: list[Episode], extension: str
+    ) -> str:
+        """Generate a filename for a multi-episode file.
+
+        Produces e.g. '6x15-6x16 - Title A + Title B.mkv' by building the
+        primary episode code, appending '-NxNN' suffixes for each additional
+        episode, and joining all titles with ' + '.
+        """
+        eps = sorted(episodes, key=lambda e: (e.season, e.episode))
+        primary = eps[0]
+
+        # Build the episode number portion: "6x15-6x16"
+        fmt = show.episode_format  # e.g. "{season}x{episode:02d} - {title}"
+        primary_code = fmt.format(
+            season=primary.season,
+            episode=primary.episode,
+            title="",
+        )
+        # Strip the separator and empty title to get just the episode code
+        # e.g. "6x15 - " -> "6x15"
+        primary_code = primary_code.rstrip(" -–")
+
+        suffixes = []
+        for ep in eps[1:]:
+            ep_code = fmt.format(season=ep.season, episode=ep.episode, title="")
+            ep_code = ep_code.rstrip(" -–")
+            suffixes.append(ep_code)
+
+        episode_code = "-".join([primary_code] + suffixes)
+
+        # Build the combined title
+        titles = [self._sanitize_filename(ep.title) for ep in eps]
+        combined_title = " + ".join(titles)
+
+        # Reconstruct: find separator between episode code and title in format
+        # by rendering with a sentinel title
+        sentinel = "\x00TITLE\x00"
+        rendered = fmt.format(
+            season=primary.season,
+            episode=primary.episode,
+            title=sentinel,
+        )
+        if sentinel in rendered:
+            separator = rendered.split(primary_code)[1].split(sentinel)[0] if primary_code in rendered else " - "
+        else:
+            separator = " - "
+
+        filename = episode_code + separator + combined_title
+        return filename + extension
+
     def generate_episode_path(
         self, show: Show, episode: Episode, extension: str
     ) -> str:
@@ -58,6 +109,19 @@ class RenamerService:
 
         # Episode filename
         filename = self.generate_episode_filename(show, episode, extension)
+
+        return str(Path(show.folder_path) / season_folder / filename)
+
+    def generate_multi_episode_path(
+        self, show: Show, episodes: list[Episode], extension: str
+    ) -> str:
+        """Generate the full path for a multi-episode file."""
+        if not show.folder_path:
+            raise ValueError(f"Show {show.name} has no folder path configured")
+
+        primary = min(episodes, key=lambda e: (e.season, e.episode))
+        season_folder = show.season_format.format(season=primary.season)
+        filename = self.generate_multi_episode_filename(show, episodes, extension)
 
         return str(Path(show.folder_path) / season_folder / filename)
 
