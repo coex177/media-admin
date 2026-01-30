@@ -85,7 +85,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('recently-aired')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-recently-aired">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-recently-aired" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Recently Aired (${recentlyAiredDays} days)
                         </h2>
                         <span class="badge ${recentlyAired.filter(e => e.file_status === 'missing').length > 0 ? 'badge-danger' : 'badge-success'}">
@@ -126,7 +126,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('recently-added')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-recently-added">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-recently-added" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Recently Added Shows
                         </h2>
                         <span class="text-muted">${recentlyAdded.length} shows</span>
@@ -184,7 +184,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('upcoming')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-upcoming">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-upcoming" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Upcoming (${upcomingDays} days)
                         </h2>
                         <span class="text-muted">${upcoming.length} episodes</span>
@@ -226,7 +226,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('recently-ended')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-recently-ended">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-recently-ended" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Recently Ended
                         </h2>
                         <span class="text-muted">${recentlyEnded.length} shows</span>
@@ -278,7 +278,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('most-incomplete')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-most-incomplete">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-most-incomplete" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Most Incomplete
                         </h2>
                         <span class="text-muted">${mostIncomplete.length} shows</span>
@@ -323,7 +323,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('recently-matched')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-recently-matched">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-recently-matched" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Recently Matched
                         </h2>
                         <span class="text-muted">${recentlyMatched.length} episodes</span>
@@ -363,7 +363,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('returning-soon')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-returning-soon">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-returning-soon" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Returning Soon
                         </h2>
                         <span class="text-muted">${returningSoon.length} shows</span>
@@ -409,7 +409,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('last-scan')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-last-scan">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-last-scan" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Last Scan
                         </h2>
                         <span class="text-muted">${scanTime}</span>
@@ -451,7 +451,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('storage-stats')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-storage-stats">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-storage-stats" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Storage Stats
                         </h2>
                         <span class="text-muted">${storageStats.total_size_gb} GB</span>
@@ -485,7 +485,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('genre-distribution')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-genre-distribution">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-genre-distribution" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Genres
                         </h2>
                         <span class="text-muted">${genreDistribution.length} genres</span>
@@ -520,7 +520,7 @@ function renderDashboardContent() {
                      ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
                     <div class="card-header clickable" onclick="toggleDashboardCard('network-distribution')">
                         <h2 class="card-title">
-                            <span class="dashboard-card-chevron" id="chevron-network-distribution">${isOpen ? '&#9660;' : '&#9658;'}</span>
+                            <img class="dashboard-card-chevron" id="chevron-network-distribution" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
                             Networks
                         </h2>
                         <span class="text-muted">${networkDistribution.length} networks</span>
@@ -639,7 +639,7 @@ function toggleDashboardCard(cardId) {
 
     const isOpen = content.classList.toggle('open');
     if (chevron) {
-        chevron.innerHTML = isOpen ? '&#9660;' : '&#9658;';
+        chevron.src = isOpen ? '/static/images/show-collapse.png' : '/static/images/show-expand.png';
     }
 
     // Update in-memory state
@@ -661,7 +661,7 @@ function _applyCardStates(stateMap) {
             content.classList.toggle('open', isOpen);
         }
         if (chevron) {
-            chevron.innerHTML = isOpen ? '&#9660;' : '&#9658;';
+            chevron.src = isOpen ? '/static/images/show-collapse.png' : '/static/images/show-expand.png';
         }
     });
 }

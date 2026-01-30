@@ -907,11 +907,11 @@ tr:hover {
 }
 
 .dashboard-card-chevron {
-    display: inline-block;
+    width: 16px;
+    height: 16px;
     margin-right: 8px;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    transition: transform 0.2s;
+    vertical-align: middle;
+    flex-shrink: 0;
 }
 
 .dashboard-card-content {
