@@ -283,6 +283,15 @@ async def get_watcher_log(
     }
 
 
+@router.delete("/watcher/log")
+async def clear_watcher_log(db: Session = Depends(get_db)):
+    """Delete all watcher log entries."""
+    count = db.query(WatcherLog).count()
+    db.query(WatcherLog).delete()
+    db.commit()
+    return {"message": f"Deleted {count} log entries", "deleted": count}
+
+
 # ── Prerequisites validation ────────────────────────────────────────
 
 @router.post("/watcher/validate-prerequisites")

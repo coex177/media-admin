@@ -2107,9 +2107,15 @@ tr:hover {
     height: 20px;
 }
 
-.card-control-btn:hover {
+.card-control-btn:hover:not(:disabled) {
     background: var(--primary-color);
     border-color: var(--primary-color);
+}
+
+.card-control-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+    pointer-events: none;
 }
 
 /* Empty State */
@@ -3826,5 +3832,145 @@ a.metadata-source-tag:hover {
     width: 16px;
     height: 16px;
     flex-shrink: 0;
+}
+
+/* Missing episodes show name link column */
+.missing-show-link-col {
+    text-align: right;
+}
+
+.missing-show-link {
+    color: var(--primary-color);
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.missing-show-link:hover {
+    text-decoration: underline;
+}
+
+/* Missing season collapsible sub-headers */
+.missing-season-header {
+    cursor: pointer;
+    user-select: none;
+}
+
+.missing-season-header:hover {
+    background: var(--card-hover);
+}
+
+.missing-season-header-cell {
+    padding: 8px 12px !important;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.missing-season-chevron {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.missing-season-count {
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin-left: 4px;
+    font-size: 0.8rem;
+}
+
+.missing-season-hidden {
+    display: none;
+}
+
+/* Dark-theme calendar date picker indicator */
+input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+    cursor: pointer;
+}
+
+[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: none;
+}
+
+/* Watcher log hierarchy */
+.wlog-chevron {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.wlog-year-header,
+.wlog-month-header,
+.wlog-day-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.wlog-year-header:hover,
+.wlog-month-header:hover,
+.wlog-day-header:hover {
+    background: var(--card-hover);
+}
+
+.wlog-year-header {
+    font-size: 1rem;
+    color: var(--text-primary);
+    background: var(--darker-bg);
+}
+
+.wlog-month-header {
+    font-size: 0.92rem;
+    color: var(--text-primary);
+    padding-left: 28px;
+}
+
+.wlog-day-header {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    padding-left: 44px;
+    font-weight: 500;
+}
+
+.wlog-year-label,
+.wlog-month-label,
+.wlog-day-label {
+    flex: 1;
+}
+
+.wlog-node-count {
+    font-weight: 400;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.wlog-year-content,
+.wlog-month-content,
+.wlog-day-content {
+    display: none;
+}
+
+.wlog-year-content.open,
+.wlog-month-content.open,
+.wlog-day-content.open {
+    display: block;
+}
+
+.wlog-day-content .watcher-log-entry {
+    padding-left: 60px;
+}
+
+.wlog-day-content .log-entry-details {
+    padding-left: 60px;
 }
 

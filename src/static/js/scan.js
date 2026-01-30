@@ -35,6 +35,8 @@ async function renderScan() {
         } else {
             renderWatcherLogTab();
         }
+
+        restorePendingScroll();
     } catch (error) {
         appContent.innerHTML = `<div class="alert alert-danger">Failed to load scan page.</div>`;
     }
@@ -172,21 +174,46 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, settings)
                                                 <th>Episode</th>
                                                 <th>Air Date</th>
                                                 <th>Filename</th>
+                                                <th class="missing-show-link-col"><span class="missing-show-link" onclick="event.stopPropagation(); showShowDetail(${show.show_id})">${escapeHtml(show.show_name)}</span></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            ${show.episodes.map(ep => `
-                                                <tr class="missing-episode-row">
-                                                    <td class="checkbox-col"><input type="checkbox" class="episode-checkbox" data-show-id="${show.show_id}" data-episode-id="${ep.id}" data-show-name="${escapeHtml(show.show_name)}" onclick="event.stopPropagation(); updateMissingSelectionCount()"></td>
-                                                    <td>${ep.season}</td>
-                                                    <td>${ep.episode}</td>
-                                                    <td>${ep.air_date || '-'}</td>
-                                                    <td class="filename-cell">
-                                                        <div class="filename-line" onclick="showShowDetail(${show.show_id}, ${ep.season}, ${ep.episode})" title="${escapeHtml(ep.expected_filename)}">${escapeHtml(ep.expected_filename)}</div>
-                                                        <div class="folder-line" title="${escapeHtml(ep.expected_folder)}">${escapeHtml(ep.expected_folder)}</div>
-                                                    </td>
-                                                </tr>
-                                            `).join('')}
+                                            ${(() => {
+                                                // Group episodes by season
+                                                const seasonGroups = {};
+                                                show.episodes.forEach(ep => {
+                                                    const s = ep.season;
+                                                    if (!seasonGroups[s]) seasonGroups[s] = [];
+                                                    seasonGroups[s].push(ep);
+                                                });
+                                                const seasonKeys = Object.keys(seasonGroups).sort((a, b) => a - b);
+                                                return seasonKeys.map(seasonNum => {
+                                                    const eps = seasonGroups[seasonNum];
+                                                    const seasonKey = show.show_id + '-' + seasonNum;
+                                                    const seasonCollapsed = getMissingSeasonCollapseState(seasonKey);
+                                                    let rows = '';
+                                                    rows += '<tr class="missing-season-header" onclick="toggleMissingSeason(\'' + seasonKey + '\', this)">' +
+                                                            '<td colspan="6" class="missing-season-header-cell">' +
+                                                            '<img src="/static/images/' + (seasonCollapsed ? 'show-expand.png' : 'show-collapse.png') + '" class="missing-season-chevron" alt="">' +
+                                                            ' Season ' + seasonNum +
+                                                            '<span class="missing-season-count">(' + eps.length + ')</span>' +
+                                                            '</td></tr>';
+                                                    eps.forEach(ep => {
+                                                        rows += '<tr class="missing-episode-row' + (seasonCollapsed ? ' missing-season-hidden' : '') + '" data-season-key="' + seasonKey + '">' +
+                                                            '<td class="checkbox-col"><input type="checkbox" class="episode-checkbox" data-show-id="' + show.show_id + '" data-episode-id="' + ep.id + '" data-show-name="' + escapeHtml(show.show_name) + '" onclick="event.stopPropagation(); updateMissingSelectionCount()"></td>' +
+                                                            '<td>' + ep.season + '</td>' +
+                                                            '<td>' + ep.episode + '</td>' +
+                                                            '<td>' + (ep.air_date || '-') + '</td>' +
+                                                            '<td class="filename-cell">' +
+                                                            '<div class="filename-line" onclick="showShowDetail(' + show.show_id + ', ' + ep.season + ', ' + ep.episode + ')" title="' + escapeHtml(ep.expected_filename) + '">' + escapeHtml(ep.expected_filename) + '</div>' +
+                                                            '<div class="folder-line" title="' + escapeHtml(ep.expected_folder) + '">' + escapeHtml(ep.expected_folder) + '</div>' +
+                                                            '</td>' +
+                                                            '<td></td>' +
+                                                            '</tr>';
+                                                    });
+                                                    return rows;
+                                                }).join('');
+                                            })()}
                                         </tbody>
                                     </table>
                                 </div>
@@ -404,6 +431,44 @@ function setMissingGroupCollapseState(showId, collapsed) {
     } catch {
         // Ignore localStorage errors
     }
+}
+
+// Missing Episodes - Season Collapse State Management
+function getMissingSeasonCollapseState(seasonKey) {
+    try {
+        const states = JSON.parse(localStorage.getItem('missingSeasonCollapseStates') || '{}');
+        return states[seasonKey] === true;
+    } catch {
+        return false;
+    }
+}
+
+function setMissingSeasonCollapseState(seasonKey, collapsed) {
+    try {
+        const states = JSON.parse(localStorage.getItem('missingSeasonCollapseStates') || '{}');
+        if (collapsed) {
+            states[seasonKey] = true;
+        } else {
+            delete states[seasonKey];
+        }
+        localStorage.setItem('missingSeasonCollapseStates', JSON.stringify(states));
+    } catch {
+        // Ignore localStorage errors
+    }
+}
+
+function toggleMissingSeason(seasonKey, headerRow) {
+    const rows = document.querySelectorAll(`.missing-episode-row[data-season-key="${seasonKey}"]`);
+    const chevron = headerRow.querySelector('.missing-season-chevron');
+    const isHidden = rows.length > 0 && rows[0].classList.contains('missing-season-hidden');
+
+    rows.forEach(row => {
+        row.classList.toggle('missing-season-hidden', !isHidden);
+    });
+    if (chevron) {
+        chevron.src = isHidden ? '/static/images/show-collapse.png' : '/static/images/show-expand.png';
+    }
+    setMissingSeasonCollapseState(seasonKey, !isHidden);
 }
 
 function toggleMissingShowGroup(header, showId) {

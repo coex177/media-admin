@@ -10,6 +10,14 @@ function setShowsView(view) {
     document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelector(`.view-btn[onclick="setShowsView('${view}')"]`)?.classList.add('active');
 
+    // Toggle list controls enabled/disabled
+    const listControls = document.getElementById('shows-list-controls');
+    if (listControls) {
+        listControls.querySelectorAll('.card-control-btn').forEach(btn => {
+            btn.disabled = (view !== 'list');
+        });
+    }
+
     // Re-render shows container
     const container = document.getElementById('shows-container');
     if (container && state.shows) {
@@ -69,13 +77,42 @@ function renderShowCardCompact(show) {
     `;
 }
 
+function getShowListExpandDefault() {
+    try { return localStorage.getItem('showsListExpandDefault') === 'true'; } catch { return false; }
+}
+
+function getShowListExpandOverrides() {
+    try { return JSON.parse(localStorage.getItem('showsListExpandOverrides') || '{}'); } catch { return {}; }
+}
+
+function isShowListItemExpanded(showId) {
+    const overrides = getShowListExpandOverrides();
+    if (showId in overrides) return overrides[showId];
+    return getShowListExpandDefault();
+}
+
+function setShowListExpandState(showId, expanded) {
+    try {
+        const overrides = getShowListExpandOverrides();
+        const defaultState = getShowListExpandDefault();
+        if (expanded === defaultState) {
+            // Matches default, remove override
+            delete overrides[showId];
+        } else {
+            overrides[showId] = expanded;
+        }
+        localStorage.setItem('showsListExpandOverrides', JSON.stringify(overrides));
+    } catch { /* ignore */ }
+}
+
 function renderShowListItem(show) {
     const totalAired = show.episodes_found + show.episodes_missing;
+    const isExpanded = isShowListItemExpanded(show.id);
 
     return `
         <div class="show-list-item" id="show-list-item-${show.id}">
             <div class="show-list-header" onclick="toggleShowListItem(${show.id})">
-                <img src="/static/images/show-expand.png" class="show-list-chevron-img" id="show-list-chevron-${show.id}" alt="">
+                <img src="${isExpanded ? '/static/images/show-collapse.png' : '/static/images/show-expand.png'}" class="show-list-chevron-img" id="show-list-chevron-${show.id}" alt="">
                 <span class="show-list-name">${escapeHtml(show.name)}</span>
                 <span class="show-list-status">
                     <span class="text-muted">${show.episodes_found}/${totalAired}</span>
@@ -84,7 +121,7 @@ function renderShowListItem(show) {
                         : `<span class="badge badge-success badge-sm">Complete</span>`}
                 </span>
             </div>
-            <div class="show-list-details" id="show-list-details-${show.id}">
+            <div class="show-list-details ${isExpanded ? 'open' : ''}" id="show-list-details-${show.id}">
                 <div class="show-list-details-content">
                     <p class="text-muted mb-10">${escapeHtml((show.overview || 'No description available.').substring(0, 200))}${(show.overview || '').length > 200 ? '...' : ''}</p>
                     <div class="show-list-meta">
@@ -112,7 +149,37 @@ function toggleShowListItem(showId) {
     if (chevron) {
         chevron.src = isOpen ? '/static/images/show-expand.png' : '/static/images/show-collapse.png';
     }
+
+    // Persist state
+    setShowListExpandState(showId, !isOpen);
 }
+
+function collapseAllShowListItems() {
+    // Set default to collapsed, clear all overrides
+    localStorage.setItem('showsListExpandDefault', 'false');
+    localStorage.setItem('showsListExpandOverrides', '{}');
+    document.querySelectorAll('.show-list-item').forEach(item => {
+        const showId = item.id.replace('show-list-item-', '');
+        const details = document.getElementById(`show-list-details-${showId}`);
+        const chevron = document.getElementById(`show-list-chevron-${showId}`);
+        if (details) details.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+    });
+}
+
+function expandAllShowListItems() {
+    // Set default to expanded, clear all overrides
+    localStorage.setItem('showsListExpandDefault', 'true');
+    localStorage.setItem('showsListExpandOverrides', '{}');
+    document.querySelectorAll('.show-list-item').forEach(item => {
+        const showId = item.id.replace('show-list-item-', '');
+        const details = document.getElementById(`show-list-details-${showId}`);
+        const chevron = document.getElementById(`show-list-chevron-${showId}`);
+        if (details) details.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+    });
+}
+
 
 function renderShowCard(show) {
     const posterUrl = show.poster_path
@@ -186,6 +253,10 @@ async function renderShowsList() {
                         <button class="view-btn ${currentShowsView === 'list' ? 'active' : ''}" onclick="setShowsView('list')" title="List View">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="3" rx="1"/><rect x="1" y="7" width="14" height="3" rx="1"/><rect x="1" y="12" width="14" height="3" rx="1"/></svg>
                         </button>
+                    </div>
+                    <div class="card-control-btns" id="shows-list-controls">
+                        <button class="card-control-btn" onclick="collapseAllShowListItems()" title="Collapse all" ${currentShowsView !== 'list' ? 'disabled' : ''}><img src="/static/images/collapse.png" alt="Collapse"></button>
+                        <button class="card-control-btn" onclick="expandAllShowListItems()" title="Expand all" ${currentShowsView !== 'list' ? 'disabled' : ''}><img src="/static/images/expand.png" alt="Expand"></button>
                     </div>
                     <button class="btn btn-secondary" onclick="refreshAllMetadata()" id="refresh-all-btn">Refresh All Metadata</button>
                     <button class="btn btn-secondary" onclick="startSlowImport()">Managed Import</button>

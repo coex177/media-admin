@@ -115,6 +115,31 @@ function renderSettingsGeneral(settings) {
         </div>
 
         <div class="card">
+            <h2 class="card-title mb-20">Locale</h2>
+            <div class="form-group">
+                <label>Timezone</label>
+                <select id="settings-timezone" class="form-control" onchange="autoSaveTimezone()">
+                    ${(() => {
+                        const savedTz = settings.timezone || '';
+                        const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                        const effectiveTz = savedTz || browserTz;
+                        let tzOptions = '';
+                        try {
+                            const zones = Intl.supportedValuesOf('timeZone');
+                            tzOptions = zones.map(tz =>
+                                '<option value="' + tz + '"' + (tz === effectiveTz ? ' selected' : '') + '>' + tz + '</option>'
+                            ).join('');
+                        } catch {
+                            tzOptions = '<option value="' + effectiveTz + '" selected>' + effectiveTz + '</option>';
+                        }
+                        return tzOptions;
+                    })()}
+                </select>
+                <small class="text-muted">Used for log timestamps. Default: browser timezone (${Intl.DateTimeFormat().resolvedOptions().timeZone})</small>
+            </div>
+        </div>
+
+        <div class="card">
             <h2 class="card-title mb-20">Dashboard Display</h2>
             <div class="dashboard-settings-grid">
                 <div class="dashboard-setting-item">
@@ -419,6 +444,20 @@ async function autoSaveDashboardSettings() {
             body: JSON.stringify(data)
         });
         Object.assign(state.settings, data);
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+async function autoSaveTimezone() {
+    const tz = document.getElementById('settings-timezone')?.value || '';
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ timezone: tz })
+        });
+        if (state.settings) state.settings.timezone = tz;
+        showToast('Timezone updated', 'success');
     } catch (error) {
         // Error already shown
     }

@@ -396,7 +396,8 @@ async function renderWatcherLogTab() {
                 <input type="date" id="watcher-log-from" value="${watcherLogState.dateFrom}" onchange="onWatcherLogDateChange()">
                 <label>To:</label>
                 <input type="date" id="watcher-log-to" value="${watcherLogState.dateTo}" onchange="onWatcherLogDateChange()">
-                <button class="btn btn-sm btn-secondary" onclick="clearWatcherLogFilters()">Clear</button>
+                <button class="btn btn-sm btn-secondary" onclick="clearWatcherLogFilters()">Clear Filters</button>
+                <button class="btn btn-sm btn-danger" onclick="confirmClearAllLogs()" style="margin-left: auto;">Clear All Logs</button>
             </div>
             <div id="watcher-log-content">
                 <div class="loading"><div class="spinner"></div></div>
@@ -426,6 +427,49 @@ async function loadWatcherLog() {
     }
 }
 
+function getWatcherLogManualState() {
+    try { return JSON.parse(localStorage.getItem('watcherLogManualState') || '{}'); } catch { return {}; }
+}
+
+function setWatcherLogManualState(key, expanded) {
+    try {
+        const states = getWatcherLogManualState();
+        states[key] = expanded;
+        localStorage.setItem('watcherLogManualState', JSON.stringify(states));
+    } catch { /* ignore */ }
+}
+
+function cleanupStaleManualStates(activeKeys) {
+    try {
+        const states = getWatcherLogManualState();
+        const activeSet = new Set(activeKeys);
+        let changed = false;
+        for (const key of Object.keys(states)) {
+            if (!activeSet.has(key)) {
+                delete states[key];
+                changed = true;
+            }
+        }
+        if (changed) localStorage.setItem('watcherLogManualState', JSON.stringify(states));
+    } catch { /* ignore */ }
+}
+
+function isNodeExpanded(key, defaultExpanded) {
+    const manual = getWatcherLogManualState();
+    if (key in manual) return manual[key];
+    return defaultExpanded;
+}
+
+function toggleWatcherLogNode(key, headerEl) {
+    const contentEl = headerEl.nextElementSibling;
+    const chevron = headerEl.querySelector('.wlog-chevron');
+    if (!contentEl) return;
+    const isOpen = contentEl.classList.contains('open');
+    contentEl.classList.toggle('open', !isOpen);
+    if (chevron) chevron.src = isOpen ? '/static/images/show-expand.png' : '/static/images/show-collapse.png';
+    setWatcherLogManualState(key, !isOpen);
+}
+
 function renderWatcherLogEntries() {
     const content = document.getElementById('watcher-log-content');
     if (!content) return;
@@ -440,41 +484,134 @@ function renderWatcherLogEntries() {
         return;
     }
 
-    // Group entries by date
-    const groups = {};
+    // Build hierarchy: year > month > day > entries
+    const hierarchy = {};
     for (const entry of entries) {
         const date = entry.timestamp ? entry.timestamp.split('T')[0] : 'Unknown';
-        if (!groups[date]) groups[date] = [];
-        groups[date].push(entry);
+        const parts = date.split('-');
+        if (parts.length < 3) continue;
+        const year = parts[0], month = parts[1], day = parts[2];
+        if (!hierarchy[year]) hierarchy[year] = {};
+        if (!hierarchy[year][month]) hierarchy[year][month] = {};
+        if (!hierarchy[year][month][day]) hierarchy[year][month][day] = [];
+        hierarchy[year][month][day].push(entry);
     }
+
+    const now = new Date();
+    const tz = getConfiguredTimezone();
+    // Get current date parts in configured timezone
+    let currentYear, currentMonth, currentDay;
+    try {
+        const parts = now.toLocaleDateString('en-CA', { timeZone: tz }).split('-');
+        currentYear = parts[0];
+        currentMonth = parts[1];
+        currentDay = parts[2];
+    } catch {
+        currentYear = String(now.getFullYear());
+        currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+        currentDay = String(now.getDate()).padStart(2, '0');
+    }
+
+    const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+
+    // Track active keys for cleanup
+    const activeKeys = [];
 
     let html = '';
-    for (const [date, dateEntries] of Object.entries(groups)) {
-        const displayDate = formatLogDate(date);
-        html += `<div class="watcher-log-date-group">`;
-        html += `<div class="watcher-log-date-header">${escapeHtml(displayDate)}</div>`;
+    const yearKeys = Object.keys(hierarchy).sort((a, b) => b - a);
 
-        for (const entry of dateEntries) {
-            const time = entry.timestamp ? formatLogTime(entry.timestamp) : '';
-            const actionLabel = formatActionType(entry.action_type);
-            const summary = buildLogSummary(entry);
-            const resultClass = entry.result ? 'result-' + entry.result : '';
-            const entryId = 'log-detail-' + entry.id;
+    for (const year of yearKeys) {
+        const yearKey = year;
+        activeKeys.push(yearKey);
+        const yearDefault = (year === currentYear);
+        const yearExpanded = isNodeExpanded(yearKey, yearDefault);
 
-            html += `
-                <div class="watcher-log-entry" onclick="toggleLogDetail('${entryId}')">
-                    <span class="log-entry-time">${time}</span>
-                    <span class="log-entry-badge action-${escapeHtml(entry.action_type || '')}">${escapeHtml(actionLabel)}</span>
-                    <span class="log-entry-summary">${escapeHtml(summary)}</span>
-                    <span class="log-entry-result ${resultClass}">${escapeHtml(entry.result || '')}</span>
-                </div>
-                <div class="log-entry-details" id="${entryId}">
-                    ${buildLogDetails(entry)}
-                </div>
-            `;
+        // Count total entries in year
+        let yearCount = 0;
+        for (const m of Object.keys(hierarchy[year])) {
+            for (const d of Object.keys(hierarchy[year][m])) {
+                yearCount += hierarchy[year][m][d].length;
+            }
         }
-        html += `</div>`;
+
+        html += `<div class="wlog-year-header" onclick="toggleWatcherLogNode('${yearKey}', this)">
+            <img src="/static/images/${yearExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
+            <span class="wlog-year-label">${year}</span>
+            <span class="wlog-node-count">(${yearCount})</span>
+        </div>`;
+        html += `<div class="wlog-year-content ${yearExpanded ? 'open' : ''}">`;
+
+        const monthKeys = Object.keys(hierarchy[year]).sort((a, b) => b - a);
+        for (const month of monthKeys) {
+            const monthKey = year + '-' + month;
+            activeKeys.push(monthKey);
+            const monthDefault = (year === currentYear && month === currentMonth);
+            const monthExpanded = isNodeExpanded(monthKey, monthDefault);
+
+            let monthCount = 0;
+            for (const d of Object.keys(hierarchy[year][month])) {
+                monthCount += hierarchy[year][month][d].length;
+            }
+
+            const monthNum = parseInt(month, 10);
+            const monthLabel = monthNames[monthNum] || month;
+
+            html += `<div class="wlog-month-header" onclick="toggleWatcherLogNode('${monthKey}', this)">
+                <img src="/static/images/${monthExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
+                <span class="wlog-month-label">${monthLabel}</span>
+                <span class="wlog-node-count">(${monthCount})</span>
+            </div>`;
+            html += `<div class="wlog-month-content ${monthExpanded ? 'open' : ''}">`;
+
+            const dayKeys = Object.keys(hierarchy[year][month]).sort((a, b) => b - a);
+            for (const day of dayKeys) {
+                const dayKey = year + '-' + month + '-' + day;
+                activeKeys.push(dayKey);
+                const dayDefault = (year === currentYear && month === currentMonth && day === currentDay);
+                const dayExpanded = isNodeExpanded(dayKey, dayDefault);
+                const dayEntries = hierarchy[year][month][day];
+
+                const displayDate = formatLogDate(dayKey);
+
+                html += `<div class="wlog-day-header" onclick="toggleWatcherLogNode('${dayKey}', this)">
+                    <img src="/static/images/${dayExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
+                    <span class="wlog-day-label">${escapeHtml(displayDate)}</span>
+                    <span class="wlog-node-count">(${dayEntries.length})</span>
+                </div>`;
+                html += `<div class="wlog-day-content ${dayExpanded ? 'open' : ''}">`;
+
+                for (const entry of dayEntries) {
+                    const time = entry.timestamp ? formatLogTime(entry.timestamp) : '';
+                    const actionLabel = formatActionType(entry.action_type);
+                    const summary = buildLogSummary(entry);
+                    const resultClass = entry.result ? 'result-' + entry.result : '';
+                    const entryId = 'log-detail-' + entry.id;
+
+                    html += `
+                        <div class="watcher-log-entry" onclick="toggleLogDetail('${entryId}')">
+                            <span class="log-entry-time">${time}</span>
+                            <span class="log-entry-badge action-${escapeHtml(entry.action_type || '')}">${escapeHtml(actionLabel)}</span>
+                            <span class="log-entry-summary">${escapeHtml(summary)}</span>
+                            <span class="log-entry-result ${resultClass}">${escapeHtml(entry.result || '')}</span>
+                        </div>
+                        <div class="log-entry-details" id="${entryId}">
+                            ${buildLogDetails(entry)}
+                        </div>
+                    `;
+                }
+
+                html += `</div>`; // day-content
+            }
+
+            html += `</div>`; // month-content
+        }
+
+        html += `</div>`; // year-content
     }
+
+    // Clean up stale manual states
+    cleanupStaleManualStates(activeKeys);
 
     // Pagination
     const totalPages = Math.ceil(watcherLogState.total / watcherLogState.limit);
@@ -500,8 +637,13 @@ function toggleLogDetail(id) {
     if (el) el.classList.toggle('open');
 }
 
+function getConfiguredTimezone() {
+    return (state.settings && state.settings.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 function formatLogDate(dateStr) {
     try {
+        const tz = getConfiguredTimezone();
         const d = new Date(dateStr + 'T00:00:00');
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -510,7 +652,7 @@ function formatLogDate(dateStr) {
 
         if (d.getTime() === today.getTime()) return 'Today';
         if (d.getTime() === yesterday.getTime()) return 'Yesterday';
-        return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+        return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: tz });
     } catch {
         return dateStr;
     }
@@ -518,8 +660,9 @@ function formatLogDate(dateStr) {
 
 function formatLogTime(timestamp) {
     try {
+        const tz = getConfiguredTimezone();
         const d = new Date(timestamp);
-        return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: tz });
     } catch {
         return '';
     }
@@ -592,6 +735,35 @@ function clearWatcherLogFilters() {
     if (fromEl) fromEl.value = '';
     if (toEl) toEl.value = '';
     loadWatcherLog();
+}
+
+function confirmClearAllLogs() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Clear All Logs';
+    modalBody.innerHTML = `
+        <p>Are you sure you want to delete <strong>all</strong> watcher log entries?</p>
+        <p class="text-muted">This action cannot be undone.</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-danger" onclick="clearAllLogs()">Delete All Logs</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function clearAllLogs() {
+    closeModal();
+    try {
+        const result = await api('/watcher/log', { method: 'DELETE' });
+        showToast(result.message, 'success');
+        watcherLogState.offset = 0;
+        await loadWatcherLog();
+    } catch (error) {
+        // Error already shown
+    }
 }
 
 function watcherLogPage(dir) {
