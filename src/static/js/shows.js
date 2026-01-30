@@ -556,7 +556,7 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
                 <div class="card season-card">
                     <div class="season-header-toggle" onclick="toggleSeason(${seasonNum})" id="season-header-${seasonNum}">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="season-chevron" id="season-chevron-${seasonNum}">&#9658;</span>
+                            <img src="/static/images/show-expand.png" class="season-chevron-img" id="season-chevron-${seasonNum}" alt="">
                             <h3>${seasonNum == 0 ? 'Specials' : 'Season ' + seasonNum}</h3>
                         </div>
                         <span class="text-muted">${foundCount}/${airedCount} ${seasonNum == 0 ? 'specials' : 'aired episodes'}</span>
@@ -725,7 +725,7 @@ function toggleSeason(seasonNum) {
 
     const isCollapsed = episodesList.classList.toggle('collapsed');
     if (chevron) {
-        chevron.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
+        chevron.src = isCollapsed ? '/static/images/show-expand.png' : '/static/images/show-collapse.png';
     }
 
     // If collapsing, close any open episodes and hide preview
