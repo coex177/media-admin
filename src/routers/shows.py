@@ -430,7 +430,8 @@ async def create_show(
     selects whichever has more complete data (more non-special episodes).
     The user's default source wins when counts are equal.
     """
-    default_source = data.metadata_source or _get_default_metadata_source(db)
+    explicit_source = data.metadata_source  # What the user explicitly chose (may be None)
+    default_source = explicit_source or _get_default_metadata_source(db)
 
     # --- Step 1: Initial duplicate check on provided IDs ---
     if data.tmdb_id:
@@ -536,6 +537,8 @@ async def create_show(
             raise HTTPException(status_code=400, detail="Show already exists")
 
     # --- Step 5: Compare episode counts (non-specials only) ---
+    # Only auto-switch sources when the user didn't explicitly choose one.
+    # If they picked a specific source from the search UI, respect that choice.
     source_switched = False
     original_source = default_source
     switch_reason = None
@@ -545,7 +548,7 @@ async def create_show(
 
     default_count = count_non_special(default_data)
 
-    if secondary_data:
+    if secondary_data and not explicit_source:
         secondary_count = count_non_special(secondary_data)
         if secondary_count > default_count:
             # Switch to secondary source
