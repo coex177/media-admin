@@ -1138,6 +1138,11 @@ tr:hover {
     padding: 10px 15px;
 }
 
+.distribution-scrollable {
+    max-height: 370px;
+    overflow-y: auto;
+}
+
 .distribution-item {
     display: flex;
     justify-content: space-between;
@@ -2050,6 +2055,24 @@ tr:hover {
 .page-title {
     font-size: 1.5rem;
     font-weight: 600;
+}
+
+/* Dashboard layout controls */
+.dashboard-layout-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 4px 10px;
+}
+
+.dashboard-layout-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
 }
 
 /* Dashboard card control buttons */

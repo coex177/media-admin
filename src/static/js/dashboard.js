@@ -494,8 +494,8 @@ function renderDashboardContent() {
                         ${genreDistribution.length === 0 ? `
                             <p class="text-muted text-center" style="padding: 20px;">No genre data available. Refresh shows to fetch genres.</p>
                         ` : `
-                            <div class="distribution-list">
-                                ${genreDistribution.slice(0, 10).map(g => `
+                            <div class="distribution-list distribution-scrollable">
+                                ${genreDistribution.map(g => `
                                     <div class="distribution-item clickable" onclick="toggleDistributionShows('genre', '${escapeHtml(g.genre).replace(/'/g, "\\'")}')">
                                         <span class="distribution-name">${escapeHtml(g.genre)}</span>
                                         <span class="distribution-count">${g.count} show${g.count !== 1 ? 's' : ''}</span>
@@ -529,8 +529,8 @@ function renderDashboardContent() {
                         ${networkDistribution.length === 0 ? `
                             <p class="text-muted text-center" style="padding: 20px;">No network data available. Refresh shows to fetch networks.</p>
                         ` : `
-                            <div class="distribution-list">
-                                ${networkDistribution.slice(0, 10).map(n => `
+                            <div class="distribution-list distribution-scrollable">
+                                ${networkDistribution.map(n => `
                                     <div class="distribution-item clickable" onclick="toggleDistributionShows('network', '${escapeHtml(n.network).replace(/'/g, "\\'")}')">
                                         <span class="distribution-name">${escapeHtml(n.network)}</span>
                                         <span class="distribution-count">${n.count} show${n.count !== 1 ? 's' : ''}</span>
@@ -552,11 +552,14 @@ function renderDashboardContent() {
     appContent.innerHTML = `
         <div class="page-header">
             <h1 class="page-title">Dashboard</h1>
-            <div class="card-control-btns">
-                <button class="card-control-btn" onclick="collapseAllCards()" title="Collapse all"><img src="/static/images/collapse.png" alt="Collapse"></button>
-                <button class="card-control-btn" onclick="expandAllCards()" title="Expand all"><img src="/static/images/expand.png" alt="Expand"></button>
-                <button class="card-control-btn" onclick="restoreSavedCards()" title="Restore saved layout"><img src="/static/images/restore.png" alt="Restore"></button>
-                <button class="card-control-btn" onclick="clearSavedCards()" title="Reset to default (all collapsed)"><img src="/static/images/reset-layout.png" alt="Reset"></button>
+            <div class="dashboard-layout-controls">
+                <span class="dashboard-layout-label">Dashboard Layout</span>
+                <div class="card-control-btns">
+                    <button class="card-control-btn" onclick="collapseAllCards()" title="Collapse all"><img src="/static/images/collapse.png" alt="Collapse"></button>
+                    <button class="card-control-btn" onclick="expandAllCards()" title="Expand all"><img src="/static/images/expand.png" alt="Expand"></button>
+                    <button class="card-control-btn" onclick="restoreSavedCards()" title="Restore saved layout"><img src="/static/images/restore.png" alt="Restore"></button>
+                    <button class="card-control-btn" onclick="clearSavedCards()" title="Reset to default (all collapsed)"><img src="/static/images/reset-layout.png" alt="Reset"></button>
+                </div>
             </div>
         </div>
 
