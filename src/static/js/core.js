@@ -436,8 +436,8 @@ async function showPreviewModal(providerId, source) {
 
         const posterUrl = getImageUrlOrPlaceholder(data.poster_path);
         const sourceTag = source === 'tvdb'
-            ? '<span class="metadata-source-tag metadata-source-tvdb">TVDB</span>'
-            : '<span class="metadata-source-tag metadata-source-tmdb">TMDB</span>';
+            ? `<a href="https://thetvdb.com/dereferrer/series/${providerId}" target="_blank" class="metadata-source-tag metadata-source-tvdb">TVDB</a>`
+            : `<a href="https://www.themoviedb.org/tv/${providerId}" target="_blank" class="metadata-source-tag metadata-source-tmdb">TMDB</a>`;
 
         // Group episodes by season
         const seasons = {};
