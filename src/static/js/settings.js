@@ -28,7 +28,7 @@ async function renderSettings() {
                 <button class="settings-tab ${activeTab === 'general' ? 'active' : ''}" onclick="switchSettingsTab('general')"><img src="/static/images/settings-general.png" class="tab-icon-img" alt="">General</button>
                 <button class="settings-tab ${activeTab === 'metadata' ? 'active' : ''}" onclick="switchSettingsTab('metadata')"><img src="/static/images/settings-metadata.png" class="tab-icon-img" alt="">Metadata</button>
                 <button class="settings-tab ${activeTab === 'library' ? 'active' : ''}" onclick="switchSettingsTab('library')"><img src="/static/images/settings-library.png" class="tab-icon-img" alt="">Library</button>
-                <button class="settings-tab ${activeTab === 'watcher' ? 'active' : ''}" onclick="switchSettingsTab('watcher')"><img src="/static/images/settings-media-watcher.png" class="tab-icon-img" alt="">Media Watcher</button>
+                <button class="settings-tab ${activeTab === 'watcher' ? 'active' : ''}" onclick="switchSettingsTab('watcher')"><img src="/static/images/settings-media-watcher.png" class="tab-icon-img" alt="">Watcher</button>
             </div>
             <div id="settings-tab-content"></div>
         `;
@@ -154,6 +154,16 @@ function renderSettingsGeneral(settings) {
                     </select>
                 </div>
 
+            </div>
+            <div class="dashboard-settings-divider"></div>
+            <div class="form-group">
+                <label class="dashboard-setting-label">Shows Per Page Options</label>
+                <div class="shows-per-page-options-grid">
+                    ${(settings.shows_per_page_options || [100,300,500,1000,1500]).map((v, i) =>
+                        `<input type="number" id="settings-spp-opt-${i}" class="form-control form-control-sm" value="${v}" min="1" onchange="autoSaveShowsPerPageOptions()">`
+                    ).join('')}
+                </div>
+                <small class="text-muted">Five values for the shows-per-page dropdown (All is always included)</small>
             </div>
             <div class="dashboard-settings-divider"></div>
             <div class="form-group">
@@ -421,6 +431,23 @@ async function autoSaveSlowImportCount() {
             method: 'PUT',
             body: JSON.stringify({ slow_import_count: val })
         });
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+async function autoSaveShowsPerPageOptions() {
+    const opts = [];
+    for (let i = 0; i < 5; i++) {
+        const el = document.getElementById(`settings-spp-opt-${i}`);
+        if (el) opts.push(parseInt(el.value) || 1);
+    }
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ shows_per_page_options: opts })
+        });
+        if (state.settings) state.settings.shows_per_page_options = opts.slice().sort((a, b) => a - b);
     } catch (error) {
         // Error already shown
     }

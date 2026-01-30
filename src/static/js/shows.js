@@ -229,8 +229,11 @@ async function renderShowsList() {
 
 function renderShowsPerPageSelect() {
     const val = state.showsPerPage || 0;
+    const opts = (state.settings?.shows_per_page_options || [100,300,500,1000,1500])
+        .map(v => [v, String(v)]);
+    opts.push([0, 'All']);
     return `<select class="shows-per-page-select" onchange="changeShowsPerPage(this.value)">
-        ${[[50,'50'],[100,'100'],[300,'300'],[500,'500'],[1000,'1000'],[0,'All']].map(([v,l]) =>
+        ${opts.map(([v,l]) =>
             `<option value="${v}" ${val === v ? 'selected' : ''}>${l}</option>`
         ).join('')}
     </select>`;

@@ -307,8 +307,8 @@ a:hover {
 }
 
 .nav-icon-img {
-    width: 20px;
-    height: 20px;
+    width: 48px;
+    height: auto;
     vertical-align: middle;
 }
 
@@ -3806,9 +3806,20 @@ a.metadata-source-tag:hover {
 /* ── Tab & list view icons ──────────────────────────────────── */
 
 .tab-icon-img {
-    width: 20px;
-    height: 20px;
+    width: 48px;
+    height: auto;
     vertical-align: middle;
+}
+
+.shows-per-page-options-grid {
+    display: flex;
+    gap: 10px;
+    margin: 8px 0;
+}
+
+.shows-per-page-options-grid input {
+    width: 90px;
+    text-align: center;
 }
 
 .show-list-chevron-img {

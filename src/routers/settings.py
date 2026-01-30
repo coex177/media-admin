@@ -34,6 +34,7 @@ class SettingsUpdate(BaseModel):
     theme: Optional[str] = None
     slow_import_count: Optional[int] = None
     shows_per_page: Optional[int] = None
+    shows_per_page_options: Optional[list] = None
 
 
 class FolderCreate(BaseModel):
@@ -106,6 +107,7 @@ async def get_settings(db: Session = Depends(get_db)):
         "theme": get_setting(db, "theme", "midnight"),
         "slow_import_count": int(get_setting(db, "slow_import_count", "10")),
         "shows_per_page": int(get_setting(db, "shows_per_page", "0")),
+        "shows_per_page_options": json.loads(get_setting(db, "shows_per_page_options", "[100,300,500,1000,1500]")),
     }
 
 
@@ -163,6 +165,10 @@ async def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 
     if data.shows_per_page is not None:
         set_setting(db, "shows_per_page", str(data.shows_per_page))
+
+    if data.shows_per_page_options is not None:
+        opts = sorted([int(v) for v in data.shows_per_page_options if int(v) > 0])[:5]
+        set_setting(db, "shows_per_page_options", json.dumps(opts))
 
     # Mark setup as completed if API key is set
     if data.tmdb_api_key:
