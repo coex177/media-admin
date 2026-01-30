@@ -909,8 +909,12 @@ function _renderScanCompleteModal(status) {
     // Status icon/color helpers
     const statusDisplay = (show) => {
         if (show.status === 'added') {
-            // Green check only if all episodes matched, red X if any missing
-            if (show.total_episodes > 0 && show.episodes_matched < show.total_episodes) {
+            const hasExtraFiles = show.total_files > 0 && show.total_files > show.episodes_matched;
+            const hasMissingEps = show.total_episodes > 0 && show.episodes_matched < show.total_episodes;
+            if (hasExtraFiles) {
+                return { icon: '✗', cls: 'console-error', label: 'Added (extra files in folder)' };
+            }
+            if (hasMissingEps) {
                 return { icon: '✗', cls: 'console-error', label: 'Added (missing episodes)' };
             }
             return { icon: '✓', cls: 'console-success', label: 'Added' };
@@ -951,16 +955,19 @@ function _renderScanCompleteModal(status) {
                                 <th style="width: 30px;"></th>
                                 <th>Show</th>
                                 <th>Episodes</th>
+                                <th>Files</th>
                                 <th>Detail</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${showsProcessed.map(show => {
                                 const sd = statusDisplay(show);
+                                const hasExtraFiles = show.total_files > 0 && show.total_files > show.episodes_matched;
                                 return `<tr>
                                     <td class="${sd.cls}" style="text-align: center; font-weight: bold;">${sd.icon}</td>
                                     <td>${escapeHtml(show.name)}</td>
                                     <td style="text-align: center;">${show.status === 'added' || show.episodes_matched > 0 ? show.episodes_matched : '—'}</td>
+                                    <td style="text-align: center;" class="${hasExtraFiles ? 'console-error' : ''}">${show.total_files > 0 ? show.total_files : '—'}</td>
                                     <td class="text-muted" style="font-size: 0.8rem;">${escapeHtml(show.detail || sd.label)}</td>
                                 </tr>`;
                             }).join('')}

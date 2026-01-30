@@ -546,7 +546,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
         if current_show is not None:
             _library_folder_scan_status["current_show"] = current_show
 
-    def record_show(folder_name: str, show_name: str, status: str, episodes_matched: int = 0, total_episodes: int = 0, detail: str = ""):
+    def record_show(folder_name: str, show_name: str, status: str, episodes_matched: int = 0, total_episodes: int = 0, total_files: int = 0, detail: str = ""):
         """Record a per-show result for the summary table."""
         _library_folder_scan_status["shows_processed"].append({
             "folder": folder_name,
@@ -554,6 +554,7 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
             "status": status,  # added, existing, not_found, error
             "episodes_matched": episodes_matched,
             "total_episodes": total_episodes,
+            "total_files": total_files,
             "detail": detail,
         })
 
@@ -729,9 +730,9 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                             db.commit()
                             _library_folder_scan_status["shows_skipped"] += 1
                             # Scan for episodes
-                            matched = _scan_show_folder(scanner, existing, show_dir)
+                            matched, total_files = _scan_show_folder(scanner, existing, show_dir)
                             _library_folder_scan_status["episodes_matched"] += matched
-                            record_show(dir_name, existing.name, "existing", episodes_matched=matched, detail="Assigned folder")
+                            record_show(dir_name, existing.name, "existing", episodes_matched=matched, total_files=total_files, detail="Assigned folder")
                         else:
                             log(f"Skipping '{result['name']}' - already in library", "skip")
                             _library_folder_scan_status["shows_skipped"] += 1
@@ -771,9 +772,9 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                         existing_check.folder_path = str(show_dir)
                         db.commit()
                         log(f"Assigned folder to existing show: '{existing_check.name}'", "info")
-                        matched = _scan_show_folder(scanner, existing_check, show_dir)
+                        matched, total_files = _scan_show_folder(scanner, existing_check, show_dir)
                         _library_folder_scan_status["episodes_matched"] += matched
-                        record_show(dir_name, existing_check.name, "existing", episodes_matched=matched, detail="Assigned folder")
+                        record_show(dir_name, existing_check.name, "existing", episodes_matched=matched, total_files=total_files, detail="Assigned folder")
                     else:
                         log(f"Skipping '{best_match['name']}' - already in library", "skip")
                         record_show(dir_name, best_match['name'], "existing", detail="Already in library")
@@ -842,13 +843,17 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     log(f"Added '{show.name}' with {show_data.get('number_of_episodes', 0)} episodes", "success")
 
                     # Scan folder for existing files
-                    matched = _scan_show_folder(scanner, show, show_dir)
+                    matched, total_files = _scan_show_folder(scanner, show, show_dir)
                     _library_folder_scan_status["episodes_matched"] += matched
                     if matched > 0:
-                        log(f"Matched {matched} episode files", "success")
+                        log(f"Matched {matched} episode files ({total_files} files in folder)", "success")
 
                     total_eps = show_data.get('number_of_episodes', 0)
-                    record_show(dir_name, show.name, "added", episodes_matched=matched, total_episodes=total_eps, detail=f"{matched}/{total_eps} episodes matched")
+                    extra = total_files - matched
+                    detail = f"{matched}/{total_eps} episodes matched"
+                    if extra > 0:
+                        detail += f", {extra} extra file{'s' if extra != 1 else ''} in folder"
+                    record_show(dir_name, show.name, "added", episodes_matched=matched, total_episodes=total_eps, total_files=total_files, detail=detail)
 
                 except Exception as e:
                     log(f"Error adding show '{best_match['name']}': {str(e)}", "error")
@@ -892,14 +897,18 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
         watcher_service.release_scan_lock()
 
 
-def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> int:
-    """Scan a show's folder for video files and match to episodes."""
+def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> tuple[int, int]:
+    """Scan a show's folder for video files and match to episodes.
+
+    Returns (matched_count, total_files) tuple.
+    """
     import re
     from datetime import datetime
     from ..models import Episode
 
     matched_count = 0
     files = scanner.scan_folder(str(show_dir))
+    total_files = len(files)
 
     for file_info in files:
         if file_info.parsed and file_info.parsed.episode:
@@ -963,7 +972,7 @@ def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> int:
     if matched_count > 0:
         scanner.db.commit()
 
-    return matched_count
+    return matched_count, total_files
 
 
 @router.post("/library-folder")
