@@ -602,30 +602,6 @@ function renderDashboardContent() {
             ${dashboardCardOrder.map(cardId => cardRenderers[cardId] ? cardRenderers[cardId]() : '').join('')}
         </div>
 
-        <!-- Quick Actions -->
-        <div class="card">
-            <div class="card-header">
-                <h2 class="card-title">Quick Actions</h2>
-            </div>
-            <div class="quick-actions">
-                <button class="quick-action-btn" onclick="showAddShowModal()">
-                    <span class="quick-action-icon">+</span>
-                    <span>Add Show</span>
-                </button>
-                <button class="quick-action-btn" onclick="navigateTo('shows')">
-                    <span class="quick-action-icon">📺</span>
-                    <span>Browse Shows</span>
-                </button>
-                <button class="quick-action-btn" onclick="navigateTo('scan')">
-                    <span class="quick-action-icon">🔍</span>
-                    <span>Scan</span>
-                </button>
-                <button class="quick-action-btn" onclick="navigateTo('settings')">
-                    <span class="quick-action-icon">⚙</span>
-                    <span>Settings</span>
-                </button>
-            </div>
-        </div>
     `;
 
     restorePendingScroll();

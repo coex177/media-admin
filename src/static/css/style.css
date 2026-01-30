@@ -1101,41 +1101,6 @@ tr:hover {
     flex-wrap: wrap;
 }
 
-/* Quick Actions */
-.quick-actions {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 15px;
-    padding: 15px;
-}
-
-.quick-action-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    padding: 20px 15px;
-    background-color: var(--input-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s;
-    color: var(--text-primary);
-}
-
-.quick-action-btn:hover {
-    background-color: var(--card-hover);
-    border-color: var(--primary-color);
-}
-
-.quick-action-icon {
-    font-size: 1.5rem;
-}
-
-.quick-action-btn span:last-child {
-    font-size: 0.9rem;
-}
-
 /* Empty state small */
 .empty-state-sm {
     padding: 30px;
