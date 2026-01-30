@@ -1,7 +1,10 @@
 """API endpoints for TV show management."""
 
 import asyncio
+import logging
 import re
+import shutil
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -13,6 +16,8 @@ from ..database import get_db
 from ..models import Show, Episode, AppSettings
 from ..services.tmdb import TMDBService
 from ..services.tvdb import TVDBService
+
+logger = logging.getLogger("scanner")
 
 router = APIRouter(prefix="/api/shows", tags=["shows"])
 
@@ -668,6 +673,88 @@ async def delete_show(show_id: int, db: Session = Depends(get_db)):
     return {"message": "Show deleted"}
 
 
+def _rename_episodes_to_match_metadata(db: Session, show: Show) -> int:
+    """Rename episode files on disk to match current metadata titles.
+
+    Compares each episode's current file path against the expected path
+    generated from the show's episode_format and the episode's metadata.
+    Files that don't match are renamed (along with accompanying subtitle,
+    image and metadata files).
+
+    Returns the number of files renamed.
+    """
+    if not show.folder_path:
+        return 0
+
+    from ..services.renamer import RenamerService
+
+    renamer = RenamerService(db)
+    renamed_count = 0
+
+    # Get all episodes that have files on disk
+    episodes = (
+        db.query(Episode)
+        .filter(
+            Episode.show_id == show.id,
+            Episode.file_path.isnot(None),
+            Episode.file_status.in_(["found", "renamed"]),
+        )
+        .all()
+    )
+
+    # Group by file_path to handle multi-episode files (same file mapped to
+    # multiple episode records).  We rename the physical file once and update
+    # every episode that pointed at the old path.
+    path_to_episodes: dict[str, list[Episode]] = {}
+    for ep in episodes:
+        path_to_episodes.setdefault(ep.file_path, []).append(ep)
+
+    for file_path, eps in path_to_episodes.items():
+        current_path = Path(file_path)
+        if not current_path.exists():
+            continue
+
+        # Use the lowest-numbered episode for generating the filename
+        primary_ep = min(eps, key=lambda e: (e.season, e.episode))
+        extension = current_path.suffix
+
+        expected_path = Path(
+            renamer.generate_episode_path(show, primary_ep, extension)
+        )
+
+        if current_path == expected_path:
+            continue  # Already named correctly
+
+        # Avoid overwriting an existing different file
+        if expected_path.exists() and expected_path != current_path:
+            logger.warning(
+                "Rename skipped – destination already exists: %s", expected_path
+            )
+            continue
+
+        expected_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            shutil.move(str(current_path), str(expected_path))
+            renamer._move_accompanying_files(current_path, expected_path)
+
+            for ep in eps:
+                ep.file_path = str(expected_path)
+                ep.file_status = "renamed"
+
+            renamed_count += 1
+            logger.info(
+                "Renamed: %s → %s", current_path.name, expected_path.name
+            )
+        except Exception as exc:
+            logger.error("Rename failed for %s: %s", current_path, exc)
+
+    if renamed_count > 0:
+        db.commit()
+
+    return renamed_count
+
+
 @router.post("/{show_id}/refresh")
 async def refresh_show(
     show_id: int,
@@ -749,7 +836,6 @@ async def refresh_show(
 
     # Rescan the show's folder to re-match files against updated episode list
     if show.folder_path:
-        from pathlib import Path
         from ..services.scanner import ScannerService
         from ..routers.scan import _scan_show_folder
 
@@ -759,6 +845,10 @@ async def refresh_show(
             _scan_show_folder(scanner, show, show_dir)
             db.commit()
             db.refresh(show)
+
+    # Rename files on disk to match updated metadata
+    _rename_episodes_to_match_metadata(db, show)
+    db.refresh(show)
 
     return show.to_dict()
 
@@ -1034,6 +1124,10 @@ async def _refresh_all_shows_async(db, tmdb, tvdb):
                     db.add(episode)
 
             db.commit()
+
+            # Rename files on disk to match updated metadata
+            _rename_episodes_to_match_metadata(db, show)
+
             _refresh_status["completed"].append(show.name)
 
         except Exception as e:
