@@ -9,7 +9,8 @@ let currentShowsView = 'cards';
 const defaultCardOrder = [
     'recently-aired', 'upcoming', 'recently-added', 'recently-ended',
     'most-incomplete', 'recently-matched', 'returning-soon',
-    'last-scan', 'storage-stats', 'genre-distribution', 'network-distribution'
+    'last-scan', 'storage-stats', 'genre-distribution', 'network-distribution',
+    'extra-files'
 ];
 let dashboardCardOrder = [...defaultCardOrder];
 let dashboardCardStates = {};
@@ -25,7 +26,8 @@ async function renderDashboard() {
         const [
             stats, recentlyAired, recentlyAdded, upcoming, recentlyEnded,
             mostIncomplete, recentlyMatched, returningSoon, lastScan,
-            storageStats, genreDistribution, networkDistribution, settings
+            storageStats, genreDistribution, networkDistribution, settings,
+            extraFiles
         ] = await Promise.all([
             api('/stats'),
             api('/recently-aired'),
@@ -39,7 +41,8 @@ async function renderDashboard() {
             api('/storage-stats'),
             api('/genre-distribution'),
             api('/network-distribution'),
-            api('/settings')
+            api('/settings'),
+            api('/extra-files')
         ]);
 
         state.stats = stats;
@@ -47,7 +50,8 @@ async function renderDashboard() {
         dashboardData = {
             stats, recentlyAired, recentlyAdded, upcoming, recentlyEnded,
             mostIncomplete, recentlyMatched, returningSoon, lastScan,
-            storageStats, genreDistribution, networkDistribution, settings
+            storageStats, genreDistribution, networkDistribution, settings,
+            extraFiles
         };
 
         renderDashboardContent();
@@ -64,7 +68,8 @@ function renderDashboardContent() {
     const {
         stats, recentlyAired, recentlyAdded, upcoming, recentlyEnded,
         mostIncomplete, recentlyMatched, returningSoon, lastScan,
-        storageStats, genreDistribution, networkDistribution, settings
+        storageStats, genreDistribution, networkDistribution, settings,
+        extraFiles
     } = dashboardData;
     const upcomingDays = settings?.upcoming_days || 14;
     const recentlyAiredDays = settings?.recently_aired_days || 14;
@@ -541,6 +546,51 @@ function renderDashboardContent() {
                                         `).join('')}
                                     </div>
                                 `).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
+        'extra-files': () => {
+            const isOpen = dashboardCardStates['extra-files'];
+            return `
+                <div class="card dashboard-card" draggable="true" data-card-id="extra-files"
+                     ondragstart="handleCardDragStart(event)" ondragover="handleCardDragOver(event)"
+                     ondragleave="handleCardDragLeave(event)" ondrop="handleCardDrop(event)" ondragend="handleCardDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('extra-files')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-extra-files" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Extra Files on Disk
+                        </h2>
+                        <span class="badge ${extraFiles.length > 0 ? 'badge-warning' : 'badge-success'}">${extraFiles.length} show${extraFiles.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-extra-files">
+                        ${extraFiles.length === 0 ? `
+                            <p class="text-muted text-center" style="padding: 20px;">No extra files detected</p>
+                        ` : `
+                            <div class="recent-shows-list">
+                                ${extraFiles.map(show => {
+                                    const posterUrl = show.poster_path ? `${getImageUrl(show.poster_path)}` : null;
+                                    return `
+                                        <div class="recent-show-item" onclick="showShowDetail(${show.id})">
+                                            <div class="recent-show-poster">
+                                                ${posterUrl ? `<img src="${posterUrl}" alt="${escapeHtml(show.name)}">` : `<div class="poster-placeholder"></div>`}
+                                            </div>
+                                            <div class="recent-show-info">
+                                                <div class="recent-show-name">${escapeHtml(show.name)}</div>
+                                                <div class="recent-show-meta">
+                                                    <span>${show.db_episodes} episodes</span>
+                                                    <span class="text-muted">|</span>
+                                                    <span>${show.disk_files} files</span>
+                                                </div>
+                                                <div class="recent-show-status">
+                                                    <span class="badge badge-warning badge-sm">${show.extra} extra</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
                             </div>
                         `}
                     </div>

@@ -772,6 +772,48 @@ async def get_network_distribution(db: Session = Depends(get_db)):
     return [{"network": n, "count": len(s), "shows": sorted(s, key=lambda x: x["name"])} for n, s in sorted_networks]
 
 
+@router.get("/extra-files")
+async def get_extra_files(db: Session = Depends(get_db)):
+    """Get shows with more video files on disk than episodes tracked in the DB."""
+    from ..models import Show, Episode
+    from ..config import settings
+    import os
+    from pathlib import Path
+
+    video_extensions = set(settings.video_extensions)
+
+    shows = db.query(Show).filter(Show.folder_path != None).all()
+
+    result = []
+    for show in shows:
+        if not show.folder_path or not os.path.isdir(show.folder_path):
+            continue
+
+        db_episodes = db.query(Episode).filter(Episode.show_id == show.id).count()
+
+        disk_files = 0
+        try:
+            for root, dirs, filenames in os.walk(show.folder_path):
+                for f in filenames:
+                    if Path(f).suffix.lower() in video_extensions:
+                        disk_files += 1
+        except (PermissionError, OSError):
+            continue
+
+        if disk_files > db_episodes:
+            result.append({
+                "id": show.id,
+                "name": show.name,
+                "poster_path": show.poster_path,
+                "db_episodes": db_episodes,
+                "disk_files": disk_files,
+                "extra": disk_files - db_episodes,
+            })
+
+    result.sort(key=lambda x: x["extra"], reverse=True)
+    return result
+
+
 @router.get("/last-scan")
 async def get_last_scan(db: Session = Depends(get_db)):
     """Get information about the last scan."""
