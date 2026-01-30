@@ -177,6 +177,103 @@ def run_downloads_scan(db_session_maker):
         watcher_service.release_scan_lock()
 
 
+def run_single_show_scan(db_session_maker, show_id: int):
+    """Background task for scanning a single show only."""
+    global _scan_status
+    import time
+    import json
+    import logging
+    from datetime import datetime
+    from ..models import Show
+    from ..services.watcher import watcher_service
+
+    logger = logging.getLogger("scanner")
+
+    time.sleep(0.3)
+    watcher_service.acquire_scan_lock()
+
+    SessionLocal = db_session_maker()
+    db = SessionLocal()
+
+    def update_progress(message, percent):
+        _scan_status["message"] = message
+        _scan_status["progress"] = percent
+
+    try:
+        _scan_status["running"] = True
+        _scan_status["type"] = "single"
+        _scan_status["progress"] = 0
+        _scan_status["message"] = "Starting single-show scan..."
+
+        show = db.query(Show).filter(Show.id == show_id).first()
+        if not show:
+            logger.error(f"Single-show scan: show id={show_id} not found")
+            _scan_status["message"] = "Show not found"
+            _scan_status["result"] = {"error": "Show not found"}
+            return
+
+        logger.info(f"Single-show scan started for '{show.name}' (id={show_id})")
+
+        scanner = ScannerService(db)
+        result = scanner.scan_single_show(show, progress_callback=update_progress)
+
+        db.commit()
+
+        scan_result = {
+            "type": "single",
+            "show_name": show.name,
+            "shows_found": 1,
+            "episodes_matched": result.episodes_matched,
+            "episodes_missing": result.episodes_missing,
+            "pending_actions": len(result.pending_actions),
+            "unmatched_files": result.unmatched_files[:50],
+            "errors": result.errors,
+        }
+
+        _scan_status["progress"] = 100
+        _scan_status["message"] = "Scan complete"
+        _scan_status["result"] = scan_result
+
+        _save_setting(db, "last_scan_time", datetime.utcnow().isoformat())
+        _save_setting(db, "last_scan_result", json.dumps(scan_result))
+        db.commit()
+
+        logger.info(f"Single-show scan finished for '{show.name}'")
+    except Exception as e:
+        logger.error(f"Single-show scan failed: {e}", exc_info=True)
+        _scan_status["message"] = f"Scan failed: {str(e)}"
+        _scan_status["result"] = {"error": str(e)}
+        db.rollback()
+    finally:
+        _scan_status["running"] = False
+        db.close()
+        watcher_service.release_scan_lock()
+
+
+@router.post("/show/{show_id}")
+async def trigger_single_show_scan(
+    show_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Trigger a scan for a single show only (folder match + episode scan + downloads)."""
+    global _scan_status
+    from ..models import Show
+
+    if _scan_status["running"]:
+        raise HTTPException(status_code=400, detail="Scan already in progress")
+
+    show = db.query(Show).filter(Show.id == show_id).first()
+    if not show:
+        raise HTTPException(status_code=404, detail="Show not found")
+
+    from ..database import get_session_maker
+
+    background_tasks.add_task(run_single_show_scan, get_session_maker, show_id)
+
+    return {"message": f"Single-show scan started: {show.name}", "status": "running"}
+
+
 @router.post("")
 async def trigger_full_scan(
     background_tasks: BackgroundTasks,

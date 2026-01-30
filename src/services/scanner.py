@@ -1,5 +1,6 @@
 """File system scanner service."""
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -11,6 +12,22 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import Show, Episode, ScanFolder, PendingAction
 from .matcher import MatcherService, ParsedEpisode
+
+# ── Scanner logger (detailed, writes to file + console) ──────────
+_log_dir = Path(__file__).resolve().parent.parent.parent / "data"
+os.makedirs(_log_dir, exist_ok=True)
+
+logger = logging.getLogger("scanner")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+if not logger.handlers:
+    _fh = logging.FileHandler(str(_log_dir / "scanner.log"))
+    _fh.setLevel(logging.INFO)
+    _fh.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-5s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+    logger.addHandler(_fh)
 
 
 @dataclass
@@ -54,8 +71,10 @@ class ScannerService:
         folder = Path(folder_path)
 
         if not folder.exists():
+            logger.debug(f"  scan_folder: path does not exist: {folder_path}")
             return files
 
+        logger.debug(f"  scan_folder: walking {folder_path}")
         for item in folder.rglob("*"):
             if item.is_file() and self.is_video_file(item):
                 parsed = self.matcher.parse_filename(item.name)
@@ -69,6 +88,7 @@ class ScannerService:
                     )
                 )
 
+        logger.debug(f"  scan_folder: found {len(files)} video files")
         return files
 
     def _extract_folder_year(self, folder_name: str) -> Optional[int]:
@@ -97,11 +117,9 @@ class ScannerService:
     def find_show_folder(self, show: Show) -> Optional[str]:
         """Find a matching folder for a show in library folders.
 
-        Uses a multi-pass approach:
-        1. Exact match with year (folder year matches show's premiere year)
-        2. Exact match with country code
-        3. Exact normalized name match (no year/country in folder)
-        4. Fuzzy match as fallback
+        Uses an optimized two-phase approach:
+        Phase 1: Direct path lookups (O(1) per library folder — no directory listing)
+        Phase 2: Full directory listing with letter-priority sorting + multi-pass matching
         """
         # Get all library folders
         folders = (
@@ -119,7 +137,43 @@ class ScannerService:
         if country_match:
             show_country = country_match.group(1).upper()
 
-        # Collect all candidate folders
+        logger.debug(f"  find_show_folder: '{show.name}' (normalized='{show_name_normalized}', year={show_year}, country={show_country})")
+
+        # ── Phase 1: Direct path lookups (no directory listing needed) ──
+        name_variants = [show.name]
+
+        # Strip country code for a base variant (e.g. "The Office (US)" → "The Office")
+        base_name = re.sub(r'\s*\((US|UK|AU|CA|NZ)\)\s*$', '', show.name, flags=re.IGNORECASE).strip()
+        if base_name != show.name:
+            name_variants.append(base_name)
+
+        # Handle colons (e.g. "Star Trek: Discovery" → "Star Trek - Discovery")
+        if ':' in show.name:
+            name_variants.append(show.name.replace(':', ' -'))
+            name_variants.append(show.name.replace(':', ''))
+
+        for folder in folders:
+            folder_path = Path(folder.path)
+            if not folder_path.exists():
+                continue
+
+            for name_var in name_variants:
+                candidate = folder_path / name_var
+                if candidate.is_dir():
+                    logger.info(f"  find_show_folder: DIRECT HIT → {candidate}")
+                    return str(candidate)
+
+                if show_year:
+                    candidate = folder_path / f"{name_var} ({show_year})"
+                    if candidate.is_dir():
+                        logger.info(f"  find_show_folder: DIRECT HIT (year) → {candidate}")
+                        return str(candidate)
+
+        logger.debug(f"  find_show_folder: no direct hit, falling back to directory listing")
+
+        # ── Phase 2: Full directory listing with letter-priority sorting ──
+        first_char = show_name_normalized[0].lower() if show_name_normalized else ''
+
         candidates = []
 
         for folder in folders:
@@ -155,26 +209,36 @@ class ScannerService:
             except PermissionError:
                 continue
 
+        # Sort: same first letter first for faster matching
+        if first_char:
+            candidates.sort(key=lambda c: 0 if c['name_normalized'] and c['name_normalized'][0].lower() == first_char else 1)
+
+        logger.debug(f"  find_show_folder: {len(candidates)} candidate folders, running multi-pass matching")
+
         # Pass 1: Exact name match with matching year
         if show_year:
             for c in candidates:
                 if c['name_normalized'] == show_name_normalized and c['year'] == show_year:
+                    logger.info(f"  find_show_folder: pass 1 (exact+year) → {c['path']}")
                     return c['path']
 
         # Pass 2: Exact name match with matching country code
         if show_country:
             for c in candidates:
                 if c['name_normalized'] == show_name_normalized and c['country'] == show_country:
+                    logger.info(f"  find_show_folder: pass 2 (exact+country) → {c['path']}")
                     return c['path']
 
         # Pass 3: Exact name match (folder has no year/country suffix)
         for c in candidates:
             if c['name_normalized'] == show_name_normalized and not c['year'] and not c['country']:
+                logger.info(f"  find_show_folder: pass 3 (exact, no suffix) → {c['path']}")
                 return c['path']
 
         # Pass 4: Exact name match (any folder, but prefer no suffix)
         for c in candidates:
             if c['name_normalized'] == show_name_normalized:
+                logger.info(f"  find_show_folder: pass 4 (exact, any) → {c['path']}")
                 return c['path']
 
         # Pass 5: Fuzzy match as fallback (only if no year ambiguity)
@@ -184,22 +248,27 @@ class ScannerService:
                 # If folder has a year, only match if it matches show year
                 if c['year'] and show_year and c['year'] != show_year:
                     continue
+                logger.info(f"  find_show_folder: pass 5 (fuzzy={score:.2f}) → {c['path']}")
                 return c['path']
 
+        logger.info(f"  find_show_folder: NO MATCH for '{show.name}'")
         return None
 
     def auto_match_show_folder(self, show: Show) -> bool:
         """Auto-detect and set folder path for a show."""
         if show.folder_path:
-            # Already has a folder path
+            logger.debug(f"  auto_match: '{show.name}' already has folder: {show.folder_path}")
             return True
 
+        logger.info(f"  auto_match: searching for folder for '{show.name}'")
         folder_path = self.find_show_folder(show)
         if folder_path:
             show.folder_path = folder_path
             self.db.commit()
+            logger.info(f"  auto_match: found folder → {folder_path}")
             return True
 
+        logger.info(f"  auto_match: no folder found for '{show.name}'")
         return False
 
     def scan_library(self, quick_scan: bool = False, recent_days: int = None, progress_callback=None) -> ScanResult:
@@ -264,8 +333,12 @@ class ScannerService:
 
         total_shows = len(shows)
         report_progress(f"Found {total_shows} shows to scan", 5)
+        logger.info(f"scan_library: mode={'quick' if quick_scan else 'full'}, recent_days={recent_days}, shows={total_shows}")
 
         # Auto-match folders for shows without folder_path
+        unmatched = [s for s in shows if not s.folder_path]
+        if unmatched:
+            logger.info(f"  Auto-matching folders for {len(unmatched)} shows without folder_path")
         for show in shows:
             if not show.folder_path:
                 self.auto_match_show_folder(show)
@@ -292,16 +365,23 @@ class ScannerService:
             report_progress(f"Scanning: {show.name}", progress_percent)
 
             if show.folder_path:
+                logger.debug(f"[{i+1}/{total_shows}] Scanning '{show.name}' → {show.folder_path}")
                 files = self.scan_folder(show.folder_path)
+                show_matched = 0
                 for file_info in files:
                     if file_info.parsed:
                         matched_count = self._match_file_to_show(file_info, [show])
                         if matched_count > 0:
                             result.episodes_matched += matched_count
+                            show_matched += matched_count
                         else:
                             result.unmatched_files.append(file_info.path)
                     else:
                         result.unmatched_files.append(file_info.path)
+                if files:
+                    logger.debug(f"  '{show.name}': {show_matched} episodes matched from {len(files)} files")
+            else:
+                logger.debug(f"[{i+1}/{total_shows}] Skipping '{show.name}' — no folder_path")
 
         # Count missing episodes
         report_progress("Counting missing episodes...", 82)
@@ -317,6 +397,72 @@ class ScannerService:
 
         report_progress("Finalizing...", 98)
         result.shows_found = len(shows)
+        logger.info(f"scan_library complete: {result.shows_found} shows, {result.episodes_matched} matched, "
+                     f"{result.episodes_missing} missing, {len(result.unmatched_files)} unmatched files, "
+                     f"{len(result.pending_actions)} pending actions")
+        return result
+
+    def scan_single_show(self, show: Show, progress_callback=None) -> ScanResult:
+        """Scan only a single show — folder matching, episode matching, downloads.
+
+        Much faster than scan_library() when adding a single show.
+        """
+        result = ScanResult()
+
+        def report(msg, pct):
+            if progress_callback:
+                progress_callback(msg, pct)
+
+        logger.info(f"scan_single_show: '{show.name}' (id={show.id})")
+
+        # Step 1: Auto-match folder if needed
+        if not show.folder_path:
+            report(f"Finding folder for: {show.name}", 10)
+            logger.info(f"  No folder_path set, searching...")
+            self.auto_match_show_folder(show)
+
+        if show.folder_path:
+            logger.info(f"  Folder: {show.folder_path}")
+        else:
+            logger.info(f"  No folder found for '{show.name}'")
+
+        # Step 2: Scan show folder for episode files
+        if show.folder_path:
+            report(f"Scanning: {show.name}", 30)
+            files = self.scan_folder(show.folder_path)
+            logger.info(f"  Found {len(files)} video files in folder")
+
+            show_matched = 0
+            for file_info in files:
+                if file_info.parsed:
+                    matched = self._match_file_to_show(file_info, [show])
+                    if matched > 0:
+                        result.episodes_matched += matched
+                        show_matched += matched
+                    else:
+                        result.unmatched_files.append(file_info.path)
+                else:
+                    result.unmatched_files.append(file_info.path)
+            logger.info(f"  Matched {show_matched} episodes, {len(result.unmatched_files)} unmatched")
+
+        # Step 3: Count missing episodes
+        report("Counting missing episodes...", 75)
+        if show.do_missing:
+            result.episodes_missing = self._count_missing_episodes(show)
+            logger.info(f"  Missing episodes: {result.episodes_missing}")
+
+        # Step 4: Scan downloads for this show only
+        report("Checking downloads...", 85)
+        download_result = self._scan_download_folders([show])
+        result.pending_actions.extend(download_result.pending_actions)
+        if download_result.pending_actions:
+            logger.info(f"  Found {len(download_result.pending_actions)} pending download actions")
+
+        result.shows_found = 1
+        report("Complete", 100)
+        logger.info(f"scan_single_show complete: '{show.name}' — {result.episodes_matched} matched, "
+                     f"{result.episodes_missing} missing, {len(result.unmatched_files)} unmatched, "
+                     f"{len(result.pending_actions)} pending actions")
         return result
 
     def _scan_download_folders(self, shows: list[Show], progress_callback=None) -> ScanResult:
@@ -440,6 +586,9 @@ class ScannerService:
                     filename=file_info.filename if in_specials_folder else None,
                 )
                 if matched_count > 0:
+                    logger.debug(f"    matched {file_info.filename} → S{season:02d}E{start_episode:02d}" +
+                                 (f"-E{end_episode:02d}" if end_episode != start_episode else "") +
+                                 f" (in-folder)")
                     return matched_count
 
         # Try to match by show name in filename
@@ -447,6 +596,7 @@ class ScannerService:
             for show in shows:
                 score = self.matcher.match_show_name(file_info.parsed.title, show.name)
                 if score >= 0.7:
+                    logger.debug(f"    name-match {file_info.filename} → '{show.name}' (score={score:.2f})")
                     matched_count = self._mark_episodes_found(
                         show.id,
                         file_info.parsed.season,
@@ -457,6 +607,7 @@ class ScannerService:
                     if matched_count > 0:
                         return matched_count
 
+        logger.debug(f"    unmatched: {file_info.filename}")
         return 0
 
     def _mark_episodes_found(

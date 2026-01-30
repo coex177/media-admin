@@ -1035,8 +1035,8 @@ async function scanWithProgress(showId) {
     const show = await api(`/shows/${showId}`);
     showScanningModal(show.name);
 
-    // Trigger scan
-    await api('/scan', { method: 'POST' });
+    // Trigger single-show scan (only scans this show, not the entire library)
+    await api(`/scan/show/${showId}`, { method: 'POST' });
 
     // Poll for completion
     let attempts = 0;
