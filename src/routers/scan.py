@@ -907,6 +907,24 @@ def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> tuple[in
     from ..models import Episode
 
     matched_count = 0
+
+    # Reset episodes whose recorded file no longer exists on disk so they
+    # can be re-matched against the actual files found during the scan.
+    stale_episodes = (
+        scanner.db.query(Episode)
+        .filter(
+            Episode.show_id == show.id,
+            Episode.file_path.isnot(None),
+            Episode.file_status.in_(["found", "renamed"]),
+        )
+        .all()
+    )
+    for ep in stale_episodes:
+        if not Path(ep.file_path).exists():
+            ep.file_path = None
+            ep.file_status = "missing"
+            ep.matched_at = None
+
     files = scanner.scan_folder(str(show_dir))
     total_files = len(files)
 

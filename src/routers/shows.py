@@ -65,6 +65,21 @@ class SwitchSeasonTypeRequest(BaseModel):
     season_type: str
 
 
+class FixMatchEntry(BaseModel):
+    """A single file-to-episode mapping for fix match."""
+
+    source_path: str
+    target_season: int
+    target_episode: int
+
+
+class FixMatchRequest(BaseModel):
+    """Request model for fixing match of extra files."""
+
+    target_show_id: int
+    matches: list[FixMatchEntry]
+
+
 class ShowResponse(BaseModel):
     """Response model for a show."""
 
@@ -1349,3 +1364,192 @@ async def refresh_all_shows(
 async def get_refresh_status():
     """Get the status of the refresh-all operation."""
     return _refresh_status
+
+
+@router.post("/{show_id}/fix-match/preview")
+async def fix_match_preview(
+    show_id: int,
+    data: FixMatchRequest,
+    db: Session = Depends(get_db),
+):
+    """Preview fix-match operations without moving files."""
+    from ..services.renamer import RenamerService
+
+    # Validate source show exists
+    source_show = db.query(Show).filter(Show.id == show_id).first()
+    if not source_show:
+        raise HTTPException(status_code=404, detail="Source show not found")
+
+    # Validate target show exists and has a folder_path
+    target_show = db.query(Show).filter(Show.id == data.target_show_id).first()
+    if not target_show:
+        raise HTTPException(status_code=404, detail="Target show not found")
+    if not target_show.folder_path:
+        raise HTTPException(status_code=400, detail="Target show has no folder path configured")
+
+    renamer = RenamerService(db)
+    results = []
+    has_conflicts = False
+
+    for match in data.matches:
+        source_path = Path(match.source_path)
+        source_filename = source_path.name
+        result = {
+            "source_path": match.source_path,
+            "source_filename": source_filename,
+            "target_path": None,
+            "target_episode_name": None,
+            "conflict": False,
+            "error": None,
+        }
+
+        # Find the target episode
+        target_ep = (
+            db.query(Episode)
+            .filter(
+                Episode.show_id == data.target_show_id,
+                Episode.season == match.target_season,
+                Episode.episode == match.target_episode,
+            )
+            .first()
+        )
+
+        if not target_ep:
+            result["error"] = f"Episode S{match.target_season:02d}E{match.target_episode:02d} not found"
+            results.append(result)
+            continue
+
+        result["target_episode_name"] = f"S{target_ep.season:02d}E{target_ep.episode:02d} - {target_ep.title}"
+
+        # Check if episode already has a file
+        if target_ep.file_path and target_ep.file_status != "missing":
+            result["conflict"] = True
+            result["error"] = "Episode already has a file"
+            has_conflicts = True
+            results.append(result)
+            continue
+
+        # Generate expected target path
+        extension = source_path.suffix
+        try:
+            target_path = renamer.generate_episode_path(target_show, target_ep, extension)
+            result["target_path"] = target_path
+        except Exception as e:
+            result["error"] = str(e)
+
+        results.append(result)
+
+    return {
+        "target_show_name": target_show.name,
+        "results": results,
+        "has_conflicts": has_conflicts,
+    }
+
+
+@router.post("/{show_id}/fix-match")
+async def fix_match_execute(
+    show_id: int,
+    data: FixMatchRequest,
+    db: Session = Depends(get_db),
+):
+    """Execute fix-match: move files to target show's episode locations."""
+    from datetime import datetime
+    from ..services.renamer import RenamerService
+
+    # Validate source show exists
+    source_show = db.query(Show).filter(Show.id == show_id).first()
+    if not source_show:
+        raise HTTPException(status_code=404, detail="Source show not found")
+
+    # Validate target show exists and has a folder_path
+    target_show = db.query(Show).filter(Show.id == data.target_show_id).first()
+    if not target_show:
+        raise HTTPException(status_code=404, detail="Target show not found")
+    if not target_show.folder_path:
+        raise HTTPException(status_code=400, detail="Target show has no folder path configured")
+
+    renamer = RenamerService(db)
+    results = []
+    success_count = 0
+    error_count = 0
+
+    for match in data.matches:
+        source_path = Path(match.source_path)
+        result = {
+            "source_path": match.source_path,
+            "source_filename": source_path.name,
+            "success": False,
+            "error": None,
+        }
+
+        # Verify source file exists
+        if not source_path.exists():
+            result["error"] = "Source file not found on disk"
+            error_count += 1
+            results.append(result)
+            continue
+
+        # Find the target episode
+        target_ep = (
+            db.query(Episode)
+            .filter(
+                Episode.show_id == data.target_show_id,
+                Episode.season == match.target_season,
+                Episode.episode == match.target_episode,
+            )
+            .first()
+        )
+
+        if not target_ep:
+            result["error"] = f"Episode S{match.target_season:02d}E{match.target_episode:02d} not found"
+            error_count += 1
+            results.append(result)
+            continue
+
+        # Verify episode doesn't already have a file
+        if target_ep.file_path and target_ep.file_status != "missing":
+            result["error"] = "Episode already has a file"
+            error_count += 1
+            results.append(result)
+            continue
+
+        # Generate target path
+        extension = source_path.suffix
+        try:
+            target_path_str = renamer.generate_episode_path(target_show, target_ep, extension)
+            target_path = Path(target_path_str)
+        except Exception as e:
+            result["error"] = f"Failed to generate path: {e}"
+            error_count += 1
+            results.append(result)
+            continue
+
+        # Create season folder if needed
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Move the file
+        try:
+            shutil.move(str(source_path), str(target_path))
+            renamer._move_accompanying_files(source_path, target_path)
+
+            # Update episode record
+            target_ep.file_path = str(target_path)
+            target_ep.file_status = "renamed"
+            target_ep.matched_at = datetime.utcnow()
+
+            result["success"] = True
+            success_count += 1
+        except Exception as e:
+            result["error"] = f"Move failed: {e}"
+            error_count += 1
+
+        results.append(result)
+
+    db.commit()
+
+    return {
+        "message": f"Fix match complete: {success_count} moved, {error_count} errors",
+        "success_count": success_count,
+        "error_count": error_count,
+        "results": results,
+    }

@@ -605,19 +605,29 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
                 </div>
             `}).join('')}
 
-            ${show.extra_files && show.extra_files.length > 0 ? `
+            ${show.extra_files && show.extra_files.length > 0 ? (() => {
+                const sortedExtra = [...show.extra_files].sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true }));
+                return `
                 <div class="card season-card">
-                    <div class="season-header-toggle" onclick="toggleSeason('extra')" id="season-header-extra">
-                        <div style="display: flex; align-items: center; gap: 10px;">
+                    <div class="season-header-toggle" id="season-header-extra">
+                        <div style="display: flex; align-items: center; gap: 10px; cursor: pointer;" onclick="toggleSeason('extra')">
                             <img src="/static/images/show-expand.png" class="season-chevron-img" id="season-chevron-extra" alt="">
                             <h3>Extra Files</h3>
+                            <span class="badge badge-warning">${sortedExtra.length} file${sortedExtra.length !== 1 ? 's' : ''}</span>
                         </div>
-                        <span class="badge badge-warning">${show.extra_files.length} file${show.extra_files.length !== 1 ? 's' : ''}</span>
+                        <button class="btn btn-sm btn-secondary" id="fix-match-btn" disabled onclick="event.stopPropagation(); _fixMatchStep1_SearchShow(${show.id})">Fix Match</button>
                     </div>
                     <div class="episodes-list collapsed" id="season-extra-episodes">
-                        ${show.extra_files.map((file, i) => `
+                        <div class="episode-row">
+                            <div class="episode-header not-aired" style="opacity:0.7;cursor:pointer;" onclick="var cb=document.getElementById('extra-file-select-all');cb.checked=!cb.checked;toggleAllExtraFiles(cb.checked);">
+                                <input type="checkbox" id="extra-file-select-all" onchange="toggleAllExtraFiles(this.checked)" onclick="event.stopPropagation()" style="margin-right:8px;">
+                                <span class="episode-title" style="font-style:italic;">Select All</span>
+                            </div>
+                        </div>
+                        ${sortedExtra.map((file, i) => `
                             <div class="episode-row">
-                                <div class="episode-header not-aired">
+                                <div class="episode-header not-aired" style="cursor:pointer;" onclick="toggleExtraFileCheckbox(this)">
+                                    <input type="checkbox" class="extra-file-checkbox" data-path="${escapeHtml(file.path)}" data-filename="${escapeHtml(file.filename)}" onchange="updateFixMatchButton()" onclick="event.stopPropagation()" style="margin-right:8px;">
                                     <span class="episode-number">${i + 1}</span>
                                     <span class="episode-title">${escapeHtml(file.filename)}</span>
                                     <span class="episode-status-badge missing">Unmatched</span>
@@ -626,7 +636,7 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
                         `).join('')}
                     </div>
                 </div>
-            ` : ''}
+            `})() : ''}
         `;
 
         // If target season/episode specified, expand that season and scroll to/highlight the episode
@@ -1318,5 +1328,644 @@ function toggleRefreshFilter(filter) {
             successSection.style.display = 'none';
             successTab.classList.remove('active');
         }
+    }
+}
+
+
+// ── Fix Match ────────────────────────────────────────────────────
+
+let _fixMatchState = {
+    sourceShowId: null,
+    selectedFiles: [],
+    targetShowId: null,
+    targetShowName: null,
+    targetEpisodes: [],
+    matches: [],
+};
+
+function getSelectedExtraFiles() {
+    const checked = document.querySelectorAll('.extra-file-checkbox:checked');
+    return Array.from(checked).map(cb => ({
+        path: cb.dataset.path,
+        filename: cb.dataset.filename,
+    }));
+}
+
+function updateFixMatchButton() {
+    const btn = document.getElementById('fix-match-btn');
+    if (!btn) return;
+    const selected = getSelectedExtraFiles();
+    btn.disabled = selected.length === 0;
+    btn.textContent = selected.length > 0 ? `Fix Match (${selected.length})` : 'Fix Match';
+
+    // Keep select-all checkbox in sync
+    const selectAll = document.getElementById('extra-file-select-all');
+    if (selectAll) {
+        const all = document.querySelectorAll('.extra-file-checkbox');
+        selectAll.checked = all.length > 0 && selected.length === all.length;
+        selectAll.indeterminate = selected.length > 0 && selected.length < all.length;
+    }
+}
+
+function toggleAllExtraFiles(checked) {
+    document.querySelectorAll('.extra-file-checkbox').forEach(cb => cb.checked = checked);
+    updateFixMatchButton();
+}
+
+function toggleExtraFileCheckbox(headerEl) {
+    const cb = headerEl.querySelector('.extra-file-checkbox');
+    if (cb) {
+        cb.checked = !cb.checked;
+        updateFixMatchButton();
+    }
+}
+
+
+// Step 1: Search for target show
+let _fixMatchSearchTimeout;
+
+function _fixMatchStep1_SearchShow(sourceShowId) {
+    const selected = getSelectedExtraFiles();
+    if (selected.length === 0) return;
+
+    _fixMatchState = {
+        sourceShowId,
+        selectedFiles: selected,
+        targetShowId: null,
+        targetShowName: null,
+        targetEpisodes: [],
+        matches: [],
+    };
+
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    const defaultSource = state.settings?.default_metadata_source || 'tmdb';
+    modalTitle.textContent = 'Fix Match - Select Target Show';
+    modalBody.innerHTML = `
+        <p class="text-muted mb-10">${selected.length} file${selected.length !== 1 ? 's' : ''} selected</p>
+        <div class="form-group">
+            <label>Search for the target show</label>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="text" id="fix-match-search-input" class="form-control" placeholder="Enter show name..." oninput="_fixMatchDebounceSearch()" style="flex: 1;">
+                <div class="search-source-toggle" id="fix-match-source-toggle">
+                    <label class="${defaultSource === 'tmdb' ? 'active' : ''}" onclick="_fixMatchSetSource('tmdb', this)">
+                        <input type="radio" name="fix-match-source" value="tmdb" ${defaultSource === 'tmdb' ? 'checked' : ''}>
+                        <span>TMDB</span>
+                    </label>
+                    <label class="${defaultSource === 'tvdb' ? 'active' : ''}" onclick="_fixMatchSetSource('tvdb', this)">
+                        <input type="radio" name="fix-match-source" value="tvdb" ${defaultSource === 'tvdb' ? 'checked' : ''}>
+                        <span>TVDB</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+        <div id="fix-match-search-results" class="search-results"></div>
+    `;
+    modal.classList.add('active');
+
+    // Focus search input
+    setTimeout(() => document.getElementById('fix-match-search-input')?.focus(), 100);
+}
+
+function _fixMatchGetSource() {
+    const checked = document.querySelector('input[name="fix-match-source"]:checked');
+    return checked ? checked.value : (state.settings?.default_metadata_source || 'tmdb');
+}
+
+function _fixMatchSetSource(source, labelEl) {
+    const toggle = document.getElementById('fix-match-source-toggle');
+    if (toggle) {
+        toggle.querySelectorAll('label').forEach(l => {
+            l.classList.remove('active');
+            const input = l.querySelector('input');
+            if (input) input.checked = (input.value === source);
+        });
+        if (labelEl) labelEl.classList.add('active');
+    }
+    const searchInput = document.getElementById('fix-match-search-input');
+    if (searchInput && searchInput.value.trim().length >= 2) {
+        _fixMatchDoSearch(searchInput.value.trim());
+    }
+}
+
+function _fixMatchDebounceSearch() {
+    clearTimeout(_fixMatchSearchTimeout);
+    const query = document.getElementById('fix-match-search-input')?.value.trim();
+    if (!query || query.length < 2) {
+        document.getElementById('fix-match-search-results').innerHTML = '';
+        return;
+    }
+    _fixMatchSearchTimeout = setTimeout(() => _fixMatchDoSearch(query), 300);
+}
+
+async function _fixMatchDoSearch(query) {
+    const resultsDiv = document.getElementById('fix-match-search-results');
+    if (!resultsDiv) return;
+    resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+    const source = _fixMatchGetSource();
+
+    try {
+        // Fetch library shows and provider results
+        const [localResp, providerResp] = await Promise.all([
+            api('/shows'),
+            api(`/shows/search/${source}?q=${encodeURIComponent(query)}`),
+        ]);
+
+        const localShows = localResp.shows || [];
+        const providerResults = providerResp.results || [];
+        const queryLower = query.toLowerCase();
+
+        // Filter library shows by name
+        const matchingLocal = localShows.filter(s => s.name.toLowerCase().includes(queryLower));
+
+        let html = '';
+
+        // Library shows first (clickable)
+        if (matchingLocal.length > 0) {
+            html += '<div style="margin-bottom:8px;"><strong class="text-muted" style="font-size:0.85rem;">IN YOUR LIBRARY</strong></div>';
+            html += matchingLocal.map(show => `
+                <div class="search-result-item" onclick="_fixMatchSelectShow(${show.id}, '${escapeHtml(show.name).replace(/'/g, "\\'")}')">
+                    <img src="${getImageUrlOrPlaceholder(show.poster_path)}" class="search-result-poster"
+                         onerror="this.src='${getImageUrlOrPlaceholder(null)}'">
+                    <div class="search-result-info">
+                        <h4>${escapeHtml(show.name)}</h4>
+                        <p>${show.first_air_date ? show.first_air_date.substring(0, 4) : 'Unknown year'}</p>
+                    </div>
+                    <span class="badge badge-success" style="margin-left:auto;">In Library</span>
+                </div>
+            `).join('');
+        }
+
+        // Provider results (grayed out if not in library)
+        if (providerResults.length > 0) {
+            html += '<div style="margin-bottom:8px;margin-top:12px;"><strong class="text-muted" style="font-size:0.85rem;">SEARCH RESULTS</strong></div>';
+            html += providerResults.slice(0, 8).map(show => {
+                const showId = source === 'tvdb' ? (show.tvdb_id || show.id) : show.id;
+                const inLibrary = source === 'tvdb'
+                    ? localShows.some(ls => ls.tvdb_id === showId)
+                    : localShows.some(ls => ls.tmdb_id === showId);
+
+                if (inLibrary) {
+                    // Find library show to get its local ID
+                    const libShow = source === 'tvdb'
+                        ? localShows.find(ls => ls.tvdb_id === showId)
+                        : localShows.find(ls => ls.tmdb_id === showId);
+                    return `
+                        <div class="search-result-item" onclick="_fixMatchSelectShow(${libShow.id}, '${escapeHtml(libShow.name).replace(/'/g, "\\'")}')">
+                            <img src="${getImageUrlOrPlaceholder(show.poster_path)}" class="search-result-poster"
+                                 onerror="this.src='${getImageUrlOrPlaceholder(null)}'">
+                            <div class="search-result-info">
+                                <h4>${escapeHtml(show.name)}</h4>
+                                <p>${show.first_air_date ? show.first_air_date.substring(0, 4) : 'Unknown year'}</p>
+                            </div>
+                            <span class="badge badge-success" style="margin-left:auto;">In Library</span>
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div class="search-result-item" onclick="_fixMatchAddAndSelectShow(${showId}, '${escapeHtml(show.name).replace(/'/g, "\\'")}', '${source}')">
+                            <img src="${getImageUrlOrPlaceholder(show.poster_path)}" class="search-result-poster"
+                                 onerror="this.src='${getImageUrlOrPlaceholder(null)}'">
+                            <div class="search-result-info">
+                                <h4>${escapeHtml(show.name)}</h4>
+                                <p>${show.first_air_date ? show.first_air_date.substring(0, 4) : 'Unknown year'}</p>
+                            </div>
+                            <span class="badge badge-primary" style="margin-left:auto;">+ Add & Select</span>
+                        </div>
+                    `;
+                }
+            }).join('');
+        }
+
+        if (!html) {
+            html = '<p class="text-muted text-center">No results found.</p>';
+        }
+
+        resultsDiv.innerHTML = html;
+    } catch (error) {
+        resultsDiv.innerHTML = '<p class="text-muted text-center">Search failed.</p>';
+    }
+}
+
+async function _fixMatchSelectShow(showId, showName) {
+    _fixMatchState.targetShowId = showId;
+    _fixMatchState.targetShowName = showName;
+
+    // Fetch target show's episodes
+    try {
+        const showData = await api(`/shows/${showId}`);
+        _fixMatchState.targetEpisodes = showData.episodes || [];
+
+        if (_fixMatchState.selectedFiles.length === 1) {
+            _fixMatchStep2a_PickEpisode();
+        } else {
+            _fixMatchStep2b_PickSeason();
+        }
+    } catch (error) {
+        showToast('Failed to load target show episodes', 'error');
+    }
+}
+
+async function _fixMatchAddAndSelectShow(providerId, showName, source) {
+    const modalBody = document.getElementById('modal-body');
+    modalBody.innerHTML = `
+        <div style="text-align:center;padding:20px;">
+            <div class="spinner" style="margin:0 auto 15px;"></div>
+            <p>Adding <strong>${escapeHtml(showName)}</strong> to library...</p>
+        </div>
+    `;
+
+    try {
+        // Add the show to the library
+        const body = source === 'tvdb'
+            ? { tvdb_id: providerId, metadata_source: 'tvdb' }
+            : { tmdb_id: providerId, metadata_source: 'tmdb' };
+        const newShow = await api('/shows', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+
+        // If no folder_path, auto-generate from library folders
+        if (!newShow.folder_path) {
+            try {
+                const folders = await api('/folders');
+                const libraryFolder = folders.find(f => f.type === 'library' && f.enabled);
+                if (libraryFolder) {
+                    const folderPath = libraryFolder.path.replace(/\/+$/, '') + '/' + newShow.name;
+                    await api(`/shows/${newShow.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ folder_path: folderPath }),
+                    });
+                }
+            } catch (e) {
+                // Non-fatal: user can set folder later, but preview will warn
+            }
+        }
+
+        showToast(`Added "${newShow.name}" to library`, 'success');
+        _fixMatchSelectShow(newShow.id, newShow.name);
+    } catch (error) {
+        // api() already shows toast; re-render search so user can try again
+        _fixMatchStep1_SearchShow(_fixMatchState.sourceShowId);
+    }
+}
+
+
+// Step 2a: Single file - pick exact episode
+function _fixMatchStep2a_PickEpisode() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+    const file = _fixMatchState.selectedFiles[0];
+    const episodes = _fixMatchState.targetEpisodes;
+
+    modalTitle.textContent = 'Fix Match - Pick Episode';
+    modal.classList.add('modal-wide');
+
+    // Group episodes by season
+    const seasons = {};
+    episodes.forEach(ep => {
+        if (!seasons[ep.season]) seasons[ep.season] = [];
+        seasons[ep.season].push(ep);
+    });
+    const seasonNums = Object.keys(seasons).map(Number).sort((a, b) => a - b);
+
+    const seasonsHtml = seasonNums.map(sNum => {
+        const eps = seasons[sNum];
+        eps.sort((a, b) => a.episode - b.episode);
+        const seasonLabel = sNum === 0 ? 'Specials' : `Season ${sNum}`;
+        return `
+            <div class="preview-season-card">
+                <div class="preview-season-header" onclick="togglePreviewSeason(${sNum})">
+                    <span class="season-chevron" id="preview-season-chevron-${sNum}">&#9654;</span>
+                    <strong>${seasonLabel}</strong>
+                    <span class="text-muted" style="margin-left:auto;">${eps.length} episode${eps.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="preview-season-episodes" id="preview-season-${sNum}" style="display:none;">
+                    ${eps.map(ep => {
+                        const hasFile = ep.file_path && ep.file_status !== 'missing';
+                        const airDate = ep.air_date || 'TBA';
+                        if (hasFile) {
+                            return `
+                                <div class="preview-episode-row" style="opacity:0.4;cursor:default;">
+                                    <div class="preview-episode-header">
+                                        <span class="preview-ep-num">${ep.episode}</span>
+                                        <span class="preview-ep-title">${escapeHtml(ep.title || 'TBA')}</span>
+                                        <span class="preview-ep-air text-muted">${airDate}</span>
+                                        <span class="badge badge-success" style="font-size:0.75rem;">Has File</span>
+                                    </div>
+                                </div>`;
+                        }
+                        return `
+                            <div class="preview-episode-row" style="cursor:pointer;" onclick="_fixMatchPickSingleEpisode(${ep.season}, ${ep.episode})">
+                                <div class="preview-episode-header">
+                                    <span class="preview-ep-num">${ep.episode}</span>
+                                    <span class="preview-ep-title">${escapeHtml(ep.title || 'TBA')}</span>
+                                    <span class="preview-ep-air text-muted">${airDate}</span>
+                                </div>
+                            </div>`;
+                    }).join('')}
+                </div>
+            </div>`;
+    }).join('');
+
+    modalBody.innerHTML = `
+        <div style="margin-bottom:12px;">
+            <strong>File:</strong> <code style="font-size:0.85rem;">${escapeHtml(file.filename)}</code>
+        </div>
+        <div style="margin-bottom:8px;">
+            <strong>Target:</strong> ${escapeHtml(_fixMatchState.targetShowName)}
+        </div>
+        <p class="text-muted mb-10" style="font-size:0.85rem;">Click an episode to assign this file to it. Episodes with existing files are grayed out.</p>
+        <div class="preview-seasons">
+            ${seasonsHtml || '<p class="text-muted">No episodes found.</p>'}
+        </div>
+        <div class="modal-buttons" style="margin-top:15px;">
+            <button class="btn btn-secondary" onclick="_fixMatchStep1_SearchShow(${_fixMatchState.sourceShowId})">Back</button>
+        </div>
+    `;
+}
+
+function _fixMatchPickSingleEpisode(season, episode) {
+    _fixMatchState.matches = [{
+        source_path: _fixMatchState.selectedFiles[0].path,
+        target_season: season,
+        target_episode: episode,
+    }];
+    _fixMatchStep3_Preview();
+}
+
+
+// Step 2b: Multiple files - pick season + ordering
+function _fixMatchStep2b_PickSeason() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+    const episodes = _fixMatchState.targetEpisodes;
+
+    modalTitle.textContent = 'Fix Match - Pick Season & Order';
+
+    // Group episodes by season (including specials)
+    const seasons = {};
+    episodes.forEach(ep => {
+        if (!seasons[ep.season]) seasons[ep.season] = [];
+        seasons[ep.season].push(ep);
+    });
+    const seasonNums = Object.keys(seasons).map(Number).sort((a, b) => a - b);
+
+    // "All Seasons" summary (non-specials only)
+    const allRegularEps = seasonNums.filter(s => s > 0).flatMap(sNum => seasons[sNum]);
+    const allRegularMissing = allRegularEps.filter(e => !e.file_path || e.file_status === 'missing').length;
+    const allOption = `<option value="all">All Seasons (${allRegularEps.length} episodes, ${allRegularMissing} missing)</option>`;
+
+    const seasonOptions = allOption + seasonNums.map(sNum => {
+        const eps = seasons[sNum];
+        const missingCount = eps.filter(e => !e.file_path || e.file_status === 'missing').length;
+        const label = sNum === 0 ? 'Specials' : `Season ${sNum}`;
+        return `<option value="${sNum}">${label} (${eps.length} episodes, ${missingCount} missing)</option>`;
+    }).join('');
+
+    modalBody.innerHTML = `
+        <div style="margin-bottom:12px;">
+            <strong>${_fixMatchState.selectedFiles.length} files</strong> to match into <strong>${escapeHtml(_fixMatchState.targetShowName)}</strong>
+        </div>
+        <div class="form-group">
+            <label>Target Season</label>
+            <select id="fix-match-season-select" class="form-control">
+                ${seasonOptions || '<option disabled>No seasons available</option>'}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Match Ordering</label>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="radio" name="fix-match-ordering" value="alphabetical" checked>
+                    <span><strong>Alphabetical</strong> - Sort files by name, assign sequentially to missing episodes</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="radio" name="fix-match-ordering" value="parse">
+                    <span><strong>Parse numbers</strong> - Extract episode numbers from filenames (SxxExx, NxNN)</span>
+                </label>
+            </div>
+        </div>
+        <div class="modal-buttons" style="margin-top:15px;">
+            <button class="btn btn-secondary" onclick="_fixMatchStep1_SearchShow(${_fixMatchState.sourceShowId})">Back</button>
+            <button class="btn btn-primary" onclick="_fixMatchBuildMultiMatches()">Next</button>
+        </div>
+    `;
+}
+
+function _fixMatchBuildMultiMatches() {
+    const seasonRaw = document.getElementById('fix-match-season-select')?.value;
+    const ordering = document.querySelector('input[name="fix-match-ordering"]:checked')?.value || 'alphabetical';
+    const isAll = seasonRaw === 'all';
+    const seasonNum = isAll ? null : parseInt(seasonRaw);
+
+    if (!isAll && isNaN(seasonNum)) {
+        showToast('Please select a season', 'warning');
+        return;
+    }
+
+    const episodes = _fixMatchState.targetEpisodes;
+    const missingEps = episodes
+        .filter(ep => (isAll ? ep.season > 0 : ep.season === seasonNum)
+            && (!ep.file_path || ep.file_status === 'missing'))
+        .sort((a, b) => a.season - b.season || a.episode - b.episode);
+
+    const files = [..._fixMatchState.selectedFiles];
+    const matches = [];
+
+    if (ordering === 'alphabetical') {
+        files.sort((a, b) => a.filename.localeCompare(b.filename));
+        for (let i = 0; i < files.length && i < missingEps.length; i++) {
+            matches.push({
+                source_path: files[i].path,
+                target_season: missingEps[i].season,
+                target_episode: missingEps[i].episode,
+            });
+        }
+    } else {
+        // Parse season+episode numbers from filenames
+        const seRegex = /[Ss](\d+)[Ee](\d+)/;
+        const nxRegex = /(\d+)[xX](\d+)/;
+        const simpleRegex = /[Ee](\d+)/;
+
+        for (const file of files) {
+            let sNum = null, epNum = null;
+            const seMatch = file.filename.match(seRegex);
+            if (seMatch) {
+                sNum = parseInt(seMatch[1]);
+                epNum = parseInt(seMatch[2]);
+            } else {
+                const nxMatch = file.filename.match(nxRegex);
+                if (nxMatch) {
+                    sNum = parseInt(nxMatch[1]);
+                    epNum = parseInt(nxMatch[2]);
+                } else {
+                    const simpleMatch = file.filename.match(simpleRegex);
+                    if (simpleMatch) {
+                        epNum = parseInt(simpleMatch[1]);
+                    }
+                }
+            }
+
+            if (epNum !== null) {
+                // When a single season is selected, use it; otherwise use parsed season
+                const targetSeason = isAll ? sNum : seasonNum;
+                if (targetSeason === null) continue;
+                const targetEp = missingEps.find(e => e.season === targetSeason && e.episode === epNum);
+                if (targetEp) {
+                    matches.push({
+                        source_path: file.path,
+                        target_season: targetSeason,
+                        target_episode: epNum,
+                    });
+                }
+            }
+        }
+    }
+
+    if (matches.length === 0) {
+        showToast('No matches could be determined. Try a different ordering or season.', 'warning');
+        return;
+    }
+
+    _fixMatchState.matches = matches;
+    _fixMatchStep3_Preview();
+}
+
+
+// Step 3: Preview
+async function _fixMatchStep3_Preview() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Fix Match - Preview';
+    modal.classList.add('modal-wide');
+    modalBody.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+    try {
+        const preview = await api(`/shows/${_fixMatchState.sourceShowId}/fix-match/preview`, {
+            method: 'POST',
+            body: JSON.stringify({
+                target_show_id: _fixMatchState.targetShowId,
+                matches: _fixMatchState.matches,
+            }),
+        });
+
+        const rows = preview.results.map(r => {
+            let statusBadge;
+            if (r.error && r.conflict) {
+                statusBadge = '<span class="badge badge-danger">Conflict</span>';
+            } else if (r.error) {
+                statusBadge = `<span class="badge badge-danger">Error</span>`;
+            } else {
+                statusBadge = '<span class="badge badge-success">OK</span>';
+            }
+
+            return `
+                <tr>
+                    <td style="font-size:0.85rem;word-break:break-all;">${escapeHtml(r.source_filename)}</td>
+                    <td style="font-size:0.85rem;">${escapeHtml(r.target_episode_name || '-')}</td>
+                    <td>${statusBadge}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const backStep = _fixMatchState.selectedFiles.length === 1 ? '_fixMatchStep2a_PickEpisode' : '_fixMatchStep2b_PickSeason';
+
+        modalBody.innerHTML = `
+            <div style="margin-bottom:12px;">
+                <strong>Target:</strong> ${escapeHtml(preview.target_show_name)}
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="table" style="width:100%;border-collapse:collapse;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border-color);">Source File</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border-color);">Target Episode</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border-color);">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+            ${preview.has_conflicts ? '<p class="text-muted" style="color:var(--danger-color);margin-top:10px;">Cannot proceed: one or more episodes already have files.</p>' : ''}
+            <div class="modal-buttons" style="margin-top:15px;">
+                <button class="btn btn-secondary" onclick="${backStep}()">Back</button>
+                <button class="btn btn-primary" onclick="_fixMatchExecute()" ${preview.has_conflicts ? 'disabled' : ''}>Confirm & Move Files</button>
+            </div>
+        `;
+    } catch (error) {
+        modalBody.innerHTML = `
+            <p class="text-muted">Preview failed.</p>
+            <div class="modal-buttons" style="margin-top:15px;">
+                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+            </div>
+        `;
+    }
+}
+
+
+// Step 4: Execute
+async function _fixMatchExecute() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Fix Match - Processing';
+    modalBody.innerHTML = `
+        <div style="text-align:center;padding:20px;">
+            <div class="spinner" style="margin:0 auto 15px;"></div>
+            <p>Moving files...</p>
+        </div>
+    `;
+
+    try {
+        const result = await api(`/shows/${_fixMatchState.sourceShowId}/fix-match`, {
+            method: 'POST',
+            body: JSON.stringify({
+                target_show_id: _fixMatchState.targetShowId,
+                matches: _fixMatchState.matches,
+            }),
+        });
+
+        modalTitle.textContent = 'Fix Match - Complete';
+        modalBody.innerHTML = `
+            <div class="refresh-summary" style="margin-bottom:15px;">
+                <div class="refresh-stat refresh-stat-success">
+                    <span class="refresh-stat-number">${result.success_count}</span>
+                    <span class="refresh-stat-label">Moved</span>
+                </div>
+                <div class="refresh-stat refresh-stat-error">
+                    <span class="refresh-stat-number">${result.error_count}</span>
+                    <span class="refresh-stat-label">Errors</span>
+                </div>
+            </div>
+            ${result.error_count > 0 ? `
+                <div style="margin-bottom:10px;">
+                    ${result.results.filter(r => !r.success).map(r => `
+                        <p class="text-muted" style="font-size:0.85rem;color:var(--danger-color);">${escapeHtml(r.source_filename)}: ${escapeHtml(r.error)}</p>
+                    `).join('')}
+                </div>
+            ` : ''}
+            <div class="modal-buttons">
+                <button class="btn btn-primary" onclick="closeModal(); showShowDetail(${_fixMatchState.sourceShowId});">Done</button>
+            </div>
+        `;
+    } catch (error) {
+        modalTitle.textContent = 'Fix Match - Error';
+        modalBody.innerHTML = `
+            <p class="text-muted">Fix match failed.</p>
+            <div class="modal-buttons" style="margin-top:15px;">
+                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+            </div>
+        `;
     }
 }
