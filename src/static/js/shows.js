@@ -788,16 +788,23 @@ function showEditShowModal(showId) {
             <label>Metadata Source</label>
             <div class="metadata-source-options">
                 <label>
-                    <input type="radio" name="modal-metadata-source" value="tmdb" ${show.metadata_source === 'tmdb' ? 'checked' : ''} ${!canSwitchToTmdb && show.metadata_source !== 'tmdb' ? 'disabled' : ''}>
+                    <input type="radio" name="modal-metadata-source" value="tmdb" ${show.metadata_source === 'tmdb' ? 'checked' : ''} ${!canSwitchToTmdb && show.metadata_source !== 'tmdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
                     TMDB
                 </label>
                 <label>
-                    <input type="radio" name="modal-metadata-source" value="tvdb" ${show.metadata_source === 'tvdb' ? 'checked' : ''} ${!canSwitchToTvdb && show.metadata_source !== 'tvdb' ? 'disabled' : ''}>
+                    <input type="radio" name="modal-metadata-source" value="tvdb" ${show.metadata_source === 'tvdb' ? 'checked' : ''} ${!canSwitchToTvdb && show.metadata_source !== 'tvdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
                     TVDB
                 </label>
             </div>
             ${!canSwitchToTvdb && show.metadata_source === 'tmdb' ? '<small class="text-muted">No TVDB ID available for this show</small>' : ''}
             ${!canSwitchToTmdb && show.metadata_source === 'tvdb' ? '<small class="text-muted">No TMDB ID available for this show</small>' : ''}
+        </div>
+        <div class="form-group" id="season-type-group" style="display: ${show.metadata_source === 'tvdb' && show.tvdb_id ? 'block' : 'none'};">
+            <label>Episode Order</label>
+            <select id="modal-season-type" class="form-control" data-original="${escapeHtml(show.tvdb_season_type || 'official')}">
+                <option value="${escapeHtml(show.tvdb_season_type || 'official')}">${escapeHtml(show.tvdb_season_type || 'official')} (current)</option>
+            </select>
+            <small class="text-muted" id="season-type-loading">Loading available orderings...</small>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
             <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -806,6 +813,47 @@ function showEditShowModal(showId) {
     `;
 
     modal.classList.add('active');
+
+    // Fetch season types for TVDB shows
+    if (show.metadata_source === 'tvdb' && show.tvdb_id) {
+        _loadSeasonTypes(show.tvdb_id, show.tvdb_season_type || 'official');
+    }
+}
+
+function toggleSeasonTypeVisibility() {
+    const selectedSource = document.querySelector('input[name="modal-metadata-source"]:checked')?.value;
+    const group = document.getElementById('season-type-group');
+    if (group) {
+        const show = state.currentShow;
+        group.style.display = (selectedSource === 'tvdb' && show?.tvdb_id) ? 'block' : 'none';
+
+        // Load season types if switching to TVDB and not yet loaded
+        if (selectedSource === 'tvdb' && show?.tvdb_id) {
+            const select = document.getElementById('modal-season-type');
+            if (select && select.options.length <= 1) {
+                _loadSeasonTypes(show.tvdb_id, show.tvdb_season_type || 'official');
+            }
+        }
+    }
+}
+
+async function _loadSeasonTypes(tvdbId, currentType) {
+    const select = document.getElementById('modal-season-type');
+    const loadingHint = document.getElementById('season-type-loading');
+
+    try {
+        const data = await api(`/shows/tvdb/${tvdbId}/season-types`);
+        const types = data.season_types || [];
+
+        if (types.length > 0 && select) {
+            select.innerHTML = types.map(st =>
+                `<option value="${escapeHtml(st.type)}" ${st.type === currentType ? 'selected' : ''}>${escapeHtml(st.name)}</option>`
+            ).join('');
+        }
+        if (loadingHint) loadingHint.style.display = 'none';
+    } catch (e) {
+        if (loadingHint) loadingHint.textContent = 'Could not load orderings';
+    }
 }
 
 async function saveShowSettings(showId) {
@@ -832,13 +880,38 @@ async function saveShowSettings(showId) {
         // If metadata source changed, switch source
         if (selectedSource && state.currentShow && selectedSource !== state.currentShow.metadata_source) {
             showToast(`Switching to ${selectedSource.toUpperCase()}...`, 'info');
+            const switchBody = { metadata_source: selectedSource };
+            // If switching to TVDB and a season type was selected, include it
+            if (selectedSource === 'tvdb') {
+                const seasonTypeSelect = document.getElementById('modal-season-type');
+                if (seasonTypeSelect) {
+                    switchBody.tvdb_season_type = seasonTypeSelect.value;
+                }
+            }
             await api(`/shows/${showId}/switch-source`, {
                 method: 'POST',
-                body: JSON.stringify({ metadata_source: selectedSource })
+                body: JSON.stringify(switchBody)
             });
             showToast(`Switched to ${selectedSource.toUpperCase()}`, 'success');
         } else {
-            showToast('Settings updated', 'success');
+            // Check if season type changed (for TVDB shows staying on TVDB)
+            const seasonTypeSelect = document.getElementById('modal-season-type');
+            if (seasonTypeSelect && state.currentShow?.metadata_source === 'tvdb') {
+                const newSeasonType = seasonTypeSelect.value;
+                const originalSeasonType = seasonTypeSelect.dataset.original || 'official';
+                if (newSeasonType !== originalSeasonType) {
+                    showToast(`Switching to ${newSeasonType} ordering...`, 'info');
+                    await api(`/shows/${showId}/switch-season-type`, {
+                        method: 'POST',
+                        body: JSON.stringify({ season_type: newSeasonType })
+                    });
+                    showToast(`Switched to ${newSeasonType} ordering`, 'success');
+                } else {
+                    showToast('Settings updated', 'success');
+                }
+            } else {
+                showToast('Settings updated', 'success');
+            }
         }
 
         closeModal();
@@ -965,12 +1038,62 @@ async function addShowFromSearch(showId, source = 'tmdb') {
     const scanLibraryCheckbox = document.getElementById('scan-library-checkbox');
     const shouldScanLibrary = scanLibraryCheckbox ? scanLibraryCheckbox.checked : false;
 
-    closeModal();
+    // For TVDB shows, check if there are multiple season types to choose from
+    if (source === 'tvdb') {
+        try {
+            const stData = await api(`/shows/tvdb/${showId}/season-types`);
+            const seasonTypes = stData.season_types || [];
 
+            if (seasonTypes.length > 1) {
+                // Show season type picker modal
+                _showSeasonTypePicker(showId, seasonTypes, shouldScanLibrary);
+                return;
+            }
+            // If only 1 type (or none), proceed with default
+        } catch (e) {
+            // Graceful degradation — proceed with default "official"
+        }
+    }
+
+    _addShowWithSeasonType(showId, source, null, shouldScanLibrary);
+}
+
+function _showSeasonTypePicker(tvdbId, seasonTypes, shouldScanLibrary) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Select Episode Order';
+    modalBody.innerHTML = `
+        <p class="text-muted mb-10">This show has multiple episode orderings. Choose which one to use:</p>
+        <div class="season-type-options">
+            ${seasonTypes.map((st, i) => `
+                <label class="season-type-option" style="display: flex; align-items: center; gap: 10px; padding: 8px 0; cursor: pointer;">
+                    <input type="radio" name="season-type-choice" value="${escapeHtml(st.type)}" ${i === 0 ? 'checked' : ''}>
+                    <span>${escapeHtml(st.name)}</span>
+                </label>
+            `).join('')}
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="_confirmSeasonTypeAndAdd(${tvdbId}, ${shouldScanLibrary})">Add Show</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+function _confirmSeasonTypeAndAdd(tvdbId, shouldScanLibrary) {
+    const selected = document.querySelector('input[name="season-type-choice"]:checked');
+    const seasonType = selected ? selected.value : 'official';
+    closeModal();
+    _addShowWithSeasonType(tvdbId, 'tvdb', seasonType, shouldScanLibrary);
+}
+
+async function _addShowWithSeasonType(showId, source, seasonType, shouldScanLibrary) {
     try {
         showToast('Adding show...', 'info');
         const body = source === 'tvdb'
-            ? { tvdb_id: showId, metadata_source: 'tvdb' }
+            ? { tvdb_id: showId, metadata_source: 'tvdb', tvdb_season_type: seasonType }
             : { tmdb_id: showId, metadata_source: 'tmdb' };
         const newShow = await api('/shows', {
             method: 'POST',

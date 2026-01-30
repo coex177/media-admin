@@ -22,6 +22,7 @@ class Show(Base):
     tvdb_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     metadata_source: Mapped[str] = mapped_column(String(10), default="tmdb", nullable=False)
+    tvdb_season_type: Mapped[Optional[str]] = mapped_column(String(20), default="official", nullable=True)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     overview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -77,6 +78,7 @@ class Show(Base):
             "tvdb_id": self.tvdb_id,
             "imdb_id": self.imdb_id,
             "metadata_source": self.metadata_source,
+            "tvdb_season_type": self.tvdb_season_type,
             "name": self.name,
             "overview": self.overview,
             "poster_path": self.poster_path,

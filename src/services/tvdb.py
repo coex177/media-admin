@@ -138,7 +138,24 @@ class TVDBService:
         data = await self._request(f"/series/{tvdb_id}/extended")
         return data.get("data", {})
 
-    async def get_all_episodes(self, tvdb_id: int, language: str = "eng") -> list[dict]:
+    async def get_season_types(self, tvdb_id: int) -> list[dict]:
+        """Get available season types for a TV show.
+
+        Returns list of dicts like {"id": 1, "name": "Aired Order", "type": "official"}.
+        """
+        show = await self.get_show(tvdb_id)
+        season_types = show.get("seasonTypes", [])
+        result = []
+        for st in season_types:
+            if isinstance(st, dict):
+                result.append({
+                    "id": st.get("id"),
+                    "name": st.get("name", "Unknown"),
+                    "type": st.get("type", "unknown"),
+                })
+        return result
+
+    async def get_all_episodes(self, tvdb_id: int, language: str = "eng", season_type: str = "official") -> list[dict]:
         """Get all episodes for a TV show, paginating through all pages.
 
         Uses the specified language for episode names/overviews.
@@ -147,7 +164,7 @@ class TVDBService:
         episodes = []
         page = 0
         # Append language to endpoint for translated episode data
-        endpoint = f"/series/{tvdb_id}/episodes/official/{language}" if language else f"/series/{tvdb_id}/episodes/official"
+        endpoint = f"/series/{tvdb_id}/episodes/{season_type}/{language}" if language else f"/series/{tvdb_id}/episodes/{season_type}"
 
         while True:
             try:
@@ -158,7 +175,7 @@ class TVDBService:
             except Exception:
                 # Fall back to no language if translation endpoint fails
                 if language:
-                    endpoint = f"/series/{tvdb_id}/episodes/official"
+                    endpoint = f"/series/{tvdb_id}/episodes/{season_type}"
                     data = await self._request(
                         endpoint,
                         params={"page": page},
@@ -214,10 +231,10 @@ class TVDBService:
         except Exception:
             return {}
 
-    async def get_show_with_episodes(self, tvdb_id: int) -> dict:
+    async def get_show_with_episodes(self, tvdb_id: int, season_type: str = "official") -> dict:
         """Get show details with all episodes, normalized to match TMDB format."""
         show = await self.get_show(tvdb_id)
-        episodes = await self.get_all_episodes(tvdb_id)
+        episodes = await self.get_all_episodes(tvdb_id, season_type=season_type)
 
         # Prefer English name/overview if the default is non-Latin
         eng = await self._get_english_translation(tvdb_id)

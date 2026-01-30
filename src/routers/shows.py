@@ -38,6 +38,7 @@ class ShowCreate(BaseModel):
     tmdb_id: Optional[int] = None
     tvdb_id: Optional[int] = None
     metadata_source: Optional[str] = None  # "tmdb" or "tvdb"
+    tvdb_season_type: Optional[str] = None
     folder_path: Optional[str] = None
 
 
@@ -55,6 +56,13 @@ class SwitchSourceRequest(BaseModel):
     """Request model for switching metadata source."""
 
     metadata_source: str  # "tmdb" or "tvdb"
+    tvdb_season_type: Optional[str] = None
+
+
+class SwitchSeasonTypeRequest(BaseModel):
+    """Request model for switching TVDB season type."""
+
+    season_type: str
 
 
 class ShowResponse(BaseModel):
@@ -437,6 +445,7 @@ async def create_show(
     """
     explicit_source = data.metadata_source  # What the user explicitly chose (may be None)
     default_source = explicit_source or _get_default_metadata_source(db)
+    tvdb_season_type = data.tvdb_season_type or "official"
 
     # --- Step 1: Initial duplicate check on provided IDs ---
     if data.tmdb_id:
@@ -466,7 +475,7 @@ async def create_show(
 
         if default_source == "tvdb":
             try:
-                default_data = await tvdb.get_show_with_episodes(data.tvdb_id)
+                default_data = await tvdb.get_show_with_episodes(data.tvdb_id, season_type=tvdb_season_type)
             except Exception as e:
                 # TVDB failed — fall back to TMDB if we have a TMDB ID
                 if data.tmdb_id:
@@ -498,7 +507,7 @@ async def create_show(
         # If we fell back to TVDB after TMDB cross-ref failed
         if default_source == "tvdb" and not default_data:
             try:
-                default_data = await tvdb.get_show_with_episodes(data.tvdb_id)
+                default_data = await tvdb.get_show_with_episodes(data.tvdb_id, season_type=tvdb_season_type)
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Failed to fetch show: {e}")
 
@@ -516,7 +525,7 @@ async def create_show(
                 tvdb_id = data.tvdb_id or default_data.get("tvdb_id")
                 if tvdb_id:
                     data.tvdb_id = tvdb_id
-                    secondary_data = await tvdb.get_show_with_episodes(tvdb_id)
+                    secondary_data = await tvdb.get_show_with_episodes(tvdb_id, season_type=tvdb_season_type)
             else:
                 # Default is TVDB — find TMDB ID via cross-reference
                 tmdb_id = data.tmdb_id
@@ -589,6 +598,7 @@ async def create_show(
         tvdb_id=tvdb_id,
         imdb_id=imdb_id,
         metadata_source=metadata_source,
+        tvdb_season_type=tvdb_season_type if metadata_source == "tvdb" else "official",
         name=show_data["name"],
         overview=show_data.get("overview"),
         poster_path=show_data.get("poster_path"),
@@ -769,7 +779,7 @@ async def refresh_show(
 
     try:
         if show.metadata_source == "tvdb" and show.tvdb_id:
-            show_data = await tvdb.get_show_with_episodes(show.tvdb_id)
+            show_data = await tvdb.get_show_with_episodes(show.tvdb_id, season_type=show.tvdb_season_type or "official")
         elif show.tmdb_id:
             show_data = await tmdb.get_show_with_episodes(show.tmdb_id)
         else:
@@ -873,11 +883,12 @@ async def switch_metadata_source(
         return show.to_dict()
 
     # Fetch from the new source
+    season_type = data.tvdb_season_type or show.tvdb_season_type or "official"
     try:
         if data.metadata_source == "tvdb":
             if not show.tvdb_id:
                 raise HTTPException(status_code=400, detail="Show has no TVDB ID. Cannot switch to TVDB.")
-            show_data = await tvdb.get_show_with_episodes(show.tvdb_id)
+            show_data = await tvdb.get_show_with_episodes(show.tvdb_id, season_type=season_type)
         else:
             if not show.tmdb_id:
                 raise HTTPException(status_code=400, detail="Show has no TMDB ID. Cannot switch to TMDB.")
@@ -889,6 +900,8 @@ async def switch_metadata_source(
 
     # Update show metadata
     show.metadata_source = data.metadata_source
+    if data.metadata_source == "tvdb":
+        show.tvdb_season_type = season_type
     show.name = show_data["name"]
     show.overview = show_data.get("overview")
     show.poster_path = show_data.get("poster_path")
@@ -945,6 +958,89 @@ async def switch_metadata_source(
             _scan_show_folder(scanner, show, show_dir)
             db.commit()
             db.refresh(show)
+
+    return show.to_dict()
+
+
+@router.post("/{show_id}/switch-season-type")
+async def switch_season_type(
+    show_id: int,
+    data: SwitchSeasonTypeRequest,
+    db: Session = Depends(get_db),
+    tvdb: TVDBService = Depends(get_tvdb_service),
+):
+    """Switch a TVDB show's episode ordering (season type)."""
+    show = db.query(Show).filter(Show.id == show_id).first()
+    if not show:
+        raise HTTPException(status_code=404, detail="Show not found")
+
+    if show.metadata_source != "tvdb":
+        raise HTTPException(status_code=400, detail="Season type only applies to TVDB-sourced shows")
+    if not show.tvdb_id:
+        raise HTTPException(status_code=400, detail="Show has no TVDB ID")
+
+    if show.tvdb_season_type == data.season_type:
+        return show.to_dict()
+
+    # Fetch episodes with the new season type
+    try:
+        show_data = await tvdb.get_show_with_episodes(show.tvdb_id, season_type=data.season_type)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch episodes with season type '{data.season_type}': {e}")
+
+    # Update season type and show metadata
+    show.tvdb_season_type = data.season_type
+    show.name = show_data["name"]
+    show.overview = show_data.get("overview")
+    show.poster_path = show_data.get("poster_path")
+    show.backdrop_path = show_data.get("backdrop_path")
+    show.status = show_data.get("status", "Unknown")
+    show.first_air_date = show_data.get("first_air_date")
+    show.number_of_seasons = show_data.get("number_of_seasons", 0)
+    show.number_of_episodes = show_data.get("number_of_episodes", 0)
+    show.genres = show_data.get("genres")
+    show.networks = show_data.get("networks")
+    show.next_episode_air_date = show_data.get("next_episode_air_date")
+
+    # Delete all existing episodes
+    existing_episodes = db.query(Episode).filter(Episode.show_id == show.id).all()
+    for ep in existing_episodes:
+        db.delete(ep)
+    db.flush()
+
+    # Create new episodes from the new ordering
+    for ep_data in show_data.get("episodes", []):
+        episode = Episode(
+            show_id=show.id,
+            season=ep_data["season"],
+            episode=ep_data["episode"],
+            title=ep_data["title"],
+            overview=ep_data.get("overview"),
+            air_date=ep_data.get("air_date"),
+            tmdb_id=ep_data.get("tmdb_id"),
+            still_path=ep_data.get("still_path"),
+            runtime=ep_data.get("runtime"),
+        )
+        db.add(episode)
+
+    db.commit()
+    db.refresh(show)
+
+    # Rescan the show's folder to re-match files against new episode structure
+    if show.folder_path:
+        from ..services.scanner import ScannerService
+        from ..routers.scan import _scan_show_folder
+
+        show_dir = Path(show.folder_path)
+        if show_dir.exists():
+            scanner = ScannerService(db)
+            _scan_show_folder(scanner, show, show_dir)
+            db.commit()
+            db.refresh(show)
+
+    # Rename files on disk to match new metadata
+    _rename_episodes_to_match_metadata(db, show)
+    db.refresh(show)
 
     return show.to_dict()
 
@@ -1010,6 +1106,19 @@ async def search_tvdb(
         raise HTTPException(status_code=400, detail=f"Search failed: {e}")
 
 
+@router.get("/tvdb/{tvdb_id}/season-types")
+async def get_tvdb_season_types(
+    tvdb_id: int,
+    tvdb: TVDBService = Depends(get_tvdb_service),
+):
+    """Get available season types for a TVDB show."""
+    try:
+        season_types = await tvdb.get_season_types(tvdb_id)
+        return {"season_types": season_types}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch season types: {e}")
+
+
 @router.get("/preview/{source}/{provider_id}")
 async def preview_show(
     source: str,
@@ -1064,7 +1173,7 @@ async def _refresh_all_shows_async(db, tmdb, tvdb):
         try:
             # Use the correct service based on show's metadata source
             if show.metadata_source == "tvdb" and show.tvdb_id:
-                show_data = await tvdb.get_show_with_episodes(show.tvdb_id)
+                show_data = await tvdb.get_show_with_episodes(show.tvdb_id, season_type=show.tvdb_season_type or "official")
             elif show.tmdb_id:
                 show_data = await tmdb.get_show_with_episodes(show.tmdb_id)
             else:
