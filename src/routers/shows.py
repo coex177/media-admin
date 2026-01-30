@@ -427,6 +427,29 @@ async def get_show(show_id: int, db: Session = Depends(get_db)):
     show_dict["episodes_ignored"] = ignored_count
     show_dict["episodes_special"] = special_count
 
+    # Find extra files on disk not matched to any episode
+    extra_files = []
+    if show.folder_path:
+        import os
+        from ..config import settings as app_settings
+        video_extensions = set(app_settings.video_extensions)
+        matched_paths = set(
+            ep.file_path for ep in episodes if ep.file_path
+        )
+        try:
+            for root, dirs, filenames in os.walk(show.folder_path):
+                for f in sorted(filenames):
+                    if Path(f).suffix.lower() in video_extensions:
+                        full_path = os.path.join(root, f)
+                        if full_path not in matched_paths:
+                            extra_files.append({
+                                "filename": f,
+                                "path": full_path,
+                            })
+        except (PermissionError, OSError):
+            pass
+    show_dict["extra_files"] = extra_files
+
     return show_dict
 
 

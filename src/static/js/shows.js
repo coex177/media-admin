@@ -604,6 +604,29 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
                     </div>
                 </div>
             `}).join('')}
+
+            ${show.extra_files && show.extra_files.length > 0 ? `
+                <div class="card season-card">
+                    <div class="season-header-toggle" onclick="toggleSeason('extra')" id="season-header-extra">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <img src="/static/images/show-expand.png" class="season-chevron-img" id="season-chevron-extra" alt="">
+                            <h3>Extra Files</h3>
+                        </div>
+                        <span class="badge badge-warning">${show.extra_files.length} file${show.extra_files.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="episodes-list collapsed" id="season-extra-episodes">
+                        ${show.extra_files.map((file, i) => `
+                            <div class="episode-row">
+                                <div class="episode-header not-aired">
+                                    <span class="episode-number">${i + 1}</span>
+                                    <span class="episode-title">${escapeHtml(file.filename)}</span>
+                                    <span class="episode-status-badge missing">Unmatched</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
         `;
 
         // If target season/episode specified, expand that season and scroll to/highlight the episode
