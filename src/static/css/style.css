@@ -374,6 +374,25 @@ a:hover {
     font-weight: 600;
 }
 
+/* Folders tab tables – consistent column widths across all cards */
+.folders-table th:nth-child(2),
+.folders-table td:nth-child(2) {
+    width: 100px;
+    text-align: center;
+}
+
+.folders-table th:nth-child(3) {
+    width: 280px;
+    text-align: right;
+    padding-right: 100px;
+}
+
+.folders-table td:nth-child(3) {
+    width: 280px;
+    text-align: right;
+    white-space: nowrap;
+}
+
 /* Stats Grid */
 .stats-grid {
     display: flex;

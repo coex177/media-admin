@@ -74,7 +74,6 @@ function renderSettingsTabContent(tabName) {
             break;
         case 'folders':
             container.innerHTML = renderSettingsFolders(state.settings, state.folders);
-            loadIssuesFolderValue();
             break;
         case 'watcher':
             container.innerHTML = renderSettingsWatcher();
@@ -278,6 +277,7 @@ function renderSettingsLibrary(settings, folders) {
 function renderSettingsFolders(settings, folders) {
     const libraryFolders = folders.filter(f => f.type === 'library');
     const tvFolders = folders.filter(f => f.type === 'tv');
+    const issuesFolders = folders.filter(f => f.type === 'issues');
 
     return `
         <div class="card">
@@ -288,7 +288,7 @@ function renderSettingsFolders(settings, folders) {
             ${libraryFolders.length === 0 ? `
                 <p class="text-muted" id="library-folders-placeholder">No library folders configured.</p>
             ` : `
-                <table id="library-folders-table">
+                <table id="library-folders-table" class="folders-table">
                     <thead>
                         <tr>
                             <th>Path</th>
@@ -315,13 +315,13 @@ function renderSettingsFolders(settings, folders) {
 
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">TV Folders</h2>
+                <h2 class="card-title">Saved/Downloaded TV Folders</h2>
                 <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('tv')">+ Add Folder</button>
             </div>
             ${tvFolders.length === 0 ? `
                 <p class="text-muted" id="tv-folders-placeholder">No TV folders configured.</p>
             ` : `
-                <table id="tv-folders-table">
+                <table id="tv-folders-table" class="folders-table">
                     <thead>
                         <tr>
                             <th>Path</th>
@@ -346,26 +346,38 @@ function renderSettingsFolders(settings, folders) {
         </div>
 
         <div class="card">
-            <h2 class="card-title mb-20">Issues Folder</h2>
-            <p class="text-muted" style="margin-bottom:10px;">Files that can't be matched or resolved are moved here.</p>
-            <div class="watcher-path-input">
-                <input type="text" class="form-control" id="watcher-issues-folder"
-                    value=""
-                    placeholder="/path/to/issues/folder"
-                    onchange="autoSaveIssuesFolder()">
+            <div class="card-header">
+                <h2 class="card-title">Issues Folder</h2>
+                <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('issues')">+ Add Folder</button>
             </div>
+            ${issuesFolders.length === 0 ? `
+                <p class="text-muted" id="issues-folders-placeholder">No issues folder configured.</p>
+            ` : `
+                <table id="issues-folders-table" class="folders-table">
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${issuesFolders.map(folder => `
+                            <tr data-folder-id="${folder.id}">
+                                <td>${escapeHtml(folder.path)}</td>
+                                <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                                <td>
+                                    <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
+                                    <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Remove</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `}
+            <p class="text-muted" style="padding: 10px 15px 0; font-size: 0.85rem;">Files that can't be matched or resolved are moved here. Only one issues folder can be active at a time.</p>
         </div>
     `;
-}
-
-async function loadIssuesFolderValue() {
-    try {
-        const ws = await api('/watcher/settings');
-        const input = document.getElementById('watcher-issues-folder');
-        if (input) input.value = ws.watcher_issues_folder || '';
-    } catch (e) {
-        // ignore — input stays empty
-    }
 }
 
 function updateFormatPreviews() {
@@ -585,7 +597,8 @@ function showAddFolderModal(folderType) {
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
 
-    modalTitle.textContent = `Add ${folderType === 'library' ? 'Library' : 'TV'} Folder`;
+    const typeLabel = folderType === 'library' ? 'Library' : folderType === 'tv' ? 'TV' : 'Issues';
+    modalTitle.textContent = `Add ${typeLabel} Folder`;
     modalBody.innerHTML = `
         <div class="form-group">
             <label>Folder Path</label>
@@ -612,6 +625,16 @@ async function addFolder(folderType) {
 
         // Close modal first so user sees immediate feedback
         closeModal();
+
+        // Issues folders: adding one disables others, so refetch and re-render
+        if (folderType === 'issues') {
+            state.folders = await api('/folders');
+            if (state.activeSettingsTab === 'folders') {
+                renderSettingsTabContent('folders');
+            }
+            showToast('Folder added', 'success');
+            return;
+        }
 
         // Add to state
         state.folders.push(newFolder);
@@ -640,7 +663,7 @@ async function addFolder(folderType) {
         } else if (placeholder) {
             // No table yet, create it replacing the placeholder
             const tableHtml = `
-                <table id="${tableId}">
+                <table id="${tableId}" class="folders-table">
                     <thead>
                         <tr>
                             <th>Path</th>
@@ -665,6 +688,16 @@ async function addFolder(folderType) {
 async function toggleFolder(folderId) {
     try {
         const updatedFolder = await api(`/folders/${folderId}/toggle`, { method: 'PUT' });
+
+        // Issues folders: toggling can disable siblings, so refetch and re-render
+        if (updatedFolder.type === 'issues') {
+            state.folders = await api('/folders');
+            if (state.activeSettingsTab === 'folders') {
+                renderSettingsTabContent('folders');
+            }
+            showToast(`Folder ${updatedFolder.enabled ? 'enabled' : 'disabled'}`, 'success');
+            return;
+        }
 
         // Update the folder in state
         const folderIndex = state.folders.findIndex(f => f.id === folderId);
@@ -726,12 +759,16 @@ async function deleteFolder(folderId) {
         // Check if the table is now empty and show "No folders" message
         const libraryTable = document.getElementById('library-folders-table');
         const tvTable = document.getElementById('tv-folders-table');
+        const issuesTable = document.getElementById('issues-folders-table');
 
         if (libraryTable && libraryTable.querySelectorAll('tbody tr').length === 0) {
             libraryTable.outerHTML = '<p class="text-muted" id="library-folders-placeholder">No library folders configured.</p>';
         }
         if (tvTable && tvTable.querySelectorAll('tbody tr').length === 0) {
             tvTable.outerHTML = '<p class="text-muted" id="tv-folders-placeholder">No TV folders configured.</p>';
+        }
+        if (issuesTable && issuesTable.querySelectorAll('tbody tr').length === 0) {
+            issuesTable.outerHTML = '<p class="text-muted" id="issues-folders-placeholder">No issues folder configured.</p>';
         }
 
         closeModal();

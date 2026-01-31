@@ -309,7 +309,12 @@ def _check_prerequisites(db: Session) -> list[dict]:
     results = []
 
     # 1. Issues folder configured and exists
-    issues_folder = get_setting(db, "watcher_issues_folder", "")
+    issues_entry = (
+        db.query(ScanFolder)
+        .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
+        .first()
+    )
+    issues_folder = issues_entry.path if issues_entry else ""
     issues_ok = bool(issues_folder) and Path(issues_folder).is_dir()
     results.append({
         "name": "Issues Folder",
@@ -395,7 +400,14 @@ def _configure_watcher(db: Session):
     except ValueError:
         purge_days = 0
     watcher_service.set_auto_purge_days(purge_days)
-    watcher_service.set_issues_folder(get_setting(db, "watcher_issues_folder", ""))
+
+    # Read issues folder from scan_folders table
+    issues_entry = (
+        db.query(ScanFolder)
+        .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
+        .first()
+    )
+    watcher_service.set_issues_folder(issues_entry.path if issues_entry else "")
 
     # Set the pipeline callback
     watcher_service.set_callback(_make_pipeline_callback())

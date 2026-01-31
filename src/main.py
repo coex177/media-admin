@@ -103,6 +103,24 @@ def run_migrations():
             conn.commit()
             logger.info("Shows table migration complete")
 
+        # Migrate watcher_issues_folder setting → scan_folders row
+        if "scan_folders" in inspector.get_table_names():
+            result = conn.execute(text(
+                "SELECT value FROM app_settings WHERE key = 'watcher_issues_folder'"
+            ))
+            row = result.fetchone()
+            if row and row[0]:
+                issues_path = row[0]
+                existing = conn.execute(text(
+                    "SELECT id FROM scan_folders WHERE folder_type = 'issues' AND path = :path"
+                ), {"path": issues_path})
+                if not existing.fetchone():
+                    logger.info(f"Migrating watcher_issues_folder to scan_folders: {issues_path}")
+                    conn.execute(text(
+                        "INSERT INTO scan_folders (path, folder_type, enabled, created_at) VALUES (:path, 'issues', 1, datetime('now'))"
+                    ), {"path": issues_path})
+                    conn.commit()
+
         # Migrate scan_folders: rename folder_type 'download' → 'tv'
         if "scan_folders" in inspector.get_table_names():
             result = conn.execute(text("SELECT COUNT(*) FROM scan_folders WHERE folder_type = 'download'"))

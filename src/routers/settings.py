@@ -42,7 +42,7 @@ class FolderCreate(BaseModel):
     """Request model for creating a scan folder."""
 
     path: str
-    type: str  # library or tv
+    type: str  # library, tv, or issues
 
 
 class SettingsResponse(BaseModel):
@@ -217,12 +217,23 @@ async def list_folders(db: Session = Depends(get_db)):
     return [f.to_dict() for f in folders]
 
 
+def _sync_watcher_issues_folder(db: Session):
+    """Sync the watcher service with the current enabled issues folder."""
+    from ..services.watcher import watcher_service
+    issues = db.query(ScanFolder).filter(
+        ScanFolder.folder_type == "issues", ScanFolder.enabled == True
+    ).first()
+    path = issues.path if issues else ""
+    watcher_service.set_issues_folder(path)
+    set_setting(db, "watcher_issues_folder", path)
+
+
 @router.post("/folders")
 async def create_folder(data: FolderCreate, db: Session = Depends(get_db)):
     """Add a scan folder."""
     # Validate folder type
-    if data.type not in ("library", "tv"):
-        raise HTTPException(status_code=400, detail="Type must be 'library' or 'tv'")
+    if data.type not in ("library", "tv", "issues"):
+        raise HTTPException(status_code=400, detail="Type must be 'library', 'tv', or 'issues'")
 
     # Check if path exists
     path = Path(data.path)
@@ -247,6 +258,16 @@ async def create_folder(data: FolderCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(folder)
 
+    # Issues folders: only one can be enabled at a time
+    if data.type == "issues":
+        db.query(ScanFolder).filter(
+            ScanFolder.folder_type == "issues",
+            ScanFolder.enabled == True,
+            ScanFolder.id != folder.id,
+        ).update({"enabled": False})
+        db.commit()
+        _sync_watcher_issues_folder(db)
+
     return folder.to_dict()
 
 
@@ -257,8 +278,12 @@ async def delete_folder(folder_id: int, db: Session = Depends(get_db)):
     if not folder:
         raise HTTPException(status_code=404, detail="Folder not found")
 
+    is_issues = folder.folder_type == "issues"
     db.delete(folder)
     db.commit()
+
+    if is_issues:
+        _sync_watcher_issues_folder(db)
 
     return {"message": "Folder removed"}
 
@@ -272,8 +297,20 @@ async def toggle_folder(folder_id: int, db: Session = Depends(get_db)):
 
     folder.enabled = not folder.enabled
     db.commit()
-    db.refresh(folder)
 
+    # Issues folders: only one can be enabled at a time
+    if folder.folder_type == "issues" and folder.enabled:
+        db.query(ScanFolder).filter(
+            ScanFolder.folder_type == "issues",
+            ScanFolder.enabled == True,
+            ScanFolder.id != folder.id,
+        ).update({"enabled": False})
+        db.commit()
+
+    if folder.folder_type == "issues":
+        _sync_watcher_issues_folder(db)
+
+    db.refresh(folder)
     return folder.to_dict()
 
 

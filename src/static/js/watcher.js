@@ -202,21 +202,6 @@ function renderWatcherContent() {
     `;
 }
 
-async function autoSaveIssuesFolder() {
-    const input = document.getElementById('watcher-issues-folder');
-    if (!input) return;
-    try {
-        await api('/watcher/settings', {
-            method: 'PUT',
-            body: JSON.stringify({ watcher_issues_folder: input.value.trim() }),
-        });
-        showToast('Issues folder updated', 'success');
-        loadWatcherData();
-    } catch (e) {
-        // error shown by api()
-    }
-}
-
 async function autoSaveWatcherSettings() {
     const data = {};
 
