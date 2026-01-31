@@ -252,7 +252,7 @@ async def update_watcher_settings(
 @router.get("/watcher/log")
 async def get_watcher_log(
     db: Session = Depends(get_db),
-    limit: int = Query(default=100, ge=1, le=1000),
+    limit: Optional[int] = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
@@ -275,7 +275,11 @@ async def get_watcher_log(
             pass
 
     total = query.count()
-    entries = query.offset(offset).limit(limit).all()
+    if offset:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+    entries = query.all()
 
     return {
         "total": total,

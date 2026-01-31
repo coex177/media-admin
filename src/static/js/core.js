@@ -692,6 +692,7 @@ async function checkSetup() {
 
         // Apply DB-backed prefs to module-level vars
         state.activeSettingsTab = getUiPref('settingsActiveTab', 'general');
+        activeScanTab = getUiPref('scanActiveTab', 'operations');
         currentShowsView = getUiPref('showsViewMode', 'cards');
         dashboardCardOrder = getUiPref('dashboardCardOrder', null) || [...defaultCardOrder];
         // Ensure any new cards are added to existing user's order

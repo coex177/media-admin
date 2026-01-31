@@ -45,6 +45,7 @@ async function renderScan() {
 function switchScanTab(tab) {
     if (tab === activeScanTab) return;
     activeScanTab = tab;
+    setUiPref('scanActiveTab', tab);
 
     document.querySelectorAll('.scan-tab').forEach(btn => {
         btn.classList.toggle('active', btn.textContent.trim().toLowerCase().replace(/\s+/g, '-') ===

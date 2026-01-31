@@ -3,7 +3,7 @@
  */
 
 // ── Watcher Log state ─────────────────────────────────────────
-let watcherLogState = { entries: [], total: 0, offset: 0, limit: 50, dateFrom: '', dateTo: '' };
+let watcherLogState = { entries: [], total: 0, dateFrom: '', dateTo: '' };
 
 // ── Media Watcher state ─────────────────────────────────────────
 let watcherSettings = null;
@@ -386,9 +386,11 @@ async function loadWatcherLog() {
     if (!content) return;
 
     try {
-        let url = `/watcher/log?limit=${watcherLogState.limit}&offset=${watcherLogState.offset}`;
-        if (watcherLogState.dateFrom) url += `&date_from=${watcherLogState.dateFrom}`;
-        if (watcherLogState.dateTo) url += `&date_to=${watcherLogState.dateTo}T23:59:59`;
+        let url = `/watcher/log`;
+        const params = [];
+        if (watcherLogState.dateFrom) params.push(`date_from=${watcherLogState.dateFrom}`);
+        if (watcherLogState.dateTo) params.push(`date_to=${watcherLogState.dateTo}T23:59:59`);
+        if (params.length) url += '?' + params.join('&');
 
         const data = await api(url);
         watcherLogState.entries = data.entries || [];
@@ -582,19 +584,7 @@ function renderWatcherLogEntries() {
     // Clean up stale manual states
     cleanupStaleManualStates(activeKeys);
 
-    // Pagination
-    const totalPages = Math.ceil(watcherLogState.total / watcherLogState.limit);
-    const currentPage = Math.floor(watcherLogState.offset / watcherLogState.limit) + 1;
-
-    if (totalPages > 1) {
-        html += `
-            <div class="watcher-log-pagination">
-                <button class="btn btn-sm btn-secondary" onclick="watcherLogPage('prev')" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button>
-                <span class="page-info">Page ${currentPage} of ${totalPages} (${watcherLogState.total} entries)</span>
-                <button class="btn btn-sm btn-secondary" onclick="watcherLogPage('next')" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>
-            </div>
-        `;
-    } else if (watcherLogState.total > 0) {
+    if (watcherLogState.total > 0) {
         html += `<div class="watcher-log-pagination"><span class="page-info">${watcherLogState.total} entries</span></div>`;
     }
 
@@ -735,11 +725,3 @@ async function clearAllLogs() {
     }
 }
 
-function watcherLogPage(dir) {
-    if (dir === 'next') {
-        watcherLogState.offset += watcherLogState.limit;
-    } else {
-        watcherLogState.offset = Math.max(0, watcherLogState.offset - watcherLogState.limit);
-    }
-    loadWatcherLog();
-}
