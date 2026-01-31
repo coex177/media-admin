@@ -792,73 +792,75 @@ function showEditShowModal(showId) {
 
     modalTitle.textContent = 'Edit Show Settings';
     modalBody.innerHTML = `
-        <div class="edit-tabs" style="display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid var(--border-color, #333);">
-            <button class="btn edit-tab active" id="edit-tab-settings" onclick="switchEditTab('settings')" style="border-radius: 4px 4px 0 0; border-bottom: 2px solid var(--primary-color, #6366f1); margin-bottom: -2px; font-weight: 600;">Settings</button>
-            <button class="btn edit-tab" id="edit-tab-aliases" onclick="switchEditTab('aliases')" style="border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; margin-bottom: -2px; opacity: 0.6;">Custom Names</button>
+        <div class="add-show-tabs">
+            <button class="tab-btn active" id="edit-tab-settings" onclick="switchEditTab('settings')">Settings</button>
+            <button class="tab-btn" id="edit-tab-aliases" onclick="switchEditTab('aliases')">Custom Names</button>
         </div>
-        <div id="edit-panel-settings">
-            <div class="form-group">
-                <label>Library Folder</label>
-                <input type="text" id="modal-folder-path" class="form-control" value="${escapeHtml(show.folder_path || '')}" placeholder="/path/to/show">
-            </div>
-            <div class="form-group">
-                <label>Season Folder Format</label>
-                <input type="text" id="modal-season-format" class="form-control" value="${escapeHtml(show.season_format)}">
-                <small class="text-muted">Variables: {season}</small>
-            </div>
-            <div class="form-group">
-                <label>Episode Format</label>
-                <input type="text" id="modal-episode-format" class="form-control" value="${escapeHtml(show.episode_format)}">
-                <small class="text-muted">Variables: {season}, {episode}, {title}</small>
-            </div>
-            <div class="form-group">
-                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                    <input type="checkbox" id="modal-do-rename" ${show.do_rename ? 'checked' : ''}>
-                    Enable renaming for this show
-                </label>
-            </div>
-            <div class="form-group">
-                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                    <input type="checkbox" id="modal-do-missing" ${show.do_missing ? 'checked' : ''}>
-                    Track missing episodes
-                </label>
-            </div>
-            <div class="form-group">
-                <label>Metadata Source</label>
-                <div class="metadata-source-options">
-                    <label>
-                        <input type="radio" name="modal-metadata-source" value="tmdb" ${show.metadata_source === 'tmdb' ? 'checked' : ''} ${!canSwitchToTmdb && show.metadata_source !== 'tmdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
-                        TMDB
-                    </label>
-                    <label>
-                        <input type="radio" name="modal-metadata-source" value="tvdb" ${show.metadata_source === 'tvdb' ? 'checked' : ''} ${!canSwitchToTvdb && show.metadata_source !== 'tvdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
-                        TVDB
+        <div class="edit-panels" style="position: relative;">
+            <div id="edit-panel-settings">
+                <div class="form-group">
+                    <label>Library Folder</label>
+                    <input type="text" id="modal-folder-path" class="form-control" value="${escapeHtml(show.folder_path || '')}" placeholder="/path/to/show">
+                </div>
+                <div class="form-group">
+                    <label>Season Folder Format</label>
+                    <input type="text" id="modal-season-format" class="form-control" value="${escapeHtml(show.season_format)}">
+                    <small class="text-muted">Variables: {season}</small>
+                </div>
+                <div class="form-group">
+                    <label>Episode Format</label>
+                    <input type="text" id="modal-episode-format" class="form-control" value="${escapeHtml(show.episode_format)}">
+                    <small class="text-muted">Variables: {season}, {episode}, {title}</small>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="modal-do-rename" ${show.do_rename ? 'checked' : ''}>
+                        Enable renaming for this show
                     </label>
                 </div>
-                ${!canSwitchToTvdb && show.metadata_source === 'tmdb' ? '<small class="text-muted">No TVDB ID available for this show</small>' : ''}
-                ${!canSwitchToTmdb && show.metadata_source === 'tvdb' ? '<small class="text-muted">No TMDB ID available for this show</small>' : ''}
-            </div>
-            <div class="form-group" id="season-type-group" style="display: ${show.metadata_source === 'tvdb' && show.tvdb_id ? 'block' : 'none'};">
-                <label>Episode Order</label>
-                <select id="modal-season-type" class="form-control" data-original="${escapeHtml(show.tvdb_season_type || 'official')}">
-                    <option value="${escapeHtml(show.tvdb_season_type || 'official')}">${escapeHtml(show.tvdb_season_type || 'official')} (current)</option>
-                </select>
-                <small class="text-muted" id="season-type-loading">Loading available orderings...</small>
-            </div>
-        </div>
-        <div id="edit-panel-aliases" style="display: none;">
-            <p class="text-muted" style="margin-bottom: 12px;">Add alternative names for this show. The watcher and scanner will use these when matching filenames.</p>
-            <div id="aliases-list" style="margin-bottom: 12px;">
-                ${aliases.map(a => `
-                    <div class="alias-item" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                        <span style="flex: 1; padding: 6px 10px; background: var(--bg-secondary, #1a1a2e); border-radius: 4px;">${escapeHtml(a)}</span>
-                        <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()" title="Remove">&times;</button>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="modal-do-missing" ${show.do_missing ? 'checked' : ''}>
+                        Track missing episodes
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>Metadata Source</label>
+                    <div class="metadata-source-options">
+                        <label>
+                            <input type="radio" name="modal-metadata-source" value="tmdb" ${show.metadata_source === 'tmdb' ? 'checked' : ''} ${!canSwitchToTmdb && show.metadata_source !== 'tmdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
+                            TMDB
+                        </label>
+                        <label>
+                            <input type="radio" name="modal-metadata-source" value="tvdb" ${show.metadata_source === 'tvdb' ? 'checked' : ''} ${!canSwitchToTvdb && show.metadata_source !== 'tvdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
+                            TVDB
+                        </label>
                     </div>
-                `).join('')}
+                    ${!canSwitchToTvdb && show.metadata_source === 'tmdb' ? '<small class="text-muted">No TVDB ID available for this show</small>' : ''}
+                    ${!canSwitchToTmdb && show.metadata_source === 'tvdb' ? '<small class="text-muted">No TMDB ID available for this show</small>' : ''}
+                </div>
+                <div class="form-group" id="season-type-group" style="display: ${show.metadata_source === 'tvdb' && show.tvdb_id ? 'block' : 'none'};">
+                    <label>Episode Order</label>
+                    <select id="modal-season-type" class="form-control" data-original="${escapeHtml(show.tvdb_season_type || 'official')}">
+                        <option value="${escapeHtml(show.tvdb_season_type || 'official')}">${escapeHtml(show.tvdb_season_type || 'official')} (current)</option>
+                    </select>
+                    <small class="text-muted" id="season-type-loading">Loading available orderings...</small>
+                </div>
             </div>
-            <div style="display: flex; gap: 8px;">
-                <input type="text" id="new-alias-input" class="form-control" placeholder="Enter an alternative name..." style="flex: 1;" onkeydown="if(event.key==='Enter'){event.preventDefault();addAlias();}">
-                <button class="btn btn-secondary" onclick="addAlias()">Add</button>
+            <div id="edit-panel-aliases" style="display: none; position: absolute; top: 0; left: 0; right: 0;">
+                <p class="text-muted" style="margin-bottom: 12px;">Add alternative names for this show. The watcher and scanner will use these when matching filenames.</p>
+                <div id="aliases-list" style="margin-bottom: 12px;">
+                    ${aliases.map(a => `
+                        <div class="alias-item" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                            <span class="form-control" style="flex: 1;">${escapeHtml(a)}</span>
+                            <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()" title="Remove">&times;</button>
+                        </div>
+                    `).join('')}
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="new-alias-input" class="form-control" placeholder="Enter an alternative name..." style="flex: 1;" onkeydown="if(event.key==='Enter'){event.preventDefault();addAlias();}">
+                    <button class="btn btn-secondary" onclick="addAlias()">Add</button>
+                </div>
             </div>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
@@ -876,24 +878,21 @@ function showEditShowModal(showId) {
 }
 
 function switchEditTab(tab) {
-    const tabs = ['settings', 'aliases'];
-    tabs.forEach(t => {
-        const tabBtn = document.getElementById(`edit-tab-${t}`);
-        const panel = document.getElementById(`edit-panel-${t}`);
-        if (t === tab) {
-            tabBtn.classList.add('active');
-            tabBtn.style.borderBottomColor = 'var(--primary-color, #6366f1)';
-            tabBtn.style.opacity = '1';
-            tabBtn.style.fontWeight = '600';
-            panel.style.display = '';
-        } else {
-            tabBtn.classList.remove('active');
-            tabBtn.style.borderBottomColor = 'transparent';
-            tabBtn.style.opacity = '0.6';
-            tabBtn.style.fontWeight = '';
-            panel.style.display = 'none';
-        }
-    });
+    // Update tab buttons
+    document.getElementById('edit-tab-settings').classList.toggle('active', tab === 'settings');
+    document.getElementById('edit-tab-aliases').classList.toggle('active', tab === 'aliases');
+
+    const settingsPanel = document.getElementById('edit-panel-settings');
+    const aliasesPanel = document.getElementById('edit-panel-aliases');
+
+    if (tab === 'settings') {
+        settingsPanel.style.visibility = '';
+        aliasesPanel.style.display = 'none';
+    } else {
+        // Settings stays in flow (visibility:hidden) so it holds height
+        settingsPanel.style.visibility = 'hidden';
+        aliasesPanel.style.display = '';
+    }
 }
 
 function addAlias() {
@@ -915,7 +914,7 @@ function addAlias() {
     div.className = 'alias-item';
     div.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 6px;';
     div.innerHTML = `
-        <span style="flex: 1; padding: 6px 10px; background: var(--bg-secondary, #1a1a2e); border-radius: 4px;">${escapeHtml(value)}</span>
+        <span class="form-control" style="flex: 1;">${escapeHtml(value)}</span>
         <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()" title="Remove">&times;</button>
     `;
     list.appendChild(div);
