@@ -74,6 +74,7 @@ function renderSettingsTabContent(tabName) {
             break;
         case 'folders':
             container.innerHTML = renderSettingsFolders(state.settings, state.folders);
+            loadIssuesFolderValue();
             break;
         case 'watcher':
             container.innerHTML = renderSettingsWatcher();
@@ -343,7 +344,28 @@ function renderSettingsFolders(settings, folders) {
                 </table>
             `}
         </div>
+
+        <div class="card">
+            <h2 class="card-title mb-20">Issues Folder</h2>
+            <p class="text-muted" style="margin-bottom:10px;">Files that can't be matched or resolved are moved here.</p>
+            <div class="watcher-path-input">
+                <input type="text" class="form-control" id="watcher-issues-folder"
+                    value=""
+                    placeholder="/path/to/issues/folder"
+                    onchange="autoSaveIssuesFolder()">
+            </div>
+        </div>
     `;
+}
+
+async function loadIssuesFolderValue() {
+    try {
+        const ws = await api('/watcher/settings');
+        const input = document.getElementById('watcher-issues-folder');
+        if (input) input.value = ws.watcher_issues_folder || '';
+    } catch (e) {
+        // ignore — input stays empty
+    }
 }
 
 function updateFormatPreviews() {

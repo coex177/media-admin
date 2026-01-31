@@ -90,18 +90,6 @@ function renderWatcherContent() {
             </ul>
         </div>
 
-        <!-- Issues Folder -->
-        <div class="card watcher-section">
-            <h2 class="card-title mb-20">Issues Folder</h2>
-            <p class="text-muted" style="margin-bottom:10px;">Files that can't be matched or resolved are moved here.</p>
-            <div class="watcher-path-input">
-                <input type="text" class="form-control" id="watcher-issues-folder"
-                    value="${escapeHtml(s.watcher_issues_folder || '')}"
-                    placeholder="/path/to/issues/folder"
-                    onchange="autoSaveIssuesFolder()">
-            </div>
-        </div>
-
         <!-- Monitoring Settings -->
         <div class="card watcher-section">
             <h2 class="card-title mb-20">Monitoring</h2>
