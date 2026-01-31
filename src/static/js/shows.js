@@ -468,25 +468,14 @@ async function checkRefreshStatus() {
 }
 
 // Show Detail
-async function showShowDetail(showId, targetSeason = null, targetEpisode = null) {
-    // Save scroll position before navigating away
-    if (!state.viewingShow && !state.viewingSearch) {
-        state.savedScrollPosition = window.scrollY;
+async function showShowDetail(showId, targetSeason = null, targetEpisode = null, skipHistoryPush = false) {
+    // Push current view to history before switching
+    if (!skipHistoryPush) {
+        pushCurrentViewToHistory();
     }
-    // Track where we came from (only if not already viewing a show)
-    if (!state.viewingShow && !state.viewingSearch) {
-        state.previousPage = state.currentPage;
-    }
-    // Track if we came from search
-    if (state.viewingSearch) {
-        state.cameFromSearch = true;
-    }
-    state.viewingShow = true;
-    state.viewingSearch = false;
 
-    // Show back button in sidebar
-    const backSection = document.getElementById('nav-back-section');
-    if (backSection) backSection.style.display = 'block';
+    // Update current view to show
+    state.currentView = { type: 'show', page: state.currentPage, showId: showId, scrollY: 0 };
 
     // Hide episode preview (will show again when an episode is selected)
     const episodePreview = document.getElementById('episode-preview');
@@ -494,6 +483,8 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
 
     // Clear active nav highlight
     document.querySelectorAll('.nav-menu a').forEach(a => a.classList.remove('active'));
+
+    updateBackButtonVisibility();
 
     appContent.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
@@ -662,6 +653,7 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null)
                 }
             }, 100);
         }
+        restorePendingScroll();
     } catch (error) {
         appContent.innerHTML = `<div class="alert alert-danger">Failed to load show details.</div>`;
     }
@@ -671,7 +663,7 @@ async function refreshShow(showId) {
     try {
         await api(`/shows/${showId}/refresh`, { method: 'POST' });
         showToast('Show metadata refreshed', 'success');
-        showShowDetail(showId);
+        showShowDetail(showId, null, null, true);
     } catch (error) {
         // Error already shown
     }
@@ -701,7 +693,9 @@ async function confirmDeleteShow(showId) {
     try {
         await api(`/shows/${showId}`, { method: 'DELETE' });
         showToast('Show removed', 'success');
-        navigateTo('shows');
+        // Remove deleted show's entries from the history stack
+        state.navHistory = state.navHistory.filter(e => !(e.type === 'show' && e.showId === showId));
+        navigateTo('shows', false, false, false);
     } catch (error) {
         // Error already shown
     }
@@ -1022,7 +1016,7 @@ async function saveShowSettings(showId) {
         }
 
         closeModal();
-        showShowDetail(showId);
+        showShowDetail(showId, null, null, true);
     } catch (error) {
         // Error already shown
     }
@@ -1298,12 +1292,12 @@ async function scanWithProgress(showId) {
                 // Wait a moment for database to fully commit, then close and show results
                 setTimeout(() => {
                     closeScanningModal();
-                    showShowDetail(showId);
+                    showShowDetail(showId, null, null, true);
                 }, 1500);
             }
         } catch (error) {
             closeScanningModal();
-            showShowDetail(showId);
+            showShowDetail(showId, null, null, true);
         }
     };
 
@@ -2030,7 +2024,7 @@ async function _fixMatchExecute() {
                 </div>
             ` : ''}
             <div class="modal-buttons">
-                <button class="btn btn-primary" onclick="closeModal(); showShowDetail(${_fixMatchState.sourceShowId});">Done</button>
+                <button class="btn btn-primary" onclick="closeModal(); showShowDetail(${_fixMatchState.sourceShowId}, null, null, true);">Done</button>
             </div>
         `;
     } catch (error) {

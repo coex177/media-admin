@@ -15,13 +15,9 @@ const state = {
     stats: null,
     setupCompleted: false,
     currentPage: 'dashboard',
-    previousPage: null,
-    viewingShow: false,
-    viewingSearch: false,
-    cameFromSearch: false,
-    lastSearchQuery: '',
-    savedScrollPosition: 0,
-    pendingScrollRestore: false,
+    currentView: { type: 'page', page: 'dashboard', scrollY: 0 },
+    navHistory: [],
+    _pendingScrollRestore: 0,
     showsPage: 1,
     showsPerPage: 0,
     totalShows: 0,
@@ -82,7 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Handle browser back/forward
     window.addEventListener('hashchange', () => {
         const page = getPageFromHash();
-        if (page !== state.currentPage) {
+        if (page !== state.currentPage || state.currentView.type !== 'page') {
             navigateTo(page, false, true); // skipHashUpdate = true
         }
     });
@@ -112,8 +108,14 @@ function getPageFromHash() {
 }
 
 // Navigation
-function navigateTo(page, skipUnsavedCheck = false, skipHashUpdate = false) {
+function navigateTo(page, skipUnsavedCheck = false, skipHashUpdate = false, pushHistory = true) {
+    // Push current view to history before switching (unless told not to)
+    if (pushHistory) {
+        pushCurrentViewToHistory();
+    }
+
     state.currentPage = page;
+    state.currentView = { type: 'page', page: page, scrollY: 0 };
 
     // Update URL hash (unless triggered by hashchange event)
     if (!skipHashUpdate) {
@@ -125,18 +127,14 @@ function navigateTo(page, skipUnsavedCheck = false, skipHashUpdate = false) {
         a.classList.toggle('active', a.dataset.page === page);
     });
 
-    // Hide back button and episode preview when navigating to a main page
-    state.viewingShow = false;
-    state.viewingSearch = false;
-    state.cameFromSearch = false;
-    state.lastSearchQuery = '';
-    const backSection = document.getElementById('nav-back-section');
-    if (backSection) backSection.style.display = 'none';
+    // Hide episode preview when navigating to a main page
     const episodePreview = document.getElementById('episode-preview');
     if (episodePreview) episodePreview.style.display = 'none';
     // Clear global search input
     const searchInput = document.getElementById('global-search-input');
     if (searchInput) searchInput.value = '';
+
+    updateBackButtonVisibility();
 
     // Render page
     switch (page) {
@@ -157,36 +155,47 @@ function navigateTo(page, skipUnsavedCheck = false, skipHashUpdate = false) {
     }
 }
 
-// Go back to previous page (from show detail or search)
+// Go back to previous view using the history stack
 function goBack() {
-    // If we came from search and have a search query, return to search results
-    if (state.cameFromSearch && state.lastSearchQuery) {
-        state.cameFromSearch = false;
-        state.viewingShow = false;
+    if (state.navHistory.length === 0) return;
+    const entry = state.navHistory.pop();
+    state._pendingScrollRestore = entry.scrollY || 0;
+
+    if (entry.type === 'search') {
         // Restore search input and re-perform search
         const searchInput = document.getElementById('global-search-input');
-        if (searchInput) searchInput.value = state.lastSearchQuery;
-        performGlobalSearch(state.lastSearchQuery);
-        return;
+        if (searchInput) searchInput.value = entry.searchQuery;
+        performGlobalSearch(entry.searchQuery, true);
+    } else if (entry.type === 'show') {
+        showShowDetail(entry.showId, null, null, true);
+    } else {
+        // page
+        navigateTo(entry.page, false, false, false);
     }
-
-    const page = state.previousPage || 'dashboard';
-    state.previousPage = null;
-    state.viewingShow = false;
-    state.viewingSearch = false;
-    state.cameFromSearch = false;
-    state.lastSearchQuery = '';
-    state.pendingScrollRestore = true;
-    navigateTo(page);
+    updateBackButtonVisibility();
 }
 
 // Restore scroll position after navigating back
 function restorePendingScroll() {
-    if (state.pendingScrollRestore) {
-        const pos = state.savedScrollPosition;
-        state.pendingScrollRestore = false;
-        state.savedScrollPosition = 0;
+    if (state._pendingScrollRestore) {
+        const pos = state._pendingScrollRestore;
+        state._pendingScrollRestore = 0;
         requestAnimationFrame(() => window.scrollTo(0, pos));
+    }
+}
+
+// Push the current view onto the history stack
+function pushCurrentViewToHistory() {
+    state.currentView.scrollY = window.scrollY;
+    state.navHistory.push({ ...state.currentView });
+    updateBackButtonVisibility();
+}
+
+// Show/hide back button based on history stack
+function updateBackButtonVisibility() {
+    const backSection = document.getElementById('nav-back-section');
+    if (backSection) {
+        backSection.style.display = state.navHistory.length > 0 ? 'block' : 'none';
     }
 }
 
@@ -253,7 +262,7 @@ function debounceGlobalSearch(event) {
 
     if (query.length < 2) {
         // If search is cleared and we were viewing search results, go back
-        if (state.viewingSearch) {
+        if (state.currentView.type === 'search') {
             goBack();
         }
         return;
@@ -265,27 +274,20 @@ function debounceGlobalSearch(event) {
 function handleSearchKeydown(event) {
     if (event.key === 'Escape') {
         event.target.value = '';
-        if (state.viewingSearch) {
+        if (state.currentView.type === 'search') {
             goBack();
         }
     }
 }
 
-async function performGlobalSearch(query) {
-    // Store the search query for back navigation
-    state.lastSearchQuery = query;
-
-    // Track where we came from (only if not already viewing search)
-    if (!state.viewingSearch && !state.viewingShow) {
-        state.previousPage = state.currentPage;
+async function performGlobalSearch(query, skipHistoryPush = false) {
+    // Only push history when first entering search from another view
+    if (!skipHistoryPush && state.currentView.type !== 'search') {
+        pushCurrentViewToHistory();
     }
-    state.viewingSearch = true;
-    state.viewingShow = false;
-    state.cameFromSearch = false;
 
-    // Show back button in sidebar
-    const backSection = document.getElementById('nav-back-section');
-    if (backSection) backSection.style.display = 'block';
+    // Update current view to search
+    state.currentView = { type: 'search', page: state.currentPage, searchQuery: query, scrollY: 0 };
 
     // Clear active nav highlight
     document.querySelectorAll('.nav-menu a').forEach(a => a.classList.remove('active'));
@@ -293,6 +295,8 @@ async function performGlobalSearch(query) {
     // Hide episode preview
     const episodePreview = document.getElementById('episode-preview');
     if (episodePreview) episodePreview.style.display = 'none';
+
+    updateBackButtonVisibility();
 
     appContent.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
@@ -316,6 +320,7 @@ async function performGlobalSearch(query) {
         );
 
         renderSearchResults(query, providerResults.results || [], matchingLocalShows, searchSource);
+        restorePendingScroll();
     } catch (error) {
         appContent.innerHTML = `
             <div class="page-header">
@@ -714,7 +719,7 @@ async function checkSetup() {
         } else {
             // Navigate to page from URL hash, or dashboard if no hash
             const page = getPageFromHash();
-            navigateTo(page);
+            navigateTo(page, false, false, false);
         }
     } catch (error) {
         showToast('Failed to load settings', 'error');
@@ -794,7 +799,7 @@ async function completeSetup() {
 
         state.setupCompleted = true;
         showToast('Setup completed!', 'success');
-        navigateTo('dashboard');
+        navigateTo('dashboard', false, false, false);
     } catch (error) {
         // Error already shown by api()
     }
