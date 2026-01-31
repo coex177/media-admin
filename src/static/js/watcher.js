@@ -459,8 +459,16 @@ function _wlogSetAll(headerClass, contentClass, expanded) {
     });
 }
 
-function wlogCollapseAllYears() { _wlogSetAll('wlog-year-header', 'wlog-year-content', false); }
-function wlogExpandAllYears() { _wlogSetAll('wlog-year-header', 'wlog-year-content', true); }
+function wlogCollapseAllYears() {
+    _wlogSetAll('wlog-year-header', 'wlog-year-content', false);
+    _wlogSetAll('wlog-month-header', 'wlog-month-content', false);
+    _wlogSetAll('wlog-day-header', 'wlog-day-content', false);
+}
+function wlogExpandAllYears() {
+    _wlogSetAll('wlog-year-header', 'wlog-year-content', true);
+    _wlogSetAll('wlog-month-header', 'wlog-month-content', true);
+    _wlogSetAll('wlog-day-header', 'wlog-day-content', true);
+}
 
 function wlogCollapseAllMonths(year) {
     const yearHeader = document.querySelector(`.wlog-year-header[onclick*="'${year}'"]`);
@@ -477,6 +485,17 @@ function wlogCollapseAllMonths(year) {
         const match = onclick.match(/toggleWatcherLogNode\('([^']+)'/);
         if (match) setWatcherLogManualState(match[1], false);
     });
+    // Also collapse all days within this year
+    yearContent.querySelectorAll('.wlog-day-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleWatcherLogNode\('([^']+)'/);
+        if (match) setWatcherLogManualState(match[1], false);
+    });
 }
 
 function wlogExpandAllMonths(year) {
@@ -484,7 +503,23 @@ function wlogExpandAllMonths(year) {
     if (!yearHeader) return;
     const yearContent = yearHeader.nextElementSibling;
     if (!yearContent) return;
+    // Ensure the year itself is open
+    yearContent.classList.add('open');
+    const yearChevron = yearHeader.querySelector('.wlog-chevron');
+    if (yearChevron) yearChevron.src = '/static/images/show-collapse.png';
+    setWatcherLogManualState(year, true);
     yearContent.querySelectorAll('.wlog-month-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleWatcherLogNode\('([^']+)'/);
+        if (match) setWatcherLogManualState(match[1], true);
+    });
+    // Also expand all days within this year
+    yearContent.querySelectorAll('.wlog-day-header').forEach(header => {
         const content = header.nextElementSibling;
         const chevron = header.querySelector('.wlog-chevron');
         if (!content) return;
@@ -518,6 +553,11 @@ function wlogExpandAllDays(monthKey) {
     if (!monthHeader) return;
     const monthContent = monthHeader.nextElementSibling;
     if (!monthContent) return;
+    // Ensure the month itself is open
+    monthContent.classList.add('open');
+    const monthChevron = monthHeader.querySelector('.wlog-chevron');
+    if (monthChevron) monthChevron.src = '/static/images/show-collapse.png';
+    setWatcherLogManualState(monthKey, true);
     monthContent.querySelectorAll('.wlog-day-header').forEach(header => {
         const content = header.nextElementSibling;
         const chevron = header.querySelector('.wlog-chevron');
