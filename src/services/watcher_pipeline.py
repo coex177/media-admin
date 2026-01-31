@@ -47,6 +47,35 @@ class WatcherPipeline:
         self.db = db
         self.matcher = MatcherService()
 
+    # ── Ownership helpers ─────────────────────────────────────────
+
+    def _mkdir_inherit(self, path: Path):
+        """Create directory (and parents) with ownership inherited from the
+        deepest existing ancestor."""
+        existing = path
+        to_create = []
+        while not existing.exists():
+            to_create.append(existing)
+            existing = existing.parent
+
+        path.mkdir(parents=True, exist_ok=True)
+
+        try:
+            st = existing.stat()
+            uid, gid = st.st_uid, st.st_gid
+            for d in reversed(to_create):
+                os.chown(str(d), uid, gid)
+        except OSError:
+            pass
+
+    def _chown_inherit(self, file_path: Path):
+        """Set file ownership to match its parent directory."""
+        try:
+            st = file_path.parent.stat()
+            os.chown(str(file_path), st.st_uid, st.st_gid)
+        except OSError:
+            pass
+
     # ── Settings helpers ────────────────────────────────────────────
 
     def _get_setting(self, key: str, default: str = "") -> str:
@@ -312,7 +341,7 @@ class WatcherPipeline:
             if first_air and len(first_air) >= 4 and first_air[:4].isdigit():
                 safe_name = f"{safe_name} ({first_air[:4]})"
             show_folder = Path(library_folder.path) / safe_name
-            show_folder.mkdir(parents=True, exist_ok=True)
+            self._mkdir_inherit(show_folder)
 
         # Get user's default naming formats from settings
         season_fmt = self._get_setting("season_format", "Season {season}")
@@ -849,7 +878,7 @@ class WatcherPipeline:
         issues_dir = self._resolve_issues_dir(issues_root, organization, "quality_replaced")
 
         try:
-            issues_dir.mkdir(parents=True, exist_ok=True)
+            self._mkdir_inherit(issues_dir)
             old_issues_dest = issues_dir / prefixed_name
             # Avoid collision
             if old_issues_dest.exists():
@@ -971,7 +1000,7 @@ class WatcherPipeline:
                 counter += 1
 
         try:
-            issues_dir.mkdir(parents=True, exist_ok=True)
+            self._mkdir_inherit(issues_dir)
             self._safe_copy(file_path, str(dest))
             self._move_companions(file_path, str(dest))
             self._safe_delete_source(file_path)
@@ -1023,9 +1052,9 @@ class WatcherPipeline:
         if not src_path.exists():
             raise FileNotFoundError(f"Source file no longer exists: {src}")
 
-        # Create destination directory
+        # Create destination directory (inherit parent ownership)
         try:
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            self._mkdir_inherit(dest_path.parent)
         except PermissionError:
             raise PermissionError(f"No write permission for directory: {dest_path.parent}")
 
@@ -1051,8 +1080,9 @@ class WatcherPipeline:
                 raise OSError(f"Disk full — cannot copy to {dest_path.parent}")
             raise
 
-        # Rename temp to final
+        # Rename temp to final and inherit parent ownership
         temp_path.rename(dest_path)
+        self._chown_inherit(dest_path)
 
     def _safe_delete_source(self, file_path: str):
         """Delete the source file, and optionally clean up empty parent dirs."""
