@@ -142,6 +142,8 @@ class MatcherService:
         """Normalize a show name for comparison."""
         # Lowercase
         normalized = name.lower()
+        # Treat & and "and" as equivalent
+        normalized = normalized.replace("&", "and")
         # Remove special characters
         normalized = re.sub(r"[^a-z0-9\s]", "", normalized)
         # Collapse whitespace
