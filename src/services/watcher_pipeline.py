@@ -294,15 +294,25 @@ class WatcherPipeline:
             logger.error("Pipeline: no library folder for auto-import")
             return None
 
-        # Create the show folder
-        safe_name = self._sanitize(show_name)
-        # Append year if available
         first_air = show_data.get("first_air_date", "")
-        if first_air and len(first_air) >= 4 and first_air[:4].isdigit():
-            safe_name = f"{safe_name} ({first_air[:4]})"
 
-        show_folder = Path(library_folder.path) / safe_name
-        show_folder.mkdir(parents=True, exist_ok=True)
+        # Check if a folder for this show already exists in any library folder
+        from types import SimpleNamespace
+        from .scanner import ScannerService
+        scanner = ScannerService(self.db)
+        temp_show = SimpleNamespace(name=show_name, first_air_date=first_air)
+        existing_folder = scanner.find_show_folder(temp_show)
+
+        if existing_folder:
+            show_folder = Path(existing_folder)
+            logger.info(f"Pipeline: found existing library folder for '{show_name}': {show_folder}")
+        else:
+            # Create new folder in first library folder
+            safe_name = self._sanitize(show_name)
+            if first_air and len(first_air) >= 4 and first_air[:4].isdigit():
+                safe_name = f"{safe_name} ({first_air[:4]})"
+            show_folder = Path(library_folder.path) / safe_name
+            show_folder.mkdir(parents=True, exist_ok=True)
 
         # Get user's default naming formats from settings
         season_fmt = self._get_setting("season_format", "Season {season}")
@@ -392,6 +402,88 @@ class WatcherPipeline:
         self.db.add(entry)
         self.db.commit()
 
+    # ── Scan existing library files after auto-import ──────────────
+
+    def _scan_existing_library_files(self, show: Show, exclude_path: str = None):
+        """Scan a show's library folder for existing video files and match them.
+
+        Called after auto-importing a show so that files already in the folder
+        are matched against the newly created episode records.
+        """
+        folder = Path(show.folder_path)
+        if not folder.is_dir():
+            return
+
+        video_exts = set(settings.video_extensions)
+        matched = 0
+        scanned = 0
+
+        for video_file in folder.rglob("*"):
+            if not video_file.is_file():
+                continue
+            if video_file.suffix.lower() not in video_exts:
+                continue
+            if str(video_file) == exclude_path:
+                continue
+            # Skip temp files
+            if video_file.suffix.lower() == TEMP_EXTENSION.lower():
+                continue
+
+            scanned += 1
+            parsed = self.matcher.parse_filename(video_file.name)
+            if not parsed or parsed.season is None or parsed.episode is None:
+                continue
+
+            start_ep = parsed.episode
+            end_ep = parsed.episode_end or parsed.episode
+
+            # Check if file is in a Specials folder
+            season = parsed.season
+            for parent in video_file.parents:
+                if parent.name.lower() in ("specials", "season 0", "season 00"):
+                    season = 0
+                    break
+                if str(parent) == str(folder):
+                    break
+
+            for ep_num in range(start_ep, end_ep + 1):
+                episode = (
+                    self.db.query(Episode)
+                    .filter(
+                        Episode.show_id == show.id,
+                        Episode.season == season,
+                        Episode.episode == ep_num,
+                    )
+                    .first()
+                )
+                if episode and episode.file_status == "missing":
+                    episode.file_path = str(video_file)
+                    episode.file_status = "found"
+                    episode.matched_at = datetime.utcnow()
+                    matched += 1
+
+        if matched > 0:
+            self.db.commit()
+            logger.info(
+                f"Pipeline: scanned '{show.name}' folder — "
+                f"{matched} existing episode(s) matched from {scanned} file(s)"
+            )
+            self._log(
+                "library_scan",
+                result="success",
+                show_name=show.name,
+                show_id=show.id,
+                details=(
+                    f"Scanned existing library folder: {matched} episode(s) "
+                    f"matched from {scanned} file(s) in {show.folder_path}"
+                ),
+            )
+        elif scanned > 0:
+            logger.info(
+                f"Pipeline: scanned '{show.name}' folder — "
+                f"{scanned} file(s) found but no new matches"
+            )
+
     # ── Main entry point ────────────────────────────────────────────
 
     def process_file(self, file_path: str):
@@ -444,6 +536,9 @@ class WatcherPipeline:
                     f"No match for '{filename_show_name}' in DB or providers",
                 )
                 return
+
+            # Scan existing files in the library folder before processing the new file
+            self._scan_existing_library_files(show, exclude_path=file_path)
 
             # Re-run from the matched-show point with the newly imported show
             logger.info(f"Pipeline: auto-imported '{show.name}', continuing pipeline")

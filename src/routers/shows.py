@@ -887,16 +887,31 @@ async def refresh_show(
     db.refresh(show)
 
     # Rescan the show's folder to re-match files against updated episode list
-    if show.folder_path:
-        from ..services.scanner import ScannerService
-        from ..routers.scan import _scan_show_folder
+    from ..services.scanner import ScannerService
+    from ..routers.scan import _scan_show_folder
 
+    scanner = ScannerService(db)
+    matched_count = 0
+
+    if show.folder_path:
         show_dir = Path(show.folder_path)
         if show_dir.exists():
-            scanner = ScannerService(db)
-            _scan_show_folder(scanner, show, show_dir)
+            matched_count, _ = _scan_show_folder(scanner, show, show_dir)
             db.commit()
             db.refresh(show)
+
+    # If no files matched, try discovering the correct folder in library folders
+    if matched_count == 0:
+        discovered = scanner.find_show_folder(show)
+        if discovered and discovered != show.folder_path:
+            logger.info(f"Refresh: discovered existing folder for '{show.name}': {discovered}")
+            show.folder_path = discovered
+            db.commit()
+            show_dir = Path(discovered)
+            if show_dir.exists():
+                _scan_show_folder(scanner, show, show_dir)
+                db.commit()
+                db.refresh(show)
 
     # Rename files on disk to match updated metadata
     _rename_episodes_to_match_metadata(db, show)
