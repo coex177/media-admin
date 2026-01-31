@@ -602,6 +602,7 @@ function renderWatcherLogEntries() {
             <span class="wlog-header-actions" onclick="event.stopPropagation()">
                 <img src="/static/images/show-expand.png" class="wlog-action-btn" onclick="wlogCollapseAllMonths('${year}')" title="Collapse months" alt="Collapse">
                 <img src="/static/images/show-collapse.png" class="wlog-action-btn" onclick="wlogExpandAllMonths('${year}')" title="Expand months" alt="Expand">
+                <img src="/static/images/trash.png" class="wlog-delete-btn" onclick="deleteWatcherLogRange('${year}', '${year}-01-01T00:00:00', '${year}-12-31T23:59:59', ${yearCount})" title="Delete year" alt="Delete">
             </span>
         </div>`;
         html += `<div class="wlog-year-content ${yearExpanded ? 'open' : ''}">`;
@@ -621,6 +622,9 @@ function renderWatcherLogEntries() {
             const monthNum = parseInt(month, 10);
             const monthLabel = monthNames[monthNum] || month;
 
+            // Compute last day of month for range endpoint
+            const lastDayOfMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
+
             html += `<div class="wlog-month-header" onclick="toggleWatcherLogNode('${monthKey}', this)">
                 <img src="/static/images/${monthExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
                 <span class="wlog-month-label">${monthLabel}</span>
@@ -628,6 +632,7 @@ function renderWatcherLogEntries() {
                 <span class="wlog-header-actions" onclick="event.stopPropagation()">
                     <img src="/static/images/show-expand.png" class="wlog-action-btn" onclick="wlogCollapseAllDays('${monthKey}')" title="Collapse days" alt="Collapse">
                     <img src="/static/images/show-collapse.png" class="wlog-action-btn" onclick="wlogExpandAllDays('${monthKey}')" title="Expand days" alt="Expand">
+                    <img src="/static/images/trash.png" class="wlog-delete-btn" onclick="deleteWatcherLogRange('${monthLabel} ${year}', '${year}-${month}-01T00:00:00', '${year}-${month}-${String(lastDayOfMonth).padStart(2,'0')}T23:59:59', ${monthCount})" title="Delete month" alt="Delete">
                 </span>
             </div>`;
             html += `<div class="wlog-month-content ${monthExpanded ? 'open' : ''}">`;
@@ -646,6 +651,9 @@ function renderWatcherLogEntries() {
                     <img src="/static/images/${dayExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
                     <span class="wlog-day-label">${escapeHtml(displayDate)}</span>
                     <span class="wlog-node-count">(${dayEntries.length})</span>
+                    <span class="wlog-header-actions" onclick="event.stopPropagation()">
+                        <img src="/static/images/trash.png" class="wlog-delete-btn" onclick="deleteWatcherLogRange('${escapeHtml(displayDate)}', '${dayKey}T00:00:00', '${dayKey}T23:59:59', ${dayEntries.length})" title="Delete day" alt="Delete">
+                    </span>
                 </div>`;
                 html += `<div class="wlog-day-content ${dayExpanded ? 'open' : ''}">`;
 
@@ -662,6 +670,7 @@ function renderWatcherLogEntries() {
                             <span class="log-entry-badge action-${escapeHtml(entry.action_type || '')}">${escapeHtml(actionLabel)}</span>
                             <span class="log-entry-summary">${escapeHtml(summary)}</span>
                             <span class="log-entry-result ${resultClass}">${escapeHtml(entry.result || '')}</span>
+                            <img src="/static/images/trash.png" class="wlog-delete-btn wlog-entry-delete" onclick="event.stopPropagation(); deleteWatcherLogEntry(${entry.id}, '${escapeHtml(summary).replace(/'/g, "\\'")}')" title="Delete entry" alt="Delete">
                         </div>
                         <div class="log-entry-details" id="${entryId}">
                             ${buildLogDetails(entry)}
@@ -816,6 +825,62 @@ async function clearAllLogs() {
         const result = await api('/watcher/log', { method: 'DELETE' });
         showToast(result.message, 'success');
         watcherLogState.offset = 0;
+        await loadWatcherLog();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+function deleteWatcherLogEntry(entryId, summary) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Delete Log Entry';
+    modalBody.innerHTML = `
+        <p>Delete this log entry?</p>
+        <p class="text-muted" style="word-break: break-all;">${escapeHtml(summary)}</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-danger" onclick="confirmDeleteEntry(${entryId})">Delete</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmDeleteEntry(entryId) {
+    closeModal();
+    try {
+        const result = await api(`/watcher/log/${entryId}`, { method: 'DELETE' });
+        showToast(result.message, 'success');
+        await loadWatcherLog();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+function deleteWatcherLogRange(label, start, end, count) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Delete Log Entries';
+    modalBody.innerHTML = `
+        <p>Delete all <strong>${count}</strong> log ${count === 1 ? 'entry' : 'entries'} for <strong>${escapeHtml(label)}</strong>?</p>
+        <p class="text-muted">This action cannot be undone.</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-danger" onclick="confirmDeleteRange('${start}', '${end}')">Delete ${count} ${count === 1 ? 'Entry' : 'Entries'}</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmDeleteRange(start, end) {
+    closeModal();
+    try {
+        const result = await api(`/watcher/log/range/${encodeURIComponent(start)}/${encodeURIComponent(end)}`, { method: 'DELETE' });
+        showToast(result.message, 'success');
         await loadWatcherLog();
     } catch (error) {
         // Error already shown

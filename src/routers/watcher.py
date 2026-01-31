@@ -296,6 +296,36 @@ async def clear_watcher_log(db: Session = Depends(get_db)):
     return {"message": f"Deleted {count} log entries", "deleted": count}
 
 
+@router.delete("/watcher/log/range/{start}/{end}")
+async def delete_watcher_log_range(start: str, end: str, db: Session = Depends(get_db)):
+    """Delete all log entries within a timestamp range (inclusive)."""
+    try:
+        dt_start = datetime.fromisoformat(start)
+        dt_end = datetime.fromisoformat(end)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
+
+    query = db.query(WatcherLog).filter(
+        WatcherLog.timestamp >= dt_start,
+        WatcherLog.timestamp <= dt_end,
+    )
+    count = query.count()
+    query.delete(synchronize_session=False)
+    db.commit()
+    return {"message": f"Deleted {count} log entries", "deleted": count}
+
+
+@router.delete("/watcher/log/{entry_id}")
+async def delete_watcher_log_entry(entry_id: int, db: Session = Depends(get_db)):
+    """Delete a single log entry by ID."""
+    entry = db.query(WatcherLog).filter(WatcherLog.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Log entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"message": "Log entry deleted", "deleted": 1}
+
+
 # ── Prerequisites validation ────────────────────────────────────────
 
 @router.post("/watcher/validate-prerequisites")
