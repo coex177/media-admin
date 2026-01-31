@@ -361,8 +361,12 @@ async function renderWatcherLogTab() {
 
     container.innerHTML = `
         <div class="card">
-            <div class="card-header">
+            <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
                 <h3 class="card-title">Watcher Activity Log</h3>
+                <div class="card-control-btns">
+                    <button class="card-control-btn" onclick="wlogCollapseAllYears()" title="Collapse all"><img src="/static/images/show-expand.png" alt="Collapse all"></button>
+                    <button class="card-control-btn" onclick="wlogExpandAllYears()" title="Expand all"><img src="/static/images/show-collapse.png" alt="Expand all"></button>
+                </div>
             </div>
             <div class="watcher-log-controls">
                 <label>From:</label>
@@ -441,6 +445,91 @@ function toggleWatcherLogNode(key, headerEl) {
     setWatcherLogManualState(key, !isOpen);
 }
 
+function _wlogSetAll(headerClass, contentClass, expanded) {
+    document.querySelectorAll(`.${headerClass}`).forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.toggle('open', expanded);
+        if (chevron) chevron.src = expanded ? '/static/images/show-collapse.png' : '/static/images/show-expand.png';
+        // Extract key from the onclick attribute
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleWatcherLogNode\('([^']+)'/);
+        if (match) setWatcherLogManualState(match[1], expanded);
+    });
+}
+
+function wlogCollapseAllYears() { _wlogSetAll('wlog-year-header', 'wlog-year-content', false); }
+function wlogExpandAllYears() { _wlogSetAll('wlog-year-header', 'wlog-year-content', true); }
+
+function wlogCollapseAllMonths(year) {
+    const yearHeader = document.querySelector(`.wlog-year-header[onclick*="'${year}'"]`);
+    if (!yearHeader) return;
+    const yearContent = yearHeader.nextElementSibling;
+    if (!yearContent) return;
+    yearContent.querySelectorAll('.wlog-month-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleWatcherLogNode\('([^']+)'/);
+        if (match) setWatcherLogManualState(match[1], false);
+    });
+}
+
+function wlogExpandAllMonths(year) {
+    const yearHeader = document.querySelector(`.wlog-year-header[onclick*="'${year}'"]`);
+    if (!yearHeader) return;
+    const yearContent = yearHeader.nextElementSibling;
+    if (!yearContent) return;
+    yearContent.querySelectorAll('.wlog-month-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleWatcherLogNode\('([^']+)'/);
+        if (match) setWatcherLogManualState(match[1], true);
+    });
+}
+
+function wlogCollapseAllDays(monthKey) {
+    const monthHeader = document.querySelector(`.wlog-month-header[onclick*="'${monthKey}'"]`);
+    if (!monthHeader) return;
+    const monthContent = monthHeader.nextElementSibling;
+    if (!monthContent) return;
+    monthContent.querySelectorAll('.wlog-day-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleWatcherLogNode\('([^']+)'/);
+        if (match) setWatcherLogManualState(match[1], false);
+    });
+}
+
+function wlogExpandAllDays(monthKey) {
+    const monthHeader = document.querySelector(`.wlog-month-header[onclick*="'${monthKey}'"]`);
+    if (!monthHeader) return;
+    const monthContent = monthHeader.nextElementSibling;
+    if (!monthContent) return;
+    monthContent.querySelectorAll('.wlog-day-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleWatcherLogNode\('([^']+)'/);
+        if (match) setWatcherLogManualState(match[1], true);
+    });
+}
+
 function renderWatcherLogEntries() {
     const content = document.getElementById('watcher-log-content');
     if (!content) return;
@@ -510,6 +599,10 @@ function renderWatcherLogEntries() {
             <img src="/static/images/${yearExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
             <span class="wlog-year-label">${year}</span>
             <span class="wlog-node-count">(${yearCount})</span>
+            <span class="wlog-header-actions" onclick="event.stopPropagation()">
+                <img src="/static/images/show-expand.png" class="wlog-action-btn" onclick="wlogCollapseAllMonths('${year}')" title="Collapse months" alt="Collapse">
+                <img src="/static/images/show-collapse.png" class="wlog-action-btn" onclick="wlogExpandAllMonths('${year}')" title="Expand months" alt="Expand">
+            </span>
         </div>`;
         html += `<div class="wlog-year-content ${yearExpanded ? 'open' : ''}">`;
 
@@ -532,6 +625,10 @@ function renderWatcherLogEntries() {
                 <img src="/static/images/${monthExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
                 <span class="wlog-month-label">${monthLabel}</span>
                 <span class="wlog-node-count">(${monthCount})</span>
+                <span class="wlog-header-actions" onclick="event.stopPropagation()">
+                    <img src="/static/images/show-expand.png" class="wlog-action-btn" onclick="wlogCollapseAllDays('${monthKey}')" title="Collapse days" alt="Collapse">
+                    <img src="/static/images/show-collapse.png" class="wlog-action-btn" onclick="wlogExpandAllDays('${monthKey}')" title="Expand days" alt="Expand">
+                </span>
             </div>`;
             html += `<div class="wlog-month-content ${monthExpanded ? 'open' : ''}">`;
 

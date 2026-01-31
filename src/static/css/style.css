@@ -3967,6 +3967,24 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     color: var(--text-secondary);
 }
 
+.wlog-header-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: 8px;
+}
+
+.wlog-action-btn {
+    width: 16px;
+    height: 16px;
+    opacity: 0.4;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.wlog-action-btn:hover {
+    opacity: 1;
+}
+
 .wlog-year-content,
 .wlog-month-content,
 .wlog-day-content {
