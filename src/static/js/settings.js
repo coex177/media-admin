@@ -302,7 +302,6 @@ function renderSettingsFolders(settings, folders) {
                                 <td>${escapeHtml(folder.path)}</td>
                                 <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
                                 <td>
-                                    <button class="btn btn-sm btn-primary" onclick="scanLibraryFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Scan</button>
                                     <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
                                     <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Remove</button>
                                 </td>
@@ -804,26 +803,6 @@ async function startSlowImport() {
             body: JSON.stringify({ folder_id: folder.id, limit: slowImportCount })
         });
 
-        pollLibraryFolderScanStatus();
-    } catch (error) {
-        closeLibraryFolderScanModal();
-        // Error already shown by api()
-    }
-}
-
-// Library Folder Discovery Scan
-async function scanLibraryFolder(folderId, folderPath) {
-    // Show the scanning modal
-    showLibraryFolderScanModal(folderPath);
-
-    try {
-        // Start the scan
-        await api('/scan/library-folder', {
-            method: 'POST',
-            body: JSON.stringify({ folder_id: folderId })
-        });
-
-        // Poll for status updates
         pollLibraryFolderScanStatus();
     } catch (error) {
         closeLibraryFolderScanModal();
