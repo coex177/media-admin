@@ -43,6 +43,12 @@ def run_migrations():
             conn.execute(text("ALTER TABLE shows ADD COLUMN tvdb_season_type VARCHAR(20) DEFAULT 'official'"))
             conn.commit()
 
+        # Add aliases column if missing
+        if "aliases" not in columns:
+            logger.info("Adding aliases column to shows table")
+            conn.execute(text("ALTER TABLE shows ADD COLUMN aliases TEXT"))
+            conn.commit()
+
         # Make tmdb_id nullable: SQLite doesn't support ALTER COLUMN, so we recreate the table
         # Check if tmdb_id is currently NOT NULL by inspecting the column
         col_info = {c["name"]: c for c in inspector.get_columns("shows")}

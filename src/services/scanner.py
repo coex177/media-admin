@@ -1,5 +1,6 @@
 """File system scanner service."""
 
+import json
 import logging
 import os
 import re
@@ -494,7 +495,7 @@ class ScannerService:
                     # Try to match to a show
                     match = self.matcher.find_best_show_match(
                         file_info.parsed.title,
-                        [{"id": s.id, "name": s.name} for s in shows],
+                        [{"id": s.id, "name": s.name, "aliases": json.loads(s.aliases) if s.aliases else []} for s in shows],
                     )
 
                     if match:
@@ -591,10 +592,15 @@ class ScannerService:
                                  f" (in-folder)")
                     return matched_count
 
-        # Try to match by show name in filename
+        # Try to match by show name in filename (including aliases)
         if file_info.parsed.title:
             for show in shows:
                 score = self.matcher.match_show_name(file_info.parsed.title, show.name)
+                if hasattr(show, 'aliases') and show.aliases:
+                    for alias in json.loads(show.aliases):
+                        alias_score = self.matcher.match_show_name(file_info.parsed.title, alias)
+                        if alias_score > score:
+                            score = alias_score
                 if score >= 0.7:
                     logger.debug(f"    name-match {file_info.filename} → '{show.name}' (score={score:.2f})")
                     matched_count = self._mark_episodes_found(

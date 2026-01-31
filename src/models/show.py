@@ -51,6 +51,7 @@ class Show(Base):
     # Additional metadata
     genres: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
     networks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
+    aliases: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
     next_episode_air_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
 
     # Timestamps
@@ -94,6 +95,7 @@ class Show(Base):
             "number_of_episodes": self.number_of_episodes,
             "genres": json.loads(self.genres) if self.genres else [],
             "networks": json.loads(self.networks) if self.networks else [],
+            "aliases": json.loads(self.aliases) if self.aliases else [],
             "next_episode_air_date": self.next_episode_air_date,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_updated": self.last_updated.isoformat() if self.last_updated else None,

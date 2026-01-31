@@ -788,56 +788,78 @@ function showEditShowModal(showId) {
 
     const canSwitchToTvdb = !!show.tvdb_id;
     const canSwitchToTmdb = !!show.tmdb_id;
+    const aliases = show.aliases || [];
 
     modalTitle.textContent = 'Edit Show Settings';
     modalBody.innerHTML = `
-        <div class="form-group">
-            <label>Library Folder</label>
-            <input type="text" id="modal-folder-path" class="form-control" value="${escapeHtml(show.folder_path || '')}" placeholder="/path/to/show">
+        <div class="edit-tabs" style="display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid var(--border-color, #333);">
+            <button class="btn edit-tab active" id="edit-tab-settings" onclick="switchEditTab('settings')" style="border-radius: 4px 4px 0 0; border-bottom: 2px solid var(--primary-color, #6366f1); margin-bottom: -2px; font-weight: 600;">Settings</button>
+            <button class="btn edit-tab" id="edit-tab-aliases" onclick="switchEditTab('aliases')" style="border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; margin-bottom: -2px; opacity: 0.6;">Custom Names</button>
         </div>
-        <div class="form-group">
-            <label>Season Folder Format</label>
-            <input type="text" id="modal-season-format" class="form-control" value="${escapeHtml(show.season_format)}">
-            <small class="text-muted">Variables: {season}</small>
-        </div>
-        <div class="form-group">
-            <label>Episode Format</label>
-            <input type="text" id="modal-episode-format" class="form-control" value="${escapeHtml(show.episode_format)}">
-            <small class="text-muted">Variables: {season}, {episode}, {title}</small>
-        </div>
-        <div class="form-group">
-            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                <input type="checkbox" id="modal-do-rename" ${show.do_rename ? 'checked' : ''}>
-                Enable renaming for this show
-            </label>
-        </div>
-        <div class="form-group">
-            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                <input type="checkbox" id="modal-do-missing" ${show.do_missing ? 'checked' : ''}>
-                Track missing episodes
-            </label>
-        </div>
-        <div class="form-group">
-            <label>Metadata Source</label>
-            <div class="metadata-source-options">
-                <label>
-                    <input type="radio" name="modal-metadata-source" value="tmdb" ${show.metadata_source === 'tmdb' ? 'checked' : ''} ${!canSwitchToTmdb && show.metadata_source !== 'tmdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
-                    TMDB
-                </label>
-                <label>
-                    <input type="radio" name="modal-metadata-source" value="tvdb" ${show.metadata_source === 'tvdb' ? 'checked' : ''} ${!canSwitchToTvdb && show.metadata_source !== 'tvdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
-                    TVDB
+        <div id="edit-panel-settings">
+            <div class="form-group">
+                <label>Library Folder</label>
+                <input type="text" id="modal-folder-path" class="form-control" value="${escapeHtml(show.folder_path || '')}" placeholder="/path/to/show">
+            </div>
+            <div class="form-group">
+                <label>Season Folder Format</label>
+                <input type="text" id="modal-season-format" class="form-control" value="${escapeHtml(show.season_format)}">
+                <small class="text-muted">Variables: {season}</small>
+            </div>
+            <div class="form-group">
+                <label>Episode Format</label>
+                <input type="text" id="modal-episode-format" class="form-control" value="${escapeHtml(show.episode_format)}">
+                <small class="text-muted">Variables: {season}, {episode}, {title}</small>
+            </div>
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="modal-do-rename" ${show.do_rename ? 'checked' : ''}>
+                    Enable renaming for this show
                 </label>
             </div>
-            ${!canSwitchToTvdb && show.metadata_source === 'tmdb' ? '<small class="text-muted">No TVDB ID available for this show</small>' : ''}
-            ${!canSwitchToTmdb && show.metadata_source === 'tvdb' ? '<small class="text-muted">No TMDB ID available for this show</small>' : ''}
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="modal-do-missing" ${show.do_missing ? 'checked' : ''}>
+                    Track missing episodes
+                </label>
+            </div>
+            <div class="form-group">
+                <label>Metadata Source</label>
+                <div class="metadata-source-options">
+                    <label>
+                        <input type="radio" name="modal-metadata-source" value="tmdb" ${show.metadata_source === 'tmdb' ? 'checked' : ''} ${!canSwitchToTmdb && show.metadata_source !== 'tmdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
+                        TMDB
+                    </label>
+                    <label>
+                        <input type="radio" name="modal-metadata-source" value="tvdb" ${show.metadata_source === 'tvdb' ? 'checked' : ''} ${!canSwitchToTvdb && show.metadata_source !== 'tvdb' ? 'disabled' : ''} onchange="toggleSeasonTypeVisibility()">
+                        TVDB
+                    </label>
+                </div>
+                ${!canSwitchToTvdb && show.metadata_source === 'tmdb' ? '<small class="text-muted">No TVDB ID available for this show</small>' : ''}
+                ${!canSwitchToTmdb && show.metadata_source === 'tvdb' ? '<small class="text-muted">No TMDB ID available for this show</small>' : ''}
+            </div>
+            <div class="form-group" id="season-type-group" style="display: ${show.metadata_source === 'tvdb' && show.tvdb_id ? 'block' : 'none'};">
+                <label>Episode Order</label>
+                <select id="modal-season-type" class="form-control" data-original="${escapeHtml(show.tvdb_season_type || 'official')}">
+                    <option value="${escapeHtml(show.tvdb_season_type || 'official')}">${escapeHtml(show.tvdb_season_type || 'official')} (current)</option>
+                </select>
+                <small class="text-muted" id="season-type-loading">Loading available orderings...</small>
+            </div>
         </div>
-        <div class="form-group" id="season-type-group" style="display: ${show.metadata_source === 'tvdb' && show.tvdb_id ? 'block' : 'none'};">
-            <label>Episode Order</label>
-            <select id="modal-season-type" class="form-control" data-original="${escapeHtml(show.tvdb_season_type || 'official')}">
-                <option value="${escapeHtml(show.tvdb_season_type || 'official')}">${escapeHtml(show.tvdb_season_type || 'official')} (current)</option>
-            </select>
-            <small class="text-muted" id="season-type-loading">Loading available orderings...</small>
+        <div id="edit-panel-aliases" style="display: none;">
+            <p class="text-muted" style="margin-bottom: 12px;">Add alternative names for this show. The watcher and scanner will use these when matching filenames.</p>
+            <div id="aliases-list" style="margin-bottom: 12px;">
+                ${aliases.map(a => `
+                    <div class="alias-item" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                        <span style="flex: 1; padding: 6px 10px; background: var(--bg-secondary, #1a1a2e); border-radius: 4px;">${escapeHtml(a)}</span>
+                        <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()" title="Remove">&times;</button>
+                    </div>
+                `).join('')}
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="new-alias-input" class="form-control" placeholder="Enter an alternative name..." style="flex: 1;" onkeydown="if(event.key==='Enter'){event.preventDefault();addAlias();}">
+                <button class="btn btn-secondary" onclick="addAlias()">Add</button>
+            </div>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
             <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -851,6 +873,54 @@ function showEditShowModal(showId) {
     if (show.metadata_source === 'tvdb' && show.tvdb_id) {
         _loadSeasonTypes(show.tvdb_id, show.tvdb_season_type || 'official');
     }
+}
+
+function switchEditTab(tab) {
+    const tabs = ['settings', 'aliases'];
+    tabs.forEach(t => {
+        const tabBtn = document.getElementById(`edit-tab-${t}`);
+        const panel = document.getElementById(`edit-panel-${t}`);
+        if (t === tab) {
+            tabBtn.classList.add('active');
+            tabBtn.style.borderBottomColor = 'var(--primary-color, #6366f1)';
+            tabBtn.style.opacity = '1';
+            tabBtn.style.fontWeight = '600';
+            panel.style.display = '';
+        } else {
+            tabBtn.classList.remove('active');
+            tabBtn.style.borderBottomColor = 'transparent';
+            tabBtn.style.opacity = '0.6';
+            tabBtn.style.fontWeight = '';
+            panel.style.display = 'none';
+        }
+    });
+}
+
+function addAlias() {
+    const input = document.getElementById('new-alias-input');
+    const value = input.value.trim();
+    if (!value) return;
+
+    // Check for duplicates
+    const existing = document.querySelectorAll('#aliases-list .alias-item span:first-child');
+    for (const el of existing) {
+        if (el.textContent.trim().toLowerCase() === value.toLowerCase()) {
+            input.value = '';
+            return;
+        }
+    }
+
+    const list = document.getElementById('aliases-list');
+    const div = document.createElement('div');
+    div.className = 'alias-item';
+    div.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 6px;';
+    div.innerHTML = `
+        <span style="flex: 1; padding: 6px 10px; background: var(--bg-secondary, #1a1a2e); border-radius: 4px;">${escapeHtml(value)}</span>
+        <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()" title="Remove">&times;</button>
+    `;
+    list.appendChild(div);
+    input.value = '';
+    input.focus();
 }
 
 function toggleSeasonTypeVisibility() {
@@ -897,6 +967,10 @@ async function saveShowSettings(showId) {
     const doMissing = document.getElementById('modal-do-missing').checked;
     const selectedSource = document.querySelector('input[name="modal-metadata-source"]:checked')?.value;
 
+    // Collect aliases from the DOM
+    const aliasElements = document.querySelectorAll('#aliases-list .alias-item span:first-child');
+    const aliases = Array.from(aliasElements).map(el => el.textContent.trim()).filter(a => a);
+
     try {
         // Save show settings
         await api(`/shows/${showId}`, {
@@ -906,7 +980,8 @@ async function saveShowSettings(showId) {
                 season_format: seasonFormat,
                 episode_format: episodeFormat,
                 do_rename: doRename,
-                do_missing: doMissing
+                do_missing: doMissing,
+                aliases: aliases
             })
         });
 

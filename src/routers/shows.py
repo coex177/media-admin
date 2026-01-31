@@ -50,6 +50,7 @@ class ShowUpdate(BaseModel):
     episode_format: Optional[str] = None
     do_rename: Optional[bool] = None
     do_missing: Optional[bool] = None
+    aliases: Optional[list[str]] = None
 
 
 class SwitchSourceRequest(BaseModel):
@@ -701,6 +702,9 @@ async def update_show(
         show.do_rename = data.do_rename
     if data.do_missing is not None:
         show.do_missing = data.do_missing
+    if data.aliases is not None:
+        import json
+        show.aliases = json.dumps(data.aliases) if data.aliases else None
 
     db.commit()
     db.refresh(show)

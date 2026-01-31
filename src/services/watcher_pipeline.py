@@ -544,7 +544,10 @@ class WatcherPipeline:
 
         # 2. Match show in DB
         shows = self.db.query(Show).all()
-        show_dicts = [{"id": s.id, "name": s.name} for s in shows]
+        show_dicts = [
+            {"id": s.id, "name": s.name, "aliases": json.loads(s.aliases) if s.aliases else []}
+            for s in shows
+        ]
         match_result = self.matcher.find_best_show_match(filename_show_name, show_dicts)
 
         if not match_result:

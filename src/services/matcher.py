@@ -190,6 +190,10 @@ class MatcherService:
 
         for show in shows:
             score = self.match_show_name(filename_title, show.get("name", ""))
+            for alias in show.get("aliases", []):
+                alias_score = self.match_show_name(filename_title, alias)
+                if alias_score > score:
+                    score = alias_score
             if score > best_score:
                 best_score = score
                 best_match = show
