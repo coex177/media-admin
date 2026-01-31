@@ -3660,6 +3660,8 @@ a.metadata-source-tag:hover {
     font-size: 0.88rem;
     cursor: pointer;
     transition: background-color 0.15s;
+    overflow: hidden;
+    min-width: 0;
 }
 
 .watcher-log-entry:hover {
@@ -3686,6 +3688,7 @@ a.metadata-source-tag:hover {
     white-space: nowrap;
     min-width: 70px;
     text-align: center;
+    flex-shrink: 0;
 }
 
 .log-entry-badge.action-file_detected {
@@ -3736,6 +3739,7 @@ a.metadata-source-tag:hover {
     font-size: 0.75rem;
     font-weight: 500;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .log-entry-result.result-success {
