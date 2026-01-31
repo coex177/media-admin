@@ -109,7 +109,7 @@ function renderWatcherContent() {
             <div class="watcher-setting-row">
                 <div class="watcher-setting-info">
                     <div class="watcher-setting-label">Monitor Subfolders</div>
-                    <div class="watcher-setting-desc">Watch subdirectories inside download folders</div>
+                    <div class="watcher-setting-desc">Watch subdirectories inside TV folders</div>
                 </div>
                 <div class="watcher-setting-control">
                     <label class="toggle-switch">

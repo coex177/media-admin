@@ -466,17 +466,17 @@ class ScannerService:
         return result
 
     def _scan_download_folders(self, shows: list[Show], progress_callback=None) -> ScanResult:
-        """Scan download folders and create pending actions for matching files."""
+        """Scan TV folders and create pending actions for matching files."""
         result = ScanResult()
 
         def report_progress(message, percent):
             if progress_callback:
                 progress_callback(message, percent)
 
-        # Get all download folders
+        # Get all TV folders
         folders = (
             self.db.query(ScanFolder)
-            .filter(ScanFolder.folder_type == "download", ScanFolder.enabled == True)
+            .filter(ScanFolder.folder_type == "tv", ScanFolder.enabled == True)
             .all()
         )
 

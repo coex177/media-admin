@@ -134,13 +134,13 @@ async def start_watcher(db: Session = Depends(get_db)):
     # Configure watcher from settings
     _configure_watcher(db)
 
-    # Add download folders
-    download_folders = (
+    # Add TV folders
+    tv_folders = (
         db.query(ScanFolder)
-        .filter(ScanFolder.folder_type == "download", ScanFolder.enabled == True)
+        .filter(ScanFolder.folder_type == "tv", ScanFolder.enabled == True)
         .all()
     )
-    for folder in download_folders:
+    for folder in tv_folders:
         watcher_service.add_watch_folder(folder.path)
 
     watcher_service.start()
@@ -331,17 +331,17 @@ def _check_prerequisites(db: Session) -> list[dict]:
         "detail": f"{len(library_folders)} folder(s)" if library_folders else "None configured",
     })
 
-    # 3. At least one download folder
-    download_folders = (
+    # 3. At least one TV folder
+    tv_folders = (
         db.query(ScanFolder)
-        .filter(ScanFolder.folder_type == "download", ScanFolder.enabled == True)
+        .filter(ScanFolder.folder_type == "tv", ScanFolder.enabled == True)
         .all()
     )
     results.append({
-        "name": "Download Folder",
-        "key": "download_folder",
-        "met": len(download_folders) > 0,
-        "detail": f"{len(download_folders)} folder(s)" if download_folders else "None configured",
+        "name": "TV Folder",
+        "key": "tv_folder",
+        "met": len(tv_folders) > 0,
+        "detail": f"{len(tv_folders)} folder(s)" if tv_folders else "None configured",
     })
 
     # 4. ffprobe available
@@ -417,12 +417,12 @@ def auto_start_watcher(db: Session):
 
     _configure_watcher(db)
 
-    download_folders = (
+    tv_folders = (
         db.query(ScanFolder)
-        .filter(ScanFolder.folder_type == "download", ScanFolder.enabled == True)
+        .filter(ScanFolder.folder_type == "tv", ScanFolder.enabled == True)
         .all()
     )
-    for folder in download_folders:
+    for folder in tv_folders:
         watcher_service.add_watch_folder(folder.path)
 
     watcher_service.start()

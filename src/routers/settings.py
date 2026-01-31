@@ -42,7 +42,7 @@ class FolderCreate(BaseModel):
     """Request model for creating a scan folder."""
 
     path: str
-    type: str  # library or download
+    type: str  # library or tv
 
 
 class SettingsResponse(BaseModel):
@@ -221,8 +221,8 @@ async def list_folders(db: Session = Depends(get_db)):
 async def create_folder(data: FolderCreate, db: Session = Depends(get_db)):
     """Add a scan folder."""
     # Validate folder type
-    if data.type not in ("library", "download"):
-        raise HTTPException(status_code=400, detail="Type must be 'library' or 'download'")
+    if data.type not in ("library", "tv"):
+        raise HTTPException(status_code=400, detail="Type must be 'library' or 'tv'")
 
     # Check if path exists
     path = Path(data.path)

@@ -55,7 +55,7 @@ class AppConfig(BaseModel):
 
     tmdb_api_key: str = ""
     library_folders: list[str] = []
-    download_folders: list[str] = []
+    tv_folders: list[str] = []
     episode_format: str = "{season}x{episode:02d} - {title}"
     season_format: str = "Season {season}"
     auto_scan_enabled: bool = False

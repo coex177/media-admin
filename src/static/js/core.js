@@ -745,10 +745,10 @@ function renderSetupWizard() {
                 </div>
 
                 <div class="setup-step">
-                    <h3><span class="setup-step-number">3</span> Add Download Folder (Optional)</h3>
-                    <p class="text-muted mb-10">Where do new downloads appear?</p>
+                    <h3><span class="setup-step-number">3</span> Add TV Folder (Optional)</h3>
+                    <p class="text-muted mb-10">Where do your TV show downloads appear?</p>
                     <div class="form-group">
-                        <input type="text" id="setup-download-path" class="form-control" placeholder="/path/to/downloads">
+                        <input type="text" id="setup-tv-path" class="form-control" placeholder="/path/to/downloads">
                     </div>
                 </div>
 
@@ -761,7 +761,7 @@ function renderSetupWizard() {
 async function completeSetup() {
     const apiKey = document.getElementById('setup-api-key').value.trim();
     const libraryPath = document.getElementById('setup-library-path').value.trim();
-    const downloadPath = document.getElementById('setup-download-path').value.trim();
+    const tvPath = document.getElementById('setup-tv-path').value.trim();
 
     if (!apiKey) {
         showToast('Please enter your TMDB API key', 'warning');
@@ -783,11 +783,11 @@ async function completeSetup() {
             });
         }
 
-        // Add download folder
-        if (downloadPath) {
+        // Add TV folder
+        if (tvPath) {
             await api('/folders', {
                 method: 'POST',
-                body: JSON.stringify({ path: downloadPath, type: 'download' })
+                body: JSON.stringify({ path: tvPath, type: 'tv' })
             });
         }
 

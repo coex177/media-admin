@@ -23,7 +23,7 @@ MATURITY_CHECK_INTERVAL = 10
 
 
 class DownloadHandler(FileSystemEventHandler):
-    """Handler for file system events in download folders."""
+    """Handler for file system events in TV folders."""
 
     def __init__(self, watcher: "WatcherService"):
         super().__init__()
@@ -54,7 +54,7 @@ class DownloadHandler(FileSystemEventHandler):
 
 
 class WatcherService:
-    """Service for watching download folders for new video files.
+    """Service for watching TV folders for new video files.
 
     Lifecycle:
         start() → running (observing + maturity thread)
@@ -380,7 +380,7 @@ class WatcherService:
 
         logger.info("File watcher started")
 
-        # Sweep download folders for files that arrived while the watcher was down
+        # Sweep TV folders for files that arrived while the watcher was down
         self._catchup_sweep()
 
     def stop(self):
@@ -415,7 +415,7 @@ class WatcherService:
     # ── Catch-up sweep ─────────────────────────────────────────────
 
     def _catchup_sweep(self):
-        """Scan all download folders for video files that arrived while dormant.
+        """Scan all TV folders for video files that arrived while dormant.
 
         Any video files found that are not already pending or queued are
         added as newly detected files (they'll go through the normal

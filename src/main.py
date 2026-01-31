@@ -103,6 +103,15 @@ def run_migrations():
             conn.commit()
             logger.info("Shows table migration complete")
 
+        # Migrate scan_folders: rename folder_type 'download' → 'tv'
+        if "scan_folders" in inspector.get_table_names():
+            result = conn.execute(text("SELECT COUNT(*) FROM scan_folders WHERE folder_type = 'download'"))
+            count = result.scalar()
+            if count > 0:
+                logger.info(f"Migrating {count} scan_folders from folder_type='download' to 'tv'")
+                conn.execute(text("UPDATE scan_folders SET folder_type = 'tv' WHERE folder_type = 'download'"))
+                conn.commit()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

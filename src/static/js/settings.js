@@ -28,6 +28,7 @@ async function renderSettings() {
                 <button class="settings-tab ${activeTab === 'general' ? 'active' : ''}" onclick="switchSettingsTab('general')"><img src="/static/images/settings-general.png" class="tab-icon-img" alt="">General</button>
                 <button class="settings-tab ${activeTab === 'metadata' ? 'active' : ''}" onclick="switchSettingsTab('metadata')"><img src="/static/images/settings-metadata.png" class="tab-icon-img" alt="">Metadata</button>
                 <button class="settings-tab ${activeTab === 'library' ? 'active' : ''}" onclick="switchSettingsTab('library')"><img src="/static/images/settings-library.png" class="tab-icon-img" alt="">Library</button>
+                <button class="settings-tab ${activeTab === 'folders' ? 'active' : ''}" onclick="switchSettingsTab('folders')"><img src="/static/images/settings-folders.png" class="tab-icon-img" alt="">Folders</button>
                 <button class="settings-tab ${activeTab === 'watcher' ? 'active' : ''}" onclick="switchSettingsTab('watcher')"><img src="/static/images/settings-media-watcher.png" class="tab-icon-img" alt="">Watcher</button>
             </div>
             <div id="settings-tab-content"></div>
@@ -70,6 +71,9 @@ function renderSettingsTabContent(tabName) {
             break;
         case 'library':
             container.innerHTML = renderSettingsLibrary(state.settings, state.folders);
+            break;
+        case 'folders':
+            container.innerHTML = renderSettingsFolders(state.settings, state.folders);
             break;
         case 'watcher':
             container.innerHTML = renderSettingsWatcher();
@@ -237,9 +241,6 @@ function renderSettingsMetadata(settings) {
 }
 
 function renderSettingsLibrary(settings, folders) {
-    const libraryFolders = folders.filter(f => f.type === 'library');
-    const downloadFolders = folders.filter(f => f.type === 'download');
-
     return `
         <div class="card">
             <h2 class="card-title mb-20">Naming Formats</h2>
@@ -263,6 +264,21 @@ function renderSettingsLibrary(settings, folders) {
             </div>
         </div>
 
+        <div class="card">
+            <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
+                <label>Managed Import Count</label>
+                <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500" onchange="autoSaveSlowImportCount()">
+                <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingsFolders(settings, folders) {
+    const libraryFolders = folders.filter(f => f.type === 'library');
+    const tvFolders = folders.filter(f => f.type === 'tv');
+
+    return `
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Library Folders</h2>
@@ -294,24 +310,17 @@ function renderSettingsLibrary(settings, folders) {
                     </tbody>
                 </table>
             `}
-            <div style="padding: 15px 15px 5px; border-top: 1px solid var(--border-color); margin-top: 10px;">
-                <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
-                    <label>Managed Import Count</label>
-                    <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500" onchange="autoSaveSlowImportCount()">
-                    <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
-                </div>
-            </div>
         </div>
 
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Download Folders</h2>
-                <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('download')">+ Add Folder</button>
+                <h2 class="card-title">TV Folders</h2>
+                <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('tv')">+ Add Folder</button>
             </div>
-            ${downloadFolders.length === 0 ? `
-                <p class="text-muted" id="download-folders-placeholder">No download folders configured.</p>
+            ${tvFolders.length === 0 ? `
+                <p class="text-muted" id="tv-folders-placeholder">No TV folders configured.</p>
             ` : `
-                <table id="download-folders-table">
+                <table id="tv-folders-table">
                     <thead>
                         <tr>
                             <th>Path</th>
@@ -320,7 +329,7 @@ function renderSettingsLibrary(settings, folders) {
                         </tr>
                     </thead>
                     <tbody>
-                        ${downloadFolders.map(folder => `
+                        ${tvFolders.map(folder => `
                             <tr data-folder-id="${folder.id}">
                                 <td>${escapeHtml(folder.path)}</td>
                                 <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
@@ -554,7 +563,7 @@ function showAddFolderModal(folderType) {
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
 
-    modalTitle.textContent = `Add ${folderType === 'library' ? 'Library' : 'Download'} Folder`;
+    modalTitle.textContent = `Add ${folderType === 'library' ? 'Library' : 'TV'} Folder`;
     modalBody.innerHTML = `
         <div class="form-group">
             <label>Folder Path</label>
@@ -586,8 +595,8 @@ async function addFolder(folderType) {
         state.folders.push(newFolder);
 
         // Find the appropriate table or placeholder
-        const tableId = folderType === 'library' ? 'library-folders-table' : 'download-folders-table';
-        const placeholderId = folderType === 'library' ? 'library-folders-placeholder' : 'download-folders-placeholder';
+        const tableId = folderType === 'library' ? 'library-folders-table' : 'tv-folders-table';
+        const placeholderId = folderType === 'library' ? 'library-folders-placeholder' : 'tv-folders-placeholder';
         let table = document.getElementById(tableId);
         let placeholder = document.getElementById(placeholderId);
 
@@ -694,13 +703,13 @@ async function deleteFolder(folderId) {
 
         // Check if the table is now empty and show "No folders" message
         const libraryTable = document.getElementById('library-folders-table');
-        const downloadTable = document.getElementById('download-folders-table');
+        const tvTable = document.getElementById('tv-folders-table');
 
         if (libraryTable && libraryTable.querySelectorAll('tbody tr').length === 0) {
             libraryTable.outerHTML = '<p class="text-muted" id="library-folders-placeholder">No library folders configured.</p>';
         }
-        if (downloadTable && downloadTable.querySelectorAll('tbody tr').length === 0) {
-            downloadTable.outerHTML = '<p class="text-muted" id="download-folders-placeholder">No download folders configured.</p>';
+        if (tvTable && tvTable.querySelectorAll('tbody tr').length === 0) {
+            tvTable.outerHTML = '<p class="text-muted" id="tv-folders-placeholder">No TV folders configured.</p>';
         }
 
         closeModal();

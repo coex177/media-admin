@@ -975,19 +975,19 @@ class WatcherPipeline:
             self._cleanup_empty_parents(src.parent)
 
     def _cleanup_empty_parents(self, directory: Path):
-        """Remove empty parent directories up to (but not including) the download folder roots."""
-        # Get download folder roots so we don't delete them
-        download_roots = set()
+        """Remove empty parent directories up to (but not including) the TV folder roots."""
+        # Get TV folder roots so we don't delete them
+        tv_roots = set()
         folders = (
             self.db.query(ScanFolder)
-            .filter(ScanFolder.folder_type == "download", ScanFolder.enabled == True)
+            .filter(ScanFolder.folder_type == "tv", ScanFolder.enabled == True)
             .all()
         )
         for f in folders:
-            download_roots.add(f.path)
+            tv_roots.add(f.path)
 
         current = directory
-        while current and str(current) not in download_roots:
+        while current and str(current) not in tv_roots:
             try:
                 if current.is_dir() and not any(current.iterdir()):
                     logger.debug(f"Pipeline: removing empty directory: {current}")
