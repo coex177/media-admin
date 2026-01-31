@@ -175,7 +175,7 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, settings)
                                                 <th>Episode</th>
                                                 <th>Air Date</th>
                                                 <th>Filename</th>
-                                                <th class="missing-show-link-col"><span class="missing-show-link" onclick="event.stopPropagation(); showShowDetail(${show.show_id})">${escapeHtml(show.show_name)}</span></th>
+                                                <th class="missing-show-link-col"><img src="/static/images/goto.png" class="missing-show-goto" onclick="event.stopPropagation(); showShowDetail(${show.show_id})" title="Go to ${escapeHtml(show.show_name)}" alt="Go to show"></th>
                                             </tr>
                                         </thead>
                                         <tbody>

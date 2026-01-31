@@ -2487,6 +2487,7 @@ tr:hover {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
+    table-layout: fixed;
 }
 
 .missing-episodes-table thead {
@@ -2537,15 +2538,13 @@ tr:hover {
 }
 
 .filename-cell {
-    max-width: 400px;
+    overflow: hidden;
 }
 
 .filename-line {
     cursor: pointer;
     color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    word-break: break-all;
 }
 
 .filename-line:hover {
@@ -2556,9 +2555,7 @@ tr:hover {
 .folder-line {
     font-size: 0.85rem;
     color: var(--text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    word-break: break-all;
     margin-top: 4px;
 }
 
@@ -3873,19 +3870,21 @@ a.metadata-source-tag:hover {
     transform: scale(1.2);
 }
 
-/* Missing episodes show name link column */
+/* Missing episodes show link column */
 .missing-show-link-col {
     text-align: right;
+    width: 40px;
 }
 
-.missing-show-link {
-    color: var(--primary-color);
+.missing-show-goto {
+    width: 20px;
+    height: 20px;
     cursor: pointer;
-    font-weight: 500;
+    transition: transform 0.15s;
 }
 
-.missing-show-link:hover {
-    text-decoration: underline;
+.missing-show-goto:hover {
+    transform: scale(1.2);
 }
 
 /* Missing season collapsible sub-headers */
