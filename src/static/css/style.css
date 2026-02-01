@@ -429,6 +429,40 @@ a:hover {
     border: 1px solid var(--border-color);
 }
 
+/* Draggable card (stat + dashboard) */
+.draggable-card { position: relative; }
+.card-close-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(231, 76, 60, 0.8);
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+}
+.draggable-card:hover .card-close-btn { opacity: 1; }
+.card-close-btn:hover { background: rgba(192, 57, 43, 1); }
+
+/* Stat card drag styles */
+.stat-card.draggable-card { cursor: grab; }
+.stat-card.dragging { opacity: 0.5; cursor: grabbing; }
+.stat-card.drag-over {
+    border: 2px dashed var(--primary-color);
+    background-color: rgba(52, 152, 219, 0.1);
+}
+
 .stat-value {
     font-size: 2rem;
     font-weight: 700;
@@ -952,7 +986,7 @@ tr:hover {
 }
 
 /* Dashboard Card Drag and Drop */
-.dashboard-card[draggable="true"] {
+.dashboard-card.draggable-card {
     cursor: grab;
 }
 
@@ -964,6 +998,32 @@ tr:hover {
 .dashboard-card.drag-over {
     border: 2px dashed var(--primary-color);
     background-color: rgba(52, 152, 219, 0.1);
+}
+
+/* Swap animation */
+@keyframes cardSwapFlash {
+    0% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.6); }
+    30% { box-shadow: 0 0 15px 3px rgba(52, 152, 219, 0.4); }
+    100% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0); }
+}
+.card-swap-flash { animation: cardSwapFlash 0.5s ease; }
+
+/* Restore cards modal */
+.restore-cards-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+.restore-card-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
 }
 
 /* Recently Aired Episodes */
@@ -1252,6 +1312,11 @@ tr:hover {
 
 .stat-card[onclick]:hover {
     transform: translateY(-2px);
+}
+
+/* Override grab cursor for clickable stat cards */
+.stat-card.draggable-card[onclick] {
+    cursor: pointer;
 }
 
 /* Text utilities */

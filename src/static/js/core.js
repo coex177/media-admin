@@ -707,6 +707,11 @@ async function checkSetup() {
             }
         });
         dashboardCardStates = getUiPref('dashboardCardStates', {});
+        statCardOrder = getUiPref('statCardOrder', null) || [...defaultStatCardOrder];
+        defaultStatCardOrder.forEach(cardId => {
+            if (!statCardOrder.includes(cardId)) statCardOrder.push(cardId);
+        });
+        hiddenCards = getUiPref('hiddenCards', []);
 
         // Apply saved theme
         applyTheme(settings.theme || 'midnight');
