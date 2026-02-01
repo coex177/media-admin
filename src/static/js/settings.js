@@ -26,7 +26,7 @@ async function renderSettings() {
             </div>
             <div class="settings-tabs">
                 <button class="settings-tab ${activeTab === 'general' ? 'active' : ''}" onclick="switchSettingsTab('general')"><img src="/static/images/settings-general.png" class="tab-icon-img" alt="">General</button>
-                <button class="settings-tab ${activeTab === 'metadata' ? 'active' : ''}" onclick="switchSettingsTab('metadata')"><img src="/static/images/settings-metadata.png" class="tab-icon-img" alt="">Metadata</button>
+                <button class="settings-tab ${activeTab === 'metadata' ? 'active' : ''}" onclick="switchSettingsTab('metadata')"><img src="/static/images/settings-dashboard.png" class="tab-icon-img" alt="">Dashboard</button>
                 <button class="settings-tab ${activeTab === 'library' ? 'active' : ''}" onclick="switchSettingsTab('library')"><img src="/static/images/settings-library.png" class="tab-icon-img" alt="">Library</button>
                 <button class="settings-tab ${activeTab === 'folders' ? 'active' : ''}" onclick="switchSettingsTab('folders')"><img src="/static/images/settings-folders.png" class="tab-icon-img" alt="">Folders</button>
                 <button class="settings-tab ${activeTab === 'watcher' ? 'active' : ''}" onclick="switchSettingsTab('watcher')"><img src="/static/images/settings-media-watcher.png" class="tab-icon-img" alt="">Watcher</button>
@@ -144,7 +144,39 @@ function renderSettingsGeneral(settings) {
         </div>
 
         <div class="card">
-            <h2 class="card-title mb-20">Dashboard Display</h2>
+            <h2 class="card-title mb-20">Metadata Providers</h2>
+            <div class="form-group">
+                <label>Default Metadata Source</label>
+                <div class="metadata-source-options">
+                    <label>
+                        <input type="radio" name="settings-default-source" value="tmdb" ${settings.default_metadata_source === 'tmdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
+                        TMDB
+                    </label>
+                    <label>
+                        <input type="radio" name="settings-default-source" value="tvdb" ${settings.default_metadata_source === 'tvdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
+                        TVDB
+                    </label>
+                </div>
+                <small class="text-muted">Used for new shows, Managed Import, and search default</small>
+            </div>
+            <div class="form-group" style="margin-top: 20px;">
+                <label>TMDB API Key ${settings.tmdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
+                <small class="text-muted">Metadata provided by <a href="https://www.themoviedb.org" target="_blank">The Movie Database (TMDB)</a></small>
+                <input type="password" id="settings-api-key" class="form-control" placeholder="${settings.tmdb_api_key_set ? '••••••••' : 'Enter API key'}" onchange="autoSaveApiKey('tmdb')">
+            </div>
+            <div class="form-group" style="margin-top: 20px;">
+                <label>TVDB API Key ${settings.tvdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
+                <small class="text-muted">Metadata provided by <a href="https://thetvdb.com" target="_blank">TheTVDB</a></small>
+                <input type="password" id="settings-tvdb-api-key" class="form-control" placeholder="${settings.tvdb_api_key_set ? '••••••••' : 'Enter API key'}" onchange="autoSaveApiKey('tvdb')">
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingsMetadata(settings) {
+    return `
+        <div class="card">
+            <h2 class="card-title mb-20">Shows Dashboard</h2>
             <div class="dashboard-settings-grid">
                 <div class="dashboard-setting-item">
                     <label>Upcoming Episodes</label>
@@ -182,7 +214,6 @@ function renderSettingsGeneral(settings) {
                         ${generateSelectOptions(30, settings.recently_ended_count, '{n} Shows')}
                     </select>
                 </div>
-
             </div>
             <div class="dashboard-settings-divider"></div>
             <div class="form-group">
@@ -194,48 +225,6 @@ function renderSettingsGeneral(settings) {
                 </div>
                 <small class="text-muted">Five values for the shows-per-page dropdown (All is always included)</small>
             </div>
-            <div class="dashboard-settings-divider"></div>
-            <div class="form-group">
-                <label class="dashboard-setting-label">Episode Display Format</label>
-                <input type="text" id="settings-display-episode-format" class="form-control" value="${escapeHtml(settings.display_episode_format)}" oninput="updateFormatPreviews()" onchange="autoSaveDashboardSettings()">
-                <div class="format-preview">Preview: <strong id="preview-display-episode-format"></strong></div>
-                <small class="text-muted">
-                    Variables: <code>{season}</code>, <code>{episode}</code><br>
-                    Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 03, <code>{episode:02d}</code> = 04)
-                </small>
-            </div>
-        </div>
-    `;
-}
-
-function renderSettingsMetadata(settings) {
-    return `
-        <div class="card">
-            <h2 class="card-title mb-20">Metadata Providers</h2>
-            <div class="form-group">
-                <label>Default Metadata Source</label>
-                <div class="metadata-source-options">
-                    <label>
-                        <input type="radio" name="settings-default-source" value="tmdb" ${settings.default_metadata_source === 'tmdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
-                        TMDB
-                    </label>
-                    <label>
-                        <input type="radio" name="settings-default-source" value="tvdb" ${settings.default_metadata_source === 'tvdb' ? 'checked' : ''} onchange="updateDefaultMetadataSource(this.value)">
-                        TVDB
-                    </label>
-                </div>
-                <small class="text-muted">Used for new shows, Managed Import, and search default</small>
-            </div>
-            <div class="form-group" style="margin-top: 20px;">
-                <label>TMDB API Key ${settings.tmdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
-                <small class="text-muted">Metadata provided by <a href="https://www.themoviedb.org" target="_blank">The Movie Database (TMDB)</a></small>
-                <input type="password" id="settings-api-key" class="form-control" placeholder="${settings.tmdb_api_key_set ? '••••••••' : 'Enter API key'}" onchange="autoSaveApiKey('tmdb')">
-            </div>
-            <div class="form-group" style="margin-top: 20px;">
-                <label>TVDB API Key ${settings.tvdb_api_key_set ? '<span class="badge badge-success">Set</span>' : '<span class="badge badge-danger">Not Set</span>'}</label>
-                <small class="text-muted">Metadata provided by <a href="https://thetvdb.com" target="_blank">TheTVDB</a></small>
-                <input type="password" id="settings-tvdb-api-key" class="form-control" placeholder="${settings.tvdb_api_key_set ? '••••••••' : 'Enter API key'}" onchange="autoSaveApiKey('tvdb')">
-            </div>
         </div>
     `;
 }
@@ -243,7 +232,7 @@ function renderSettingsMetadata(settings) {
 function renderSettingsLibrary(settings, folders) {
     return `
         <div class="card">
-            <h2 class="card-title mb-20">Naming Formats</h2>
+            <h2 class="card-title mb-20">TV Formats</h2>
             <div class="form-group">
                 <label>Episode Filename Format</label>
                 <input type="text" id="settings-episode-format" class="form-control" value="${escapeHtml(settings.episode_format)}" oninput="updateFormatPreviews()" onchange="autoSaveFormats()">
@@ -262,13 +251,22 @@ function renderSettingsLibrary(settings, folders) {
                     Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 04 instead of 4)
                 </small>
             </div>
+            <div class="form-group">
+                <label>Episode Display Format</label>
+                <input type="text" id="settings-display-episode-format" class="form-control" value="${escapeHtml(settings.display_episode_format)}" oninput="updateFormatPreviews()" onchange="autoSaveDisplayEpisodeFormat()">
+                <div class="format-preview">Preview: <strong id="preview-display-episode-format"></strong></div>
+                <small class="text-muted">
+                    Variables: <code>{season}</code>, <code>{episode}</code><br>
+                    Add <code>:02d</code> for zero-padding (e.g., <code>{season:02d}</code> = 03, <code>{episode:02d}</code> = 04)
+                </small>
+            </div>
         </div>
 
         <div class="card">
             <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
                 <label>Managed Import Count</label>
                 <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500" onchange="autoSaveSlowImportCount()">
-                <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}) selected above.</small>
+                <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}).</small>
             </div>
         </div>
     `;
@@ -477,8 +475,6 @@ async function autoSaveDashboardSettings() {
     if (el('settings-recently-matched-count')) data.recently_matched_count = parseInt(el('settings-recently-matched-count').value);
     if (el('settings-returning-soon-count')) data.returning_soon_count = parseInt(el('settings-returning-soon-count').value);
     if (el('settings-recently-ended-count')) data.recently_ended_count = parseInt(el('settings-recently-ended-count').value);
-    if (el('settings-display-episode-format')) data.display_episode_format = el('settings-display-episode-format').value.trim();
-
 
     try {
         await api('/settings', {
@@ -486,6 +482,21 @@ async function autoSaveDashboardSettings() {
             body: JSON.stringify(data)
         });
         Object.assign(state.settings, data);
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+async function autoSaveDisplayEpisodeFormat() {
+    const val = document.getElementById('settings-display-episode-format')?.value.trim();
+    if (!val) return;
+
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ display_episode_format: val })
+        });
+        state.settings.display_episode_format = val;
     } catch (error) {
         // Error already shown
     }
