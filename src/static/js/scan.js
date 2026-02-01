@@ -27,6 +27,7 @@ async function renderScan() {
             <div class="scan-tabs">
                 <button class="scan-tab ${activeScanTab === 'operations' ? 'active' : ''}" data-tab="operations" onclick="switchScanTab('operations')"><img src="/static/images/operations.png" class="tab-icon-img" alt="">Operations</button>
                 <button class="scan-tab ${activeScanTab === 'watcher-log' ? 'active' : ''}" data-tab="watcher-log" onclick="switchScanTab('watcher-log')"><img src="/static/images/watcher-log.png" class="tab-icon-img" alt="">Watcher Log</button>
+                <button class="scan-tab ${activeScanTab === 'library-log' ? 'active' : ''}" data-tab="library-log" onclick="switchScanTab('library-log')"><img src="/static/images/metadata-log.png" class="tab-icon-img" alt="">Library Log</button>
                 <button class="scan-tab ${activeScanTab === 'issues' ? 'active' : ''}" data-tab="issues" onclick="switchScanTab('issues')"><img src="/static/images/issues.png" class="tab-icon-img" alt="">Issues</button>
             </div>
 
@@ -37,6 +38,8 @@ async function renderScan() {
             renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataUpdates, downloadMatches, settings);
         } else if (activeScanTab === 'issues') {
             renderIssuesTab();
+        } else if (activeScanTab === 'library-log') {
+            renderLibraryLogTab();
         } else {
             renderWatcherLogTab();
         }
@@ -64,6 +67,8 @@ function switchScanTab(tab) {
         renderScan();
     } else if (tab === 'issues') {
         renderIssuesTab();
+    } else if (tab === 'library-log') {
+        renderLibraryLogTab();
     } else {
         renderWatcherLogTab();
     }
@@ -112,7 +117,7 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataU
                     <button class="btn btn-secondary btn-lg" onclick="triggerScanSelected()" id="scan-selected-btn" ${scanStatus.running ? 'disabled' : ''}>
                         Scan Selected
                     </button>
-                    <p class="scan-description">Scan only selected episodes from the Missing Episodes list below.</p>
+                    <p class="scan-description">Scan only selected shows/episodes from the lists below.</p>
                 </div>
             </div>
         </div>
@@ -227,6 +232,9 @@ function renderMetadataUpdatesCard(metadataUpdates) {
                             <input type="checkbox" class="rename-show-select-all" ${renameState ? (group.items.every(item => renameState[item._globalIndex] !== false) ? 'checked' : '') : 'checked'} onclick="event.stopPropagation(); toggleAllRenamesInShow(this, ${group.show_id})" title="Select all">
                             <span class="rename-show-name">${escapeHtml(group.show_name)}</span>
                             <span class="rename-show-count">(${group.items.length} ${group.items.length === 1 ? 'rename' : 'renames'})</span>
+                            <img src="/static/images/goto.png" class="rename-show-goto"
+                                 onclick="event.stopPropagation(); showShowDetail(${group.show_id})"
+                                 title="Go to ${escapeHtml(group.show_name)}" alt="Go to show">
                         </div>
                         <div class="rename-episodes-table-wrapper ${isCollapsed ? '' : 'open'}">
                             <table class="rename-episodes-table">
@@ -298,23 +306,33 @@ function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, setting
             <div class="missing-episodes-grouped">
                 ${missingEpisodes.map(show => {
                     const isCollapsed = getMissingGroupCollapseState(show.show_id);
+                    const showEpIds = show.episodes.map(ep => ep.id);
+                    const downloadEpIds = new Set(show.episodes.filter(ep => downloadMatchByEpId[ep.id]).map(ep => ep.id));
+                    const allChecked = missingState
+                        ? showEpIds.every(id => !!missingState[id])
+                        : (downloadEpIds.size > 0 && downloadEpIds.size === showEpIds.length);
                     return `
                     <div class="missing-show-group" data-show-id="${show.show_id}">
                         <div class="missing-show-header" onclick="toggleMissingShowGroup(this, ${show.show_id})">
                             <img src="/static/images/${isCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="missing-show-chevron" alt="">
+                            <input type="checkbox" class="missing-show-select-all" ${allChecked ? 'checked' : ''}
+                                   onclick="event.stopPropagation(); toggleAllMissingInShow(this, ${show.show_id})"
+                                   title="Select all">
                             <span class="missing-show-name">${escapeHtml(show.show_name)}</span>
                             <span class="missing-show-count">(${show.episodes.length} ${show.episodes.length === 1 ? 'item' : 'items'})</span>
+                            <img src="/static/images/goto.png" class="missing-show-goto"
+                                 onclick="event.stopPropagation(); showShowDetail(${show.show_id})"
+                                 title="Go to ${escapeHtml(show.show_name)}" alt="Go to show">
                         </div>
                         <div class="missing-episodes-table-wrapper ${isCollapsed ? '' : 'open'}">
                             <table class="missing-episodes-table">
                                 <thead>
                                     <tr>
-                                        <th class="checkbox-col"><input type="checkbox" onclick="toggleAllMissingInShow(this, ${show.show_id})" title="Select all"></th>
+                                        <th class="checkbox-col"></th>
                                         <th>Season</th>
                                         <th>Episode</th>
                                         <th>Air Date</th>
                                         <th>Filename</th>
-                                        <th class="missing-show-link-col"><img src="/static/images/goto.png" class="missing-show-goto" onclick="event.stopPropagation(); showShowDetail(${show.show_id})" title="Go to ${escapeHtml(show.show_name)}" alt="Go to show"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -333,7 +351,7 @@ function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, setting
                                             const seasonCollapsed = getMissingSeasonCollapseState(seasonKey);
                                             let rows = '';
                                             rows += '<tr class="missing-season-header" onclick="toggleMissingSeason(\'' + seasonKey + '\', this)">' +
-                                                    '<td colspan="6" class="missing-season-header-cell">' +
+                                                    '<td colspan="5" class="missing-season-header-cell">' +
                                                     '<img src="/static/images/' + (seasonCollapsed ? 'show-expand.png' : 'show-collapse.png') + '" class="missing-season-chevron" alt="">' +
                                                     ' Season ' + seasonNum +
                                                     '<span class="missing-season-count">(' + eps.length + ')</span>' +
@@ -355,7 +373,6 @@ function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, setting
                                                     '<div class="folder-line" title="' + escapeHtml(ep.expected_folder) + '">' + escapeHtml(ep.expected_folder) + '</div>' +
                                                     (hasMatch ? '<div class="download-match-line">Found: ' + escapeHtml(match.source_filename) + '</div>' : '') +
                                                     '</td>' +
-                                                    '<td></td>' +
                                                     '</tr>';
                                             });
                                             return rows;
@@ -408,20 +425,28 @@ async function triggerOngoingScan() {
 
 function triggerScanSelected() {
     clearScanCheckboxStates();
-    const selected = getSelectedMissingEpisodes();
-    if (selected.length === 0) {
-        // Scroll to missing episodes section and show a message
+    const selectedEpisodes = getSelectedMissingEpisodes();
+    const selectedRenameShowIds = getSelectedRenameShowIds();
+
+    if (selectedEpisodes.length === 0 && selectedRenameShowIds.length === 0) {
         const missingSection = document.querySelector('.missing-episodes-grouped');
         if (missingSection) {
             missingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            showToast('Select episodes from the Missing Episodes list below, then click Scan Selected', 'info');
+            showToast('Select shows/episodes from the lists below, then click Scan Selected', 'info');
         } else {
-            showToast('No missing episodes to scan', 'info');
+            showToast('No items to scan', 'info');
         }
         return;
     }
-    // If episodes are selected, run the scan
-    scanSelectedEpisodes();
+    scanSelectedItems(selectedEpisodes, selectedRenameShowIds);
+}
+
+function getSelectedRenameShowIds() {
+    const showIds = new Set();
+    document.querySelectorAll('.rename-checkbox:checked').forEach(cb => {
+        showIds.add(parseInt(cb.dataset.showId));
+    });
+    return [...showIds];
 }
 
 function pollScanStatusWithUI() {
@@ -690,6 +715,15 @@ function updateRenameSelectionCount() {
     const countEl = document.getElementById('rename-selected-count');
     const applyBtn = document.getElementById('btn-apply-renames');
 
+    // Sync show-level select-all checkboxes
+    document.querySelectorAll('.rename-show-select-all').forEach(selectAll => {
+        const group = selectAll.closest('.rename-show-group');
+        if (!group) return;
+        const allCbs = group.querySelectorAll('.rename-checkbox');
+        const checkedCbs = group.querySelectorAll('.rename-checkbox:checked');
+        selectAll.checked = allCbs.length > 0 && allCbs.length === checkedCbs.length;
+    });
+
     if (countEl) {
         countEl.textContent = `${checked.length} of ${total.length} selected`;
     }
@@ -836,6 +870,16 @@ function updateMissingSelectionCount() {
     const specialsBtn = document.getElementById('btn-specials');
     const importBtn = document.getElementById('btn-import-downloads');
 
+    // Sync show-level select-all checkboxes
+    document.querySelectorAll('.missing-show-select-all').forEach(selectAll => {
+        const group = selectAll.closest('.missing-show-group');
+        if (!group) return;
+        const showId = group.dataset.showId;
+        const allCbs = group.querySelectorAll('.episode-checkbox');
+        const checkedCbs = group.querySelectorAll('.episode-checkbox:checked');
+        selectAll.checked = allCbs.length > 0 && allCbs.length === checkedCbs.length;
+    });
+
     if (countEl) {
         let text = `${selected.length} selected`;
         if (importable.length > 0) {
@@ -907,11 +951,14 @@ async function confirmImportDownloads() {
     }
 }
 
-// Scan Selected Episodes
-async function scanSelectedEpisodes() {
-    const selected = getSelectedMissingEpisodes();
-    if (selected.length === 0) {
-        showToast('No episodes selected', 'warning');
+// Scan Selected Items (episodes + shows)
+async function scanSelectedItems(selectedEpisodes, selectedShowIds) {
+    selectedEpisodes = selectedEpisodes || getSelectedMissingEpisodes();
+    selectedShowIds = selectedShowIds || [];
+    const totalCount = selectedEpisodes.length + selectedShowIds.length;
+
+    if (totalCount === 0) {
+        showToast('No items selected', 'warning');
         return;
     }
 
@@ -920,11 +967,11 @@ async function scanSelectedEpisodes() {
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
 
-    modalTitle.textContent = 'Scanning Episodes';
+    modalTitle.textContent = 'Scanning Items';
     modalBody.innerHTML = `
         <div class="scanning-progress">
             <div class="scanning-spinner"></div>
-            <p class="scanning-status">Scanning ${selected.length} episode${selected.length > 1 ? 's' : ''}...</p>
+            <p class="scanning-status">Scanning ${totalCount} item${totalCount > 1 ? 's' : ''}...</p>
             <p class="text-muted">Looking for matching files in show folders</p>
         </div>
     `;
@@ -935,13 +982,14 @@ async function scanSelectedEpisodes() {
         const result = await api('/scan/selected-episodes', {
             method: 'POST',
             body: JSON.stringify({
-                episode_ids: selected.map(s => s.episodeId)
+                episode_ids: selectedEpisodes.map(s => s.episodeId),
+                show_ids: selectedShowIds
             })
         });
 
         // Show results
-        const foundResults = result.results?.filter(r => r.status === 'found') || [];
-        const notFoundResults = result.results?.filter(r => r.status !== 'found') || [];
+        const foundResults = result.results?.filter(r => r.status === 'found' || r.status === 'scanned') || [];
+        const notFoundResults = result.results?.filter(r => r.status !== 'found' && r.status !== 'scanned') || [];
 
         modalTitle.textContent = 'Scan Complete';
         modalBody.innerHTML = `
@@ -1278,6 +1326,524 @@ async function confirmFixMatch() {
 
         showToast(result.message, 'success');
         renderScan();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+// ── Library Log Tab ─────────────────────────────────────────────
+
+let libraryLogState = { entries: [], total: 0, dateFrom: '', dateTo: '' };
+
+async function renderLibraryLogTab() {
+    const container = document.getElementById('scan-tab-content');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="card">
+            <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
+                <h3 class="card-title">Library Activity Log</h3>
+                <div class="card-control-btns">
+                    <button class="card-control-btn" onclick="llibCollapseAllYears()" title="Collapse all"><img src="/static/images/show-expand.png" alt="Collapse all"></button>
+                    <button class="card-control-btn" onclick="llibExpandAllYears()" title="Expand all"><img src="/static/images/show-collapse.png" alt="Expand all"></button>
+                </div>
+            </div>
+            <div class="watcher-log-controls">
+                <label>From:</label>
+                <input type="date" id="library-log-from" value="${libraryLogState.dateFrom}" onchange="onLibraryLogDateChange()">
+                <label>To:</label>
+                <input type="date" id="library-log-to" value="${libraryLogState.dateTo}" onchange="onLibraryLogDateChange()">
+                <button class="btn btn-sm btn-secondary" onclick="clearLibraryLogFilters()">Clear Filters</button>
+                <button class="btn btn-sm btn-danger" onclick="confirmClearAllLibLogs()" style="margin-left: auto;">Clear All Logs</button>
+            </div>
+            <div id="library-log-content">
+                <div class="loading"><div class="spinner"></div></div>
+            </div>
+        </div>
+    `;
+
+    await loadLibraryLog();
+}
+
+async function loadLibraryLog() {
+    const content = document.getElementById('library-log-content');
+    if (!content) return;
+
+    try {
+        let url = `/scan/library-log`;
+        const params = [];
+        if (libraryLogState.dateFrom) params.push(`date_from=${libraryLogState.dateFrom}`);
+        if (libraryLogState.dateTo) params.push(`date_to=${libraryLogState.dateTo}T23:59:59`);
+        if (params.length) url += '?' + params.join('&');
+
+        const data = await api(url);
+        libraryLogState.entries = data.entries || [];
+        libraryLogState.total = data.total || 0;
+
+        renderLibraryLogEntries();
+    } catch (e) {
+        content.innerHTML = '<div class="alert alert-danger">Failed to load library log.</div>';
+    }
+}
+
+function getLibraryLogManualState() {
+    return getUiPref('libraryLogManualState', {});
+}
+
+function setLibraryLogManualState(key, expanded) {
+    const states = getLibraryLogManualState();
+    states[key] = expanded;
+    setUiPref('libraryLogManualState', states);
+}
+
+function isLibNodeExpanded(key, defaultExpanded) {
+    const manual = getLibraryLogManualState();
+    if (key in manual) return manual[key];
+    return defaultExpanded;
+}
+
+function toggleLibraryLogNode(key, headerEl) {
+    const contentEl = headerEl.nextElementSibling;
+    const chevron = headerEl.querySelector('.wlog-chevron');
+    if (!contentEl) return;
+    const isOpen = contentEl.classList.contains('open');
+    contentEl.classList.toggle('open', !isOpen);
+    if (chevron) chevron.src = isOpen ? '/static/images/show-expand.png' : '/static/images/show-collapse.png';
+    setLibraryLogManualState(key, !isOpen);
+}
+
+function _llibSetAll(headerClass, contentClass, expanded) {
+    document.querySelectorAll(`#library-log-content .${headerClass}`).forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.toggle('open', expanded);
+        if (chevron) chevron.src = expanded ? '/static/images/show-collapse.png' : '/static/images/show-expand.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleLibraryLogNode\('([^']+)'/);
+        if (match) setLibraryLogManualState(match[1], expanded);
+    });
+}
+
+function llibCollapseAllYears() {
+    _llibSetAll('wlog-year-header', 'wlog-year-content', false);
+    _llibSetAll('wlog-month-header', 'wlog-month-content', false);
+    _llibSetAll('wlog-day-header', 'wlog-day-content', false);
+}
+function llibExpandAllYears() {
+    _llibSetAll('wlog-year-header', 'wlog-year-content', true);
+    _llibSetAll('wlog-month-header', 'wlog-month-content', true);
+    _llibSetAll('wlog-day-header', 'wlog-day-content', true);
+}
+
+function llibCollapseAllMonths(year) {
+    const container = document.getElementById('library-log-content');
+    if (!container) return;
+    const yearHeader = container.querySelector(`.wlog-year-header[onclick*="'${year}'"]`);
+    if (!yearHeader) return;
+    const yearContent = yearHeader.nextElementSibling;
+    if (!yearContent) return;
+    yearContent.querySelectorAll('.wlog-month-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleLibraryLogNode\('([^']+)'/);
+        if (match) setLibraryLogManualState(match[1], false);
+    });
+    yearContent.querySelectorAll('.wlog-day-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleLibraryLogNode\('([^']+)'/);
+        if (match) setLibraryLogManualState(match[1], false);
+    });
+}
+
+function llibExpandAllMonths(year) {
+    const container = document.getElementById('library-log-content');
+    if (!container) return;
+    const yearHeader = container.querySelector(`.wlog-year-header[onclick*="'${year}'"]`);
+    if (!yearHeader) return;
+    const yearContent = yearHeader.nextElementSibling;
+    if (!yearContent) return;
+    yearContent.classList.add('open');
+    const yearChevron = yearHeader.querySelector('.wlog-chevron');
+    if (yearChevron) yearChevron.src = '/static/images/show-collapse.png';
+    setLibraryLogManualState(year, true);
+    yearContent.querySelectorAll('.wlog-month-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleLibraryLogNode\('([^']+)'/);
+        if (match) setLibraryLogManualState(match[1], true);
+    });
+    yearContent.querySelectorAll('.wlog-day-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleLibraryLogNode\('([^']+)'/);
+        if (match) setLibraryLogManualState(match[1], true);
+    });
+}
+
+function llibCollapseAllDays(monthKey) {
+    const container = document.getElementById('library-log-content');
+    if (!container) return;
+    const monthHeader = container.querySelector(`.wlog-month-header[onclick*="'${monthKey}'"]`);
+    if (!monthHeader) return;
+    const monthContent = monthHeader.nextElementSibling;
+    if (!monthContent) return;
+    monthContent.querySelectorAll('.wlog-day-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleLibraryLogNode\('([^']+)'/);
+        if (match) setLibraryLogManualState(match[1], false);
+    });
+}
+
+function llibExpandAllDays(monthKey) {
+    const container = document.getElementById('library-log-content');
+    if (!container) return;
+    const monthHeader = container.querySelector(`.wlog-month-header[onclick*="'${monthKey}'"]`);
+    if (!monthHeader) return;
+    const monthContent = monthHeader.nextElementSibling;
+    if (!monthContent) return;
+    monthContent.classList.add('open');
+    const monthChevron = monthHeader.querySelector('.wlog-chevron');
+    if (monthChevron) monthChevron.src = '/static/images/show-collapse.png';
+    setLibraryLogManualState(monthKey, true);
+    monthContent.querySelectorAll('.wlog-day-header').forEach(header => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.wlog-chevron');
+        if (!content) return;
+        content.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+        const onclick = header.getAttribute('onclick') || '';
+        const match = onclick.match(/toggleLibraryLogNode\('([^']+)'/);
+        if (match) setLibraryLogManualState(match[1], true);
+    });
+}
+
+function renderLibraryLogEntries() {
+    const content = document.getElementById('library-log-content');
+    if (!content) return;
+
+    const entries = libraryLogState.entries;
+    if (!entries.length) {
+        content.innerHTML = `
+            <div class="watcher-log-empty">
+                <p>No log entries${libraryLogState.dateFrom || libraryLogState.dateTo ? ' for the selected date range' : ' yet'}.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Build hierarchy: year > month > day > entries
+    const hierarchy = {};
+    for (const entry of entries) {
+        const date = entry.timestamp ? entry.timestamp.split('T')[0] : 'Unknown';
+        const parts = date.split('-');
+        if (parts.length < 3) continue;
+        const year = parts[0], month = parts[1], day = parts[2];
+        if (!hierarchy[year]) hierarchy[year] = {};
+        if (!hierarchy[year][month]) hierarchy[year][month] = {};
+        if (!hierarchy[year][month][day]) hierarchy[year][month][day] = [];
+        hierarchy[year][month][day].push(entry);
+    }
+
+    const now = new Date();
+    const tz = getConfiguredTimezone();
+    let currentYear, currentMonth, currentDay;
+    try {
+        const parts = now.toLocaleDateString('en-CA', { timeZone: tz }).split('-');
+        currentYear = parts[0];
+        currentMonth = parts[1];
+        currentDay = parts[2];
+    } catch {
+        currentYear = String(now.getFullYear());
+        currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+        currentDay = String(now.getDate()).padStart(2, '0');
+    }
+
+    const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+
+    const activeKeys = [];
+    let html = '';
+    const yearKeys = Object.keys(hierarchy).sort((a, b) => b - a);
+
+    for (const year of yearKeys) {
+        const yearKey = 'llib-' + year;
+        activeKeys.push(yearKey);
+        const yearDefault = (year === currentYear);
+        const yearExpanded = isLibNodeExpanded(yearKey, yearDefault);
+
+        let yearCount = 0;
+        for (const m of Object.keys(hierarchy[year])) {
+            for (const d of Object.keys(hierarchy[year][m])) {
+                yearCount += hierarchy[year][m][d].length;
+            }
+        }
+
+        html += `<div class="wlog-year-header" onclick="toggleLibraryLogNode('${yearKey}', this)">
+            <img src="/static/images/${yearExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
+            <span class="wlog-year-label">${year}</span>
+            <span class="wlog-node-count">(${yearCount})</span>
+            <span class="wlog-header-actions" onclick="event.stopPropagation()">
+                <img src="/static/images/show-expand.png" class="wlog-action-btn" onclick="llibCollapseAllMonths('${yearKey}')" title="Collapse months" alt="Collapse">
+                <img src="/static/images/show-collapse.png" class="wlog-action-btn" onclick="llibExpandAllMonths('${yearKey}')" title="Expand months" alt="Expand">
+                <img src="/static/images/trash.png" class="wlog-delete-btn" onclick="deleteLibraryLogRange('${year}', '${year}-01-01T00:00:00', '${year}-12-31T23:59:59', ${yearCount})" title="Delete year" alt="Delete">
+            </span>
+        </div>`;
+        html += `<div class="wlog-year-content ${yearExpanded ? 'open' : ''}">`;
+
+        const monthKeys = Object.keys(hierarchy[year]).sort((a, b) => b - a);
+        for (const month of monthKeys) {
+            const monthKey = 'llib-' + year + '-' + month;
+            activeKeys.push(monthKey);
+            const monthDefault = (year === currentYear && month === currentMonth);
+            const monthExpanded = isLibNodeExpanded(monthKey, monthDefault);
+
+            let monthCount = 0;
+            for (const d of Object.keys(hierarchy[year][month])) {
+                monthCount += hierarchy[year][month][d].length;
+            }
+
+            const monthNum = parseInt(month, 10);
+            const monthLabel = monthNames[monthNum] || month;
+            const lastDayOfMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
+
+            html += `<div class="wlog-month-header" onclick="toggleLibraryLogNode('${monthKey}', this)">
+                <img src="/static/images/${monthExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
+                <span class="wlog-month-label">${monthLabel}</span>
+                <span class="wlog-node-count">(${monthCount})</span>
+                <span class="wlog-header-actions" onclick="event.stopPropagation()">
+                    <img src="/static/images/show-expand.png" class="wlog-action-btn" onclick="llibCollapseAllDays('${monthKey}')" title="Collapse days" alt="Collapse">
+                    <img src="/static/images/show-collapse.png" class="wlog-action-btn" onclick="llibExpandAllDays('${monthKey}')" title="Expand days" alt="Expand">
+                    <img src="/static/images/trash.png" class="wlog-delete-btn" onclick="deleteLibraryLogRange('${monthLabel} ${year}', '${year}-${month}-01T00:00:00', '${year}-${month}-${String(lastDayOfMonth).padStart(2,'0')}T23:59:59', ${monthCount})" title="Delete month" alt="Delete">
+                </span>
+            </div>`;
+            html += `<div class="wlog-month-content ${monthExpanded ? 'open' : ''}">`;
+
+            const dayKeys = Object.keys(hierarchy[year][month]).sort((a, b) => b - a);
+            for (const day of dayKeys) {
+                const dayKey = 'llib-' + year + '-' + month + '-' + day;
+                activeKeys.push(dayKey);
+                const dayDefault = (year === currentYear && month === currentMonth && day === currentDay);
+                const dayExpanded = isLibNodeExpanded(dayKey, dayDefault);
+                const dayEntries = hierarchy[year][month][day];
+                const dateStr = year + '-' + month + '-' + day;
+
+                const displayDate = formatLogDate(dateStr);
+
+                html += `<div class="wlog-day-header" onclick="toggleLibraryLogNode('${dayKey}', this)">
+                    <img src="/static/images/${dayExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
+                    <span class="wlog-day-label">${escapeHtml(displayDate)}</span>
+                    <span class="wlog-node-count">(${dayEntries.length})</span>
+                    <span class="wlog-header-actions" onclick="event.stopPropagation()">
+                        <img src="/static/images/trash.png" class="wlog-delete-btn" onclick="deleteLibraryLogRange('${escapeHtml(displayDate)}', '${dateStr}T00:00:00', '${dateStr}T23:59:59', ${dayEntries.length})" title="Delete day" alt="Delete">
+                    </span>
+                </div>`;
+                html += `<div class="wlog-day-content ${dayExpanded ? 'open' : ''}">`;
+
+                for (const entry of dayEntries) {
+                    const time = entry.timestamp ? formatLogTime(entry.timestamp) : '';
+                    const actionLabel = formatLibActionType(entry.action_type);
+                    const summary = buildLibLogSummary(entry);
+                    const resultClass = entry.result ? 'result-' + entry.result : '';
+                    const entryId = 'llib-detail-' + entry.id;
+
+                    html += `
+                        <div class="watcher-log-entry" onclick="toggleLogDetail('${entryId}')">
+                            <span class="log-entry-time">${time}</span>
+                            <span class="log-entry-badge action-${escapeHtml(entry.action_type || '')}">${escapeHtml(actionLabel)}</span>
+                            <span class="log-entry-summary">${escapeHtml(summary)}</span>
+                            <span class="log-entry-result ${resultClass}">${escapeHtml(entry.result || '')}</span>
+                            <img src="/static/images/trash.png" class="wlog-delete-btn wlog-entry-delete" onclick="event.stopPropagation(); deleteLibraryLogEntry(${entry.id}, '${escapeHtml(summary).replace(/'/g, "\\'")}')" title="Delete entry" alt="Delete">
+                        </div>
+                        <div class="log-entry-details" id="${entryId}">
+                            ${buildLibLogDetails(entry)}
+                        </div>
+                    `;
+                }
+
+                html += `</div>`; // day-content
+            }
+
+            html += `</div>`; // month-content
+        }
+
+        html += `</div>`; // year-content
+    }
+
+    if (libraryLogState.total > 0) {
+        html += `<div class="watcher-log-pagination"><span class="page-info">${libraryLogState.total} entries</span></div>`;
+    }
+
+    content.innerHTML = html;
+}
+
+function formatLibActionType(action) {
+    const labels = {
+        'rename': 'Rename',
+        'import': 'Import',
+        'rename_failed': 'Rename Failed',
+        'import_failed': 'Import Failed',
+    };
+    return labels[action] || action || 'Unknown';
+}
+
+function buildLibLogSummary(entry) {
+    if (entry.show_name && entry.episode_code) {
+        return `${entry.show_name} ${entry.episode_code}`;
+    }
+    if (entry.show_name) {
+        return entry.show_name;
+    }
+    if (entry.file_path) {
+        const parts = entry.file_path.split('/');
+        return parts[parts.length - 1] || entry.file_path;
+    }
+    if (entry.details) {
+        return entry.details.substring(0, 80);
+    }
+    return entry.action_type || '';
+}
+
+function buildLibLogDetails(entry) {
+    let html = '';
+    if (entry.details) {
+        html += `<div class="detail-row"><span class="detail-label">Details</span><span class="detail-value">${escapeHtml(entry.details)}</span></div>`;
+    }
+    if (entry.file_path) {
+        html += `<div class="detail-row"><span class="detail-label">Source</span><span class="detail-value">${escapeHtml(entry.file_path)}</span></div>`;
+    }
+    if (entry.dest_path) {
+        html += `<div class="detail-row"><span class="detail-label">Destination</span><span class="detail-value">${escapeHtml(entry.dest_path)}</span></div>`;
+    }
+    if (entry.show_name) {
+        html += `<div class="detail-row"><span class="detail-label">Show</span><span class="detail-value">${escapeHtml(entry.show_name)}</span></div>`;
+    }
+    if (entry.episode_code) {
+        html += `<div class="detail-row"><span class="detail-label">Episode</span><span class="detail-value">${escapeHtml(entry.episode_code)}</span></div>`;
+    }
+    if (entry.timestamp) {
+        html += `<div class="detail-row"><span class="detail-label">Time</span><span class="detail-value">${escapeHtml(entry.timestamp)}</span></div>`;
+    }
+    return html || '<em>No additional details</em>';
+}
+
+function onLibraryLogDateChange() {
+    libraryLogState.dateFrom = document.getElementById('library-log-from')?.value || '';
+    libraryLogState.dateTo = document.getElementById('library-log-to')?.value || '';
+    loadLibraryLog();
+}
+
+function clearLibraryLogFilters() {
+    libraryLogState.dateFrom = '';
+    libraryLogState.dateTo = '';
+    const fromEl = document.getElementById('library-log-from');
+    const toEl = document.getElementById('library-log-to');
+    if (fromEl) fromEl.value = '';
+    if (toEl) toEl.value = '';
+    loadLibraryLog();
+}
+
+function confirmClearAllLibLogs() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Clear All Library Logs';
+    modalBody.innerHTML = `
+        <p>Are you sure you want to delete <strong>all</strong> library log entries?</p>
+        <p class="text-muted">This action cannot be undone.</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-danger" onclick="clearAllLibLogs()">Delete All Logs</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function clearAllLibLogs() {
+    closeModal();
+    try {
+        const result = await api('/scan/library-log', { method: 'DELETE' });
+        showToast(result.message, 'success');
+        await loadLibraryLog();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+function deleteLibraryLogEntry(entryId, summary) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Delete Log Entry';
+    modalBody.innerHTML = `
+        <p>Delete this log entry?</p>
+        <p class="text-muted" style="word-break: break-all;">${escapeHtml(summary)}</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-danger" onclick="confirmDeleteLibEntry(${entryId})">Delete</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmDeleteLibEntry(entryId) {
+    closeModal();
+    try {
+        const result = await api(`/scan/library-log/${entryId}`, { method: 'DELETE' });
+        showToast(result.message, 'success');
+        await loadLibraryLog();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+function deleteLibraryLogRange(label, start, end, count) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Delete Log Entries';
+    modalBody.innerHTML = `
+        <p>Delete all <strong>${count}</strong> log ${count === 1 ? 'entry' : 'entries'} for <strong>${escapeHtml(label)}</strong>?</p>
+        <p class="text-muted">This action cannot be undone.</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-danger" onclick="confirmDeleteLibRange('${start}', '${end}')">Delete ${count} ${count === 1 ? 'Entry' : 'Entries'}</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmDeleteLibRange(start, end) {
+    closeModal();
+    try {
+        const result = await api(`/scan/library-log/range/${encodeURIComponent(start)}/${encodeURIComponent(end)}`, { method: 'DELETE' });
+        showToast(result.message, 'success');
+        await loadLibraryLog();
     } catch (error) {
         // Error already shown
     }

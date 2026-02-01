@@ -3,14 +3,42 @@
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..models.library_log import LibraryLog
 from ..services.scanner import ScannerService, ScanResult
 
 router = APIRouter(prefix="/api/scan", tags=["scan"])
+
+
+def log_library_event(
+    db: Session,
+    action_type: str,
+    result: str = "success",
+    file_path: str = None,
+    dest_path: str = None,
+    show_name: str = None,
+    show_id: int = None,
+    episode_code: str = None,
+    details: str = None,
+):
+    """Write an entry to the library_log table."""
+    entry = LibraryLog(
+        action_type=action_type,
+        file_path=file_path,
+        dest_path=dest_path,
+        show_name=show_name,
+        show_id=show_id,
+        episode_code=episode_code,
+        result=result,
+        details=details,
+    )
+    db.add(entry)
 
 # Global scan status
 _scan_status = {
@@ -594,6 +622,14 @@ async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)
                     episode.file_path = str(dest)
                     episode.file_status = "renamed"
 
+            log_library_event(
+                db, action_type="rename", result="success",
+                file_path=str(source), dest_path=str(dest),
+                show_name=preview.get("show_name", ""),
+                show_id=preview.get("show_id"),
+                episode_code=preview.get("episode_code", ""),
+                details=f"Renamed: {source.name} \u2192 {dest.name}",
+            )
             db.commit()
             success += 1
 
@@ -601,6 +637,18 @@ async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)
             errors.append(f"Failed to rename {source.name}: {str(e)}")
             failed += 1
             db.rollback()
+            log_library_event(
+                db, action_type="rename", result="failed",
+                file_path=str(source), dest_path=str(dest),
+                show_name=preview.get("show_name", ""),
+                show_id=preview.get("show_id"),
+                episode_code=preview.get("episode_code", ""),
+                details=f"Failed: {str(e)}",
+            )
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
 
     return {"success": success, "failed": failed, "errors": errors}
 
@@ -615,7 +663,6 @@ class ImportDownloadsRequest(BaseModel):
 async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)):
     """Import matched files from downloads to library."""
     import shutil
-    from datetime import datetime
     from ..models import Episode
     from ..services.renamer import RenamerService
 
@@ -661,6 +708,14 @@ async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(g
                 episode.file_status = "found"
                 episode.matched_at = datetime.utcnow()
 
+            log_library_event(
+                db, action_type="import", result="success",
+                file_path=str(source), dest_path=str(dest),
+                show_name=match.get("show_name", ""),
+                show_id=match.get("show_id"),
+                episode_code=match.get("episode_code", ""),
+                details=f"Imported: {source.name} \u2192 {dest.name}",
+            )
             db.commit()
             success += 1
 
@@ -668,6 +723,18 @@ async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(g
             errors.append(f"Failed to import {source.name}: {str(e)}")
             failed += 1
             db.rollback()
+            log_library_event(
+                db, action_type="import", result="failed",
+                file_path=str(source), dest_path=str(dest),
+                show_name=match.get("show_name", ""),
+                show_id=match.get("show_id"),
+                episode_code=match.get("episode_code", ""),
+                details=f"Failed: {str(e)}",
+            )
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
 
     return {"success": success, "failed": failed, "errors": errors}
 
@@ -1505,7 +1572,8 @@ async def fix_episode_match(
 class ScanSelectedRequest(BaseModel):
     """Request model for scanning selected episodes."""
 
-    episode_ids: list[int]
+    episode_ids: list[int] = []
+    show_ids: list[int] = []
 
 
 @router.post("/selected-episodes")
@@ -1513,12 +1581,11 @@ async def scan_selected_episodes(
     data: ScanSelectedRequest,
     db: Session = Depends(get_db),
 ):
-    """Scan for specific episodes by looking in their show folders.
+    """Scan for specific episodes and/or shows.
 
-    This is useful for re-scanning specific missing episodes without
-    running a full library scan.
+    When episode_ids are provided, looks in their show folders for matching files.
+    When show_ids are provided, runs a folder scan for those shows.
     """
-    from datetime import datetime
     from ..models import Show, Episode
 
     scanner = ScannerService(db)
@@ -1540,7 +1607,7 @@ async def scan_selected_episodes(
             episodes_by_show[episode.show_id] = []
         episodes_by_show[episode.show_id].append(episode)
 
-    # Scan each show's folder
+    # Scan each show's folder for episode matches
     for show_id, episodes in episodes_by_show.items():
         show = db.query(Show).filter(Show.id == show_id).first()
         if not show:
@@ -1606,12 +1673,124 @@ async def scan_selected_episodes(
                 })
                 not_found += 1
 
+    # Handle show_ids: scan full show folders
+    shows_scanned = 0
+    for show_id in data.show_ids:
+        # Skip shows already scanned via episode_ids
+        if show_id in episodes_by_show:
+            continue
+
+        show = db.query(Show).filter(Show.id == show_id).first()
+        if not show:
+            errors.append(f"Show ID {show_id} not found")
+            continue
+
+        if not show.folder_path:
+            results.append({
+                "show_name": show.name,
+                "status": "no_folder",
+                "message": "Show has no folder path configured"
+            })
+            continue
+
+        matched_count, total_files = _scan_show_folder(scanner, show, Path(show.folder_path))
+        found += matched_count
+        shows_scanned += 1
+
+        results.append({
+            "show_name": show.name,
+            "status": "scanned",
+            "message": f"Scanned: {matched_count} episodes matched from {total_files} files"
+        })
+
     db.commit()
 
+    total_items = len(data.episode_ids) + len(data.show_ids)
     return {
-        "message": f"Scanned {len(data.episode_ids)} episodes: {found} found, {not_found} not found",
+        "message": f"Scanned {total_items} items: {found} found, {not_found} not found",
         "found": found,
         "not_found": not_found,
+        "shows_scanned": shows_scanned,
         "errors": errors,
         "results": results
     }
+
+
+# ── Library Log endpoints ─────────────────────────────────────────
+
+
+@router.get("/library-log")
+async def get_library_log(
+    db: Session = Depends(get_db),
+    limit: Optional[int] = Query(default=None, ge=1),
+    offset: int = Query(default=0, ge=0),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+):
+    """Get library log entries with optional date filtering."""
+    query = db.query(LibraryLog).order_by(LibraryLog.timestamp.desc())
+
+    if date_from:
+        try:
+            dt = datetime.fromisoformat(date_from)
+            query = query.filter(LibraryLog.timestamp >= dt)
+        except ValueError:
+            pass
+
+    if date_to:
+        try:
+            dt = datetime.fromisoformat(date_to)
+            query = query.filter(LibraryLog.timestamp <= dt)
+        except ValueError:
+            pass
+
+    total = query.count()
+    if offset:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+    entries = query.all()
+
+    return {
+        "total": total,
+        "entries": [e.to_dict() for e in entries],
+    }
+
+
+@router.delete("/library-log")
+async def clear_library_log(db: Session = Depends(get_db)):
+    """Delete all library log entries."""
+    count = db.query(LibraryLog).count()
+    db.query(LibraryLog).delete()
+    db.commit()
+    return {"message": f"Deleted {count} log entries", "deleted": count}
+
+
+@router.delete("/library-log/range/{start}/{end}")
+async def delete_library_log_range(start: str, end: str, db: Session = Depends(get_db)):
+    """Delete all library log entries within a timestamp range (inclusive)."""
+    try:
+        dt_start = datetime.fromisoformat(start)
+        dt_end = datetime.fromisoformat(end)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
+
+    query = db.query(LibraryLog).filter(
+        LibraryLog.timestamp >= dt_start,
+        LibraryLog.timestamp <= dt_end,
+    )
+    count = query.count()
+    query.delete(synchronize_session=False)
+    db.commit()
+    return {"message": f"Deleted {count} log entries", "deleted": count}
+
+
+@router.delete("/library-log/{entry_id}")
+async def delete_library_log_entry(entry_id: int, db: Session = Depends(get_db)):
+    """Delete a single library log entry by ID."""
+    entry = db.query(LibraryLog).filter(LibraryLog.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Log entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"message": "Log entry deleted", "deleted": 1}

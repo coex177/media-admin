@@ -2550,6 +2550,8 @@ tr:hover {
     transform: scale(1.2);
 }
 
+.missing-show-select-all { cursor: pointer; margin-right: 6px; }
+
 .missing-show-name {
     font-weight: 600;
 }
@@ -3822,6 +3824,16 @@ a.metadata-source-tag:hover {
     color: #1abc9c;
 }
 
+.log-entry-badge.action-rename {
+    background-color: rgba(52, 152, 219, 0.15);
+    color: #3498db;
+}
+
+.log-entry-badge.action-import {
+    background-color: rgba(39, 174, 96, 0.15);
+    color: var(--success-color);
+}
+
 .log-entry-badge.action-watcher_started,
 .log-entry-badge.action-watcher_stopped {
     background-color: rgba(149, 165, 166, 0.15);
@@ -3966,20 +3978,20 @@ a.metadata-source-tag:hover {
     transform: scale(1.2);
 }
 
-/* Missing episodes show link column */
-.missing-show-link-col {
-    text-align: right;
-    width: 40px;
-}
-
-.missing-show-goto {
+/* Show titlebar goto arrows (Missing Episodes + Metadata Updates) */
+.rename-show-goto,
+.missing-show-header .missing-show-goto {
     width: 20px;
     height: 20px;
     cursor: pointer;
-    transition: transform 0.15s;
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.15s;
+    margin-left: auto;
+    flex-shrink: 0;
 }
-
-.missing-show-goto:hover {
+.rename-show-goto:hover,
+.missing-show-header .missing-show-goto:hover {
+    opacity: 1;
     transform: scale(1.2);
 }
 
