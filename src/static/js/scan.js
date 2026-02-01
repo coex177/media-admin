@@ -199,13 +199,16 @@ function renderMetadataUpdatesCard(metadataUpdates) {
     });
     const groups = Object.values(showGroups).sort((a, b) => a.show_name.localeCompare(b.show_name));
 
+    const renameState = getUiPref('renameCheckboxState', null);
     const cardCollapsed = getUiPref('metadataUpdatesCardCollapsed', false);
 
     return `
         <div class="card mb-20 ${cardCollapsed ? 'card-collapsed' : ''}" id="metadata-updates-card">
             <div class="card-header" onclick="toggleScanCard('metadata-updates-card', 'metadataUpdatesCardCollapsed')" style="cursor: pointer;">
-                <img src="/static/images/${cardCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="card-collapse-chevron" alt="">
-                <h3 class="card-title">Metadata Updates</h3>
+                <div class="card-header-left">
+                    <img src="/static/images/${cardCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="card-collapse-chevron" alt="">
+                    <h3 class="card-title">Metadata Updates</h3>
+                </div>
                 <div class="card-header-actions" onclick="event.stopPropagation()">
                     <span class="rename-selected-count" id="rename-selected-count">${metadataUpdates.length} selected</span>
                     <button class="btn btn-primary btn-sm" id="btn-apply-renames" onclick="applySelectedRenames()">Apply Renames</button>
@@ -221,7 +224,7 @@ function renderMetadataUpdatesCard(metadataUpdates) {
                     <div class="rename-show-group" data-show-id="${group.show_id}">
                         <div class="rename-show-header" onclick="toggleRenameShowGroup(this, ${group.show_id})">
                             <img src="/static/images/${isCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="rename-show-chevron" alt="">
-                            <input type="checkbox" class="rename-show-select-all" checked onclick="event.stopPropagation(); toggleAllRenamesInShow(this, ${group.show_id})" title="Select all">
+                            <input type="checkbox" class="rename-show-select-all" ${renameState ? (group.items.every(item => renameState[item._globalIndex] !== false) ? 'checked' : '') : 'checked'} onclick="event.stopPropagation(); toggleAllRenamesInShow(this, ${group.show_id})" title="Select all">
                             <span class="rename-show-name">${escapeHtml(group.show_name)}</span>
                             <span class="rename-show-count">(${group.items.length} ${group.items.length === 1 ? 'rename' : 'renames'})</span>
                         </div>
@@ -240,7 +243,7 @@ function renderMetadataUpdatesCard(metadataUpdates) {
                                     ${group.items.map(item => `
                                         <tr class="rename-episode-row">
                                             <td class="checkbox-col">
-                                                <input type="checkbox" class="rename-checkbox" checked
+                                                <input type="checkbox" class="rename-checkbox" ${renameState ? (renameState[item._globalIndex] !== false ? 'checked' : '') : 'checked'}
                                                        data-rename-index="${item._globalIndex}"
                                                        data-show-id="${group.show_id}"
                                                        onclick="event.stopPropagation(); updateRenameSelectionCount()">
@@ -270,14 +273,17 @@ function renderMetadataUpdatesCard(metadataUpdates) {
 
 function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, settings) {
     const hasDownloadMatches = Object.keys(downloadMatchByEpId).length > 0;
+    const missingState = getUiPref('missingCheckboxState', null);
 
     const cardCollapsed = getUiPref('missingEpisodesCardCollapsed', false);
 
     return `
         <div class="card mb-20 ${cardCollapsed ? 'card-collapsed' : ''}" id="missing-episodes-card">
             <div class="card-header" onclick="toggleScanCard('missing-episodes-card', 'missingEpisodesCardCollapsed')" style="cursor: pointer;">
-                <img src="/static/images/${cardCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="card-collapse-chevron" alt="">
-                <h3 class="card-title">Missing Episodes</h3>
+                <div class="card-header-left">
+                    <img src="/static/images/${cardCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="card-collapse-chevron" alt="">
+                    <h3 class="card-title">Missing Episodes</h3>
+                </div>
                 <div class="card-header-actions" onclick="event.stopPropagation()">
                     <span class="missing-selected-count" id="missing-selected-count">0 selected</span>
                     ${hasDownloadMatches ? `<button class="btn btn-success btn-sm" onclick="importCheckedDownloads()" id="btn-import-downloads">Import Episodes</button>` : ''}
@@ -335,8 +341,9 @@ function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, setting
                                             eps.forEach(ep => {
                                                 const match = downloadMatchByEpId[ep.id];
                                                 const hasMatch = !!match;
+                                                const isChecked = missingState ? !!missingState[ep.id] : hasMatch;
                                                 rows += '<tr class="missing-episode-row' + (hasMatch ? ' download-match-row' : '') + (seasonCollapsed ? ' missing-season-hidden' : '') + '" data-season-key="' + seasonKey + '">' +
-                                                    '<td class="checkbox-col"><input type="checkbox" class="episode-checkbox" ' + (hasMatch ? 'checked ' : '') +
+                                                    '<td class="checkbox-col"><input type="checkbox" class="episode-checkbox" ' + (isChecked ? 'checked ' : '') +
                                                     'data-show-id="' + show.show_id + '" data-episode-id="' + ep.id + '" data-show-name="' + escapeHtml(show.show_name) + '"' +
                                                     (hasMatch ? ' data-download-index="' + match.globalIndex + '"' : '') +
                                                     ' onclick="event.stopPropagation(); updateMissingSelectionCount()"></td>' +
@@ -367,6 +374,7 @@ function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, setting
 
 // Scan with live progress updates
 async function triggerFullScan() {
+    clearScanCheckboxStates();
     try {
         await api('/scan', { method: 'POST' });
         showToast('Full scan started', 'info');
@@ -377,6 +385,7 @@ async function triggerFullScan() {
 }
 
 async function triggerQuickScan() {
+    clearScanCheckboxStates();
     try {
         const result = await api('/scan/quick', { method: 'POST' });
         showToast(`Quick scan started (${result.days} days)`, 'info');
@@ -387,6 +396,7 @@ async function triggerQuickScan() {
 }
 
 async function triggerOngoingScan() {
+    clearScanCheckboxStates();
     try {
         await api('/scan/ongoing', { method: 'POST' });
         showToast('Ongoing shows scan started', 'info');
@@ -397,6 +407,7 @@ async function triggerOngoingScan() {
 }
 
 function triggerScanSelected() {
+    clearScanCheckboxStates();
     const selected = getSelectedMissingEpisodes();
     if (selected.length === 0) {
         // Scroll to missing episodes section and show a message
@@ -512,10 +523,24 @@ async function rejectAction(actionId) {
     }
 }
 
-async function approveAllActions() {
-    if (!confirm('Approve and execute all pending actions?')) {
-        return;
-    }
+function approveAllActions() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Approve All Actions';
+    modalBody.innerHTML = `
+        <p>Approve and execute all pending actions?</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-success" onclick="confirmApproveAllActions()">Approve All</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmApproveAllActions() {
+    closeModal();
 
     try {
         const result = await api('/actions/approve-all', { method: 'POST' });
@@ -636,6 +661,29 @@ function toggleAllRenamesInShow(headerCheckbox, showId) {
     updateRenameSelectionCount();
 }
 
+// ── Checkbox State Persistence ──
+
+function saveRenameCheckboxState() {
+    const state = {};
+    document.querySelectorAll('.rename-checkbox').forEach(cb => {
+        state[cb.dataset.renameIndex] = cb.checked;
+    });
+    setUiPref('renameCheckboxState', state);
+}
+
+function saveEpisodeCheckboxState() {
+    const state = {};
+    document.querySelectorAll('.episode-checkbox').forEach(cb => {
+        state[cb.dataset.episodeId] = cb.checked;
+    });
+    setUiPref('missingCheckboxState', state);
+}
+
+function clearScanCheckboxStates() {
+    setUiPref('renameCheckboxState', null);
+    setUiPref('missingCheckboxState', null);
+}
+
 function updateRenameSelectionCount() {
     const checked = document.querySelectorAll('.rename-checkbox:checked');
     const total = document.querySelectorAll('.rename-checkbox');
@@ -648,15 +696,38 @@ function updateRenameSelectionCount() {
     if (applyBtn) {
         applyBtn.disabled = checked.length === 0;
     }
+    saveRenameCheckboxState();
 }
 
-async function applySelectedRenames() {
+function applySelectedRenames() {
     const indices = [];
     document.querySelectorAll('.rename-checkbox:checked').forEach(cb => {
         indices.push(parseInt(cb.dataset.renameIndex));
     });
     if (indices.length === 0) { showToast('No renames selected', 'warning'); return; }
-    if (!confirm(`Apply ${indices.length} file rename${indices.length > 1 ? 's' : ''}?`)) return;
+
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Apply Renames';
+    modalBody.innerHTML = `
+        <p>Apply <strong>${indices.length}</strong> file rename${indices.length > 1 ? 's' : ''}?</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-primary" onclick="confirmApplyRenames()">Apply Renames</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmApplyRenames() {
+    const indices = [];
+    document.querySelectorAll('.rename-checkbox:checked').forEach(cb => {
+        indices.push(parseInt(cb.dataset.renameIndex));
+    });
+
+    closeModal();
 
     try {
         const result = await api('/scan/apply-renames', {
@@ -776,6 +847,7 @@ function updateMissingSelectionCount() {
     if (ignoreBtn) ignoreBtn.disabled = selected.length === 0;
     if (specialsBtn) specialsBtn.disabled = selected.length === 0;
     if (importBtn) importBtn.disabled = importable.length === 0;
+    saveEpisodeCheckboxState();
 }
 
 function getSelectedMissingEpisodes() {
@@ -793,13 +865,35 @@ function getSelectedMissingEpisodes() {
 
 // ── Import Downloads ──
 
-async function importCheckedDownloads() {
+function importCheckedDownloads() {
     const indices = [];
     document.querySelectorAll('.episode-checkbox:checked[data-download-index]').forEach(cb => {
         indices.push(parseInt(cb.dataset.downloadIndex));
     });
     if (indices.length === 0) { showToast('No importable episodes selected', 'warning'); return; }
-    if (!confirm(`Import ${indices.length} episode${indices.length > 1 ? 's' : ''} from downloads?`)) return;
+
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Import Episodes';
+    modalBody.innerHTML = `
+        <p>Import <strong>${indices.length}</strong> episode${indices.length > 1 ? 's' : ''} from downloads?</p>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-success" onclick="confirmImportDownloads()">Import Episodes</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function confirmImportDownloads() {
+    const indices = [];
+    document.querySelectorAll('.episode-checkbox:checked[data-download-index]').forEach(cb => {
+        indices.push(parseInt(cb.dataset.downloadIndex));
+    });
+
+    closeModal();
 
     try {
         const result = await api('/scan/import-downloads', {

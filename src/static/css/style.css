@@ -4058,6 +4058,7 @@ a.metadata-source-tag:hover {
 #missing-episodes-card .card-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Card-level collapse */
+.card-header-left { display: flex; align-items: center; gap: 4px; }
 .card-collapse-chevron { width: 18px; height: 18px; flex-shrink: 0; margin-right: 4px; transition: transform 0.15s; }
 .card-collapse-chevron:hover { transform: scale(1.2); }
 .card-body-collapsible { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; }
