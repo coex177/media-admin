@@ -580,10 +580,13 @@ async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)
     from ..models import Episode
     from ..services.renamer import RenamerService
 
+    global _metadata_updates
+
     renamer = RenamerService(db)
     success = 0
     failed = 0
     errors = []
+    completed_indices = set()
 
     for idx in data.rename_indices:
         if idx < 0 or idx >= len(_metadata_updates):
@@ -632,6 +635,7 @@ async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)
             )
             db.commit()
             success += 1
+            completed_indices.add(idx)
 
         except Exception as e:
             errors.append(f"Failed to rename {source.name}: {str(e)}")
@@ -650,6 +654,13 @@ async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)
             except Exception:
                 db.rollback()
 
+    # Remove completed renames from the global list so the UI refreshes correctly
+    if completed_indices:
+        _metadata_updates = [
+            item for i, item in enumerate(_metadata_updates)
+            if i not in completed_indices
+        ]
+
     return {"success": success, "failed": failed, "errors": errors}
 
 
@@ -662,6 +673,7 @@ class ImportDownloadsRequest(BaseModel):
 @router.post("/import-downloads")
 async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)):
     """Import matched files from downloads to library."""
+    global _download_matches
     import shutil
     from ..models import Episode
     from ..services.renamer import RenamerService
@@ -670,6 +682,7 @@ async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(g
     success = 0
     failed = 0
     errors = []
+    completed_indices = set()
 
     for idx in data.match_indices:
         if idx < 0 or idx >= len(_download_matches):
@@ -718,6 +731,7 @@ async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(g
             )
             db.commit()
             success += 1
+            completed_indices.add(idx)
 
         except Exception as e:
             errors.append(f"Failed to import {source.name}: {str(e)}")
@@ -735,6 +749,13 @@ async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(g
                 db.commit()
             except Exception:
                 db.rollback()
+
+    # Remove completed imports from the global list so the UI refreshes correctly
+    if completed_indices:
+        _download_matches = [
+            item for i, item in enumerate(_download_matches)
+            if i not in completed_indices
+        ]
 
     return {"success": success, "failed": failed, "errors": errors}
 
