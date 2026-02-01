@@ -41,6 +41,10 @@ class ScanResult:
     unmatched_files: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     pending_actions: list[dict] = field(default_factory=list)
+    metadata_refreshed: int = 0
+    metadata_errors: list[str] = field(default_factory=list)
+    rename_previews: list[dict] = field(default_factory=list)
+    download_matches: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -272,7 +276,8 @@ class ScannerService:
         logger.info(f"  auto_match: no folder found for '{show.name}'")
         return False
 
-    def scan_library(self, quick_scan: bool = False, recent_days: int = None, progress_callback=None) -> ScanResult:
+    def scan_library(self, quick_scan: bool = False, recent_days: int = None, progress_callback=None,
+                     tmdb_service=None, tvdb_service=None, event_loop=None) -> ScanResult:
         """Scan library folders and match files to episodes.
 
         Args:
@@ -280,6 +285,9 @@ class ScannerService:
                        If False, scan all shows.
             recent_days: If set, only scan shows that have episodes that aired within this many days.
             progress_callback: Optional callback function(message, progress_percent) for status updates.
+            tmdb_service: Optional TMDBService for metadata refresh.
+            tvdb_service: Optional TVDBService for metadata refresh.
+            event_loop: Optional asyncio event loop for running async metadata calls.
         """
         from datetime import datetime, timedelta
 
@@ -360,9 +368,9 @@ class ScannerService:
         else:
             shows = self.db.query(Show).all()
 
-        # Scan each show's folder
+        # ── Phase 1: File matching (10-70%) ──
         for i, show in enumerate(shows):
-            progress_percent = 10 + int((i / max(total_shows, 1)) * 70)  # 10-80%
+            progress_percent = 10 + int((i / max(total_shows, 1)) * 60)  # 10-70%
             report_progress(f"Scanning: {show.name}", progress_percent)
 
             if show.folder_path:
@@ -384,23 +392,51 @@ class ScannerService:
             else:
                 logger.debug(f"[{i+1}/{total_shows}] Skipping '{show.name}' — no folder_path")
 
-        # Count missing episodes
-        report_progress("Counting missing episodes...", 82)
+        # ── Phase 2: Metadata refresh (70-85%) ──
+        if event_loop and (tmdb_service or tvdb_service):
+            report_progress("Refreshing metadata...", 70)
+            for i, show in enumerate(shows):
+                progress_percent = 70 + int((i / max(total_shows, 1)) * 15)  # 70-85%
+                report_progress(f"Refreshing: {show.name}", progress_percent)
+                success = self.refresh_show_metadata(show, tmdb_service, tvdb_service, event_loop)
+                if success:
+                    result.metadata_refreshed += 1
+                # Small delay to avoid API rate limiting
+                import time
+                time.sleep(0.25)
+        else:
+            logger.info("  Skipping metadata refresh (no services provided)")
+
+        # ── Phase 3: Compute renames (85-87%) ──
+        report_progress("Computing rename previews...", 85)
+        result.rename_previews = self.compute_rename_previews(shows)
+        logger.info(f"  Computed {len(result.rename_previews)} rename previews")
+
+        # ── Phase 4: Count missing episodes (87-89%) ──
+        report_progress("Counting missing episodes...", 87)
         for show in shows:
             if show.do_missing:
                 missing = self._count_missing_episodes(show)
                 result.episodes_missing += missing
 
-        # Scan download folders for pending actions
-        report_progress("Scanning downloads folder...", 85)
+        # ── Phase 5: Scan download folders for pending actions (89-95%) ──
+        report_progress("Scanning downloads folder...", 89)
         download_result = self._scan_download_folders(shows, progress_callback)
         result.pending_actions.extend(download_result.pending_actions)
+
+        # ── Phase 6: Check downloads for missing episodes (95-97%) ──
+        report_progress("Checking downloads for missing episodes...", 95)
+        result.download_matches = self.check_downloads_for_missing(shows)
+        logger.info(f"  Found {len(result.download_matches)} download matches for missing episodes")
 
         report_progress("Finalizing...", 98)
         result.shows_found = len(shows)
         logger.info(f"scan_library complete: {result.shows_found} shows, {result.episodes_matched} matched, "
                      f"{result.episodes_missing} missing, {len(result.unmatched_files)} unmatched files, "
-                     f"{len(result.pending_actions)} pending actions")
+                     f"{len(result.pending_actions)} pending actions, "
+                     f"{result.metadata_refreshed} metadata refreshed, "
+                     f"{len(result.rename_previews)} rename previews, "
+                     f"{len(result.download_matches)} download matches")
         return result
 
     def scan_single_show(self, show: Show, progress_callback=None) -> ScanResult:
@@ -465,6 +501,336 @@ class ScannerService:
                      f"{result.episodes_missing} missing, {len(result.unmatched_files)} unmatched, "
                      f"{len(result.pending_actions)} pending actions")
         return result
+
+    def refresh_show_metadata(self, show: Show, tmdb_service, tvdb_service, event_loop) -> bool:
+        """Refresh metadata for a single show from its provider.
+
+        Returns True on success, False on error (logs error, does not raise).
+        """
+        try:
+            # Determine which service to use
+            if show.metadata_source == "tvdb" and tvdb_service and show.tvdb_id:
+                season_type = show.tvdb_season_type or "official"
+                show_data = event_loop.run_until_complete(
+                    tvdb_service.get_show_with_episodes(show.tvdb_id, season_type=season_type)
+                )
+            elif tmdb_service and show.tmdb_id:
+                show_data = event_loop.run_until_complete(
+                    tmdb_service.get_show_with_episodes(show.tmdb_id)
+                )
+            else:
+                logger.debug(f"  refresh_show_metadata: skipping '{show.name}' — no valid source ID")
+                return False
+
+            # Update show metadata
+            show.name = show_data["name"]
+            show.overview = show_data.get("overview")
+            show.poster_path = show_data.get("poster_path")
+            show.backdrop_path = show_data.get("backdrop_path")
+            show.status = show_data.get("status", "Unknown")
+            show.first_air_date = show_data.get("first_air_date")
+            show.number_of_seasons = show_data.get("number_of_seasons", 0)
+            show.number_of_episodes = show_data.get("number_of_episodes", 0)
+            show.genres = show_data.get("genres")
+            show.networks = show_data.get("networks")
+            show.next_episode_air_date = show_data.get("next_episode_air_date")
+
+            # Update cross-reference IDs if available
+            if show_data.get("tvdb_id"):
+                show.tvdb_id = show_data["tvdb_id"]
+            if show_data.get("tmdb_id"):
+                show.tmdb_id = show_data["tmdb_id"]
+            if show_data.get("imdb_id"):
+                show.imdb_id = show_data["imdb_id"]
+
+            # Get existing episodes
+            existing_episodes = {
+                (ep.season, ep.episode): ep
+                for ep in self.db.query(Episode).filter(Episode.show_id == show.id).all()
+            }
+
+            # Update or create episodes
+            for ep_data in show_data.get("episodes", []):
+                key = (ep_data["season"], ep_data["episode"])
+                if key in existing_episodes:
+                    ep = existing_episodes[key]
+                    ep.title = ep_data["title"]
+                    ep.overview = ep_data.get("overview")
+                    ep.air_date = ep_data.get("air_date")
+                    ep.still_path = ep_data.get("still_path")
+                    ep.runtime = ep_data.get("runtime")
+                else:
+                    episode = Episode(
+                        show_id=show.id,
+                        season=ep_data["season"],
+                        episode=ep_data["episode"],
+                        title=ep_data["title"],
+                        overview=ep_data.get("overview"),
+                        air_date=ep_data.get("air_date"),
+                        tmdb_id=ep_data.get("tmdb_id"),
+                        still_path=ep_data.get("still_path"),
+                        runtime=ep_data.get("runtime"),
+                    )
+                    self.db.add(episode)
+
+            self.db.commit()
+            logger.debug(f"  refresh_show_metadata: updated '{show.name}'")
+            return True
+
+        except Exception as e:
+            logger.error(f"  refresh_show_metadata: error for '{show.name}': {e}")
+            self.db.rollback()
+            return False
+
+    def compute_rename_previews(self, shows: list[Show]) -> list[dict]:
+        """Compute file rename previews for shows with do_rename enabled.
+
+        Compares actual file paths vs expected paths based on current metadata.
+        The season/episode codes are always preserved from the existing filename
+        (source of truth for episode numbering). Only the title portion and
+        season folder are updated from metadata.
+        """
+        from .renamer import RenamerService
+
+        renamer = RenamerService(self.db)
+        previews = []
+
+        for show in shows:
+            if not show.do_rename or not show.folder_path:
+                continue
+
+            # Get episodes with files
+            episodes = (
+                self.db.query(Episode)
+                .filter(
+                    Episode.show_id == show.id,
+                    Episode.file_path.isnot(None),
+                    Episode.file_status.in_(["found", "renamed"]),
+                )
+                .all()
+            )
+
+            # Group episodes by file_path (handles multi-episode files)
+            file_groups = {}
+            for ep in episodes:
+                if ep.file_path not in file_groups:
+                    file_groups[ep.file_path] = []
+                file_groups[ep.file_path].append(ep)
+
+            for current_path_str, eps in file_groups.items():
+                current_path = Path(current_path_str)
+                if not current_path.exists():
+                    continue
+
+                eps_sorted = sorted(eps, key=lambda e: (e.season, e.episode))
+                primary_ep = eps_sorted[0]
+                extension = current_path.suffix
+
+                try:
+                    # Parse the current filename to get the actual episode range.
+                    # The file's SxE codes are the source of truth — we never
+                    # change which episodes a file claims to contain.
+                    parsed = self.matcher.parse_filename(current_path.name)
+
+                    if parsed:
+                        file_start_ep = parsed.episode
+                        file_end_ep = parsed.episode_end or parsed.episode
+                        file_season = parsed.season
+                    else:
+                        # Can't parse filename, fall back to DB episode info
+                        file_start_ep = eps_sorted[0].episode
+                        file_end_ep = eps_sorted[-1].episode
+                        file_season = primary_ep.season
+
+                    # Build episode code portion using the FILE's episode range
+                    fmt = show.episode_format
+                    primary_code = fmt.format(
+                        season=file_season, episode=file_start_ep, title=""
+                    ).rstrip(" \u002d\u2013")
+
+                    if file_end_ep > file_start_ep:
+                        # Multi-episode file: preserve the full range
+                        codes = [primary_code]
+                        for ep_num in range(file_start_ep + 1, file_end_ep + 1):
+                            code = fmt.format(
+                                season=file_season, episode=ep_num, title=""
+                            ).rstrip(" \u002d\u2013")
+                            codes.append(code)
+                        episode_code_str = "-".join(codes)
+                    else:
+                        episode_code_str = primary_code
+
+                    # Build title from DB episodes
+                    titles = []
+                    for ep in eps_sorted:
+                        if ep.title:
+                            titles.append(renamer._sanitize_filename(ep.title))
+                    if len(titles) > 1:
+                        combined_title = " + ".join(titles)
+                    elif titles:
+                        combined_title = titles[0]
+                    else:
+                        combined_title = ""
+
+                    # Find separator between episode code and title in format
+                    sentinel = "\x00TITLE\x00"
+                    rendered = fmt.format(
+                        season=file_season, episode=file_start_ep, title=sentinel
+                    )
+                    if sentinel in rendered and primary_code in rendered:
+                        separator = rendered.split(primary_code)[1].split(sentinel)[0]
+                    else:
+                        separator = " - "
+
+                    # Build expected filename and path
+                    expected_filename = episode_code_str + separator + combined_title + extension
+                    season_folder = show.season_format.format(season=file_season)
+                    expected_path = Path(show.folder_path) / season_folder / expected_filename
+
+                    if str(current_path) == str(expected_path):
+                        continue  # Already correct
+
+                    # Determine rename type
+                    current_folder = current_path.parent
+                    expected_folder = expected_path.parent
+                    if current_path.name != expected_path.name and str(current_folder) != str(expected_folder):
+                        rename_type = "both"
+                    elif str(current_folder) != str(expected_folder):
+                        rename_type = "folder"
+                    else:
+                        rename_type = "file"
+
+                    ep_code = f"S{file_season:02d}E{file_start_ep:02d}"
+                    if file_end_ep > file_start_ep:
+                        ep_code += f"-E{file_end_ep:02d}"
+
+                    previews.append({
+                        "show_id": show.id,
+                        "show_name": show.name,
+                        "episode_ids": [ep.id for ep in eps_sorted],
+                        "season": file_season,
+                        "episode": file_start_ep,
+                        "episode_code": ep_code,
+                        "title": primary_ep.title,
+                        "current_path": str(current_path),
+                        "current_filename": current_path.name,
+                        "current_folder": str(current_path.parent),
+                        "expected_path": str(expected_path),
+                        "expected_filename": expected_path.name,
+                        "expected_folder": str(expected_path.parent),
+                        "rename_type": rename_type,
+                    })
+
+                except Exception as e:
+                    logger.error(f"  compute_rename_previews: error for '{show.name}' "
+                                 f"S{primary_ep.season:02d}E{primary_ep.episode:02d}: {e}")
+
+        return previews
+
+    def check_downloads_for_missing(self, shows: list[Show]) -> list[dict]:
+        """Check download folders for files matching missing episodes.
+
+        Returns list of matches with source and destination paths.
+        """
+        from datetime import datetime
+
+        matches = []
+
+        # Get all TV download folders
+        folders = (
+            self.db.query(ScanFolder)
+            .filter(ScanFolder.folder_type == "tv", ScanFolder.enabled == True)
+            .all()
+        )
+
+        if not folders:
+            return matches
+
+        # Build a lookup of missing episodes by show
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        missing_by_show = {}
+        for show in shows:
+            if not show.do_missing or not show.folder_path:
+                continue
+            missing_eps = (
+                self.db.query(Episode)
+                .filter(
+                    Episode.show_id == show.id,
+                    Episode.file_status == "missing",
+                    Episode.season != 0,
+                    Episode.air_date <= today,
+                    Episode.air_date.isnot(None),
+                )
+                .all()
+            )
+            if missing_eps:
+                missing_by_show[show.id] = {
+                    "show": show,
+                    "episodes": {(ep.season, ep.episode): ep for ep in missing_eps},
+                }
+
+        if not missing_by_show:
+            return matches
+
+        # Build show list for matcher
+        show_list = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "aliases": json.loads(s.aliases) if s.aliases else [],
+            }
+            for s in shows if s.id in missing_by_show
+        ]
+
+        # Scan each TV download folder
+        for folder in folders:
+            files = self.scan_folder(folder.path)
+            for file_info in files:
+                if not file_info.parsed or not file_info.parsed.title:
+                    continue
+
+                # Try to match to a show
+                match = self.matcher.find_best_show_match(
+                    file_info.parsed.title, show_list
+                )
+                if not match:
+                    continue
+
+                show_info, score = match
+                show_data = missing_by_show.get(show_info["id"])
+                if not show_data:
+                    continue
+
+                show = show_data["show"]
+                season = file_info.parsed.season
+                start_ep = file_info.parsed.episode
+                end_ep = file_info.parsed.episode_end or start_ep
+
+                for ep_num in range(start_ep, end_ep + 1):
+                    ep = show_data["episodes"].get((season, ep_num))
+                    if not ep:
+                        continue
+
+                    # Compute destination path
+                    dest_path = self._generate_destination_path(show, ep, file_info)
+
+                    ep_code = f"S{ep.season:02d}E{ep.episode:02d}"
+                    matches.append({
+                        "show_id": show.id,
+                        "show_name": show.name,
+                        "episode_id": ep.id,
+                        "season": ep.season,
+                        "episode_num": ep.episode,
+                        "episode_code": ep_code,
+                        "title": ep.title,
+                        "source_path": file_info.path,
+                        "source_filename": file_info.filename,
+                        "dest_path": dest_path,
+                        "dest_filename": Path(dest_path).name,
+                        "dest_folder": str(Path(dest_path).parent),
+                    })
+
+        return matches
 
     def _scan_download_folders(self, shows: list[Show], progress_callback=None) -> ScanResult:
         """Scan TV folders and create pending actions for matching files."""

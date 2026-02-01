@@ -21,6 +21,10 @@ _scan_status = {
     "result": None,
 }
 
+# Scan result data for new sections
+_metadata_updates: list[dict] = []
+_download_matches: list[dict] = []
+
 
 class ScanFolderRequest(BaseModel):
     """Request model for scanning a specific folder."""
@@ -40,12 +44,15 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
         scan_mode: "full" for all shows, "ongoing" for non-canceled/ended, "quick" for recently aired.
         recent_days: Number of days back to check for recently aired episodes (only used when scan_mode="quick").
     """
-    global _scan_status
+    global _scan_status, _metadata_updates, _download_matches
     import time
     import json
+    import asyncio
     from datetime import datetime
     from ..models import AppSettings
     from ..services.watcher import watcher_service
+    from ..services.tmdb import TMDBService
+    from ..services.tvdb import TVDBService
 
     # Small delay to ensure any recent commits are visible
     time.sleep(0.5)
@@ -55,6 +62,10 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
 
     SessionLocal = db_session_maker()
     db = SessionLocal()
+
+    # Create event loop for async metadata operations
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     scan_type = scan_mode
 
@@ -71,16 +82,38 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
 
         scanner = ScannerService(db)
 
+        # Get API keys for metadata services
+        tmdb_key_setting = db.query(AppSettings).filter(AppSettings.key == "tmdb_api_key").first()
+        tvdb_key_setting = db.query(AppSettings).filter(AppSettings.key == "tvdb_api_key").first()
+        tmdb_key = tmdb_key_setting.value if tmdb_key_setting else ""
+        tvdb_key = tvdb_key_setting.value if tvdb_key_setting else ""
+
+        tmdb = TMDBService(api_key=tmdb_key) if tmdb_key else None
+        tvdb = TVDBService(api_key=tvdb_key) if tvdb_key else None
+
         # Determine scan parameters based on mode
         if scan_mode == "quick" and recent_days is not None:
-            result = scanner.scan_library(recent_days=recent_days, progress_callback=update_progress)
+            result = scanner.scan_library(
+                recent_days=recent_days, progress_callback=update_progress,
+                tmdb_service=tmdb, tvdb_service=tvdb, event_loop=loop,
+            )
         elif scan_mode == "ongoing":
-            result = scanner.scan_library(quick_scan=True, progress_callback=update_progress)
+            result = scanner.scan_library(
+                quick_scan=True, progress_callback=update_progress,
+                tmdb_service=tmdb, tvdb_service=tvdb, event_loop=loop,
+            )
         else:
-            result = scanner.scan_library(quick_scan=False, progress_callback=update_progress)
+            result = scanner.scan_library(
+                quick_scan=False, progress_callback=update_progress,
+                tmdb_service=tmdb, tvdb_service=tvdb, event_loop=loop,
+            )
 
         # Ensure all changes are committed
         db.commit()
+
+        # Store results for new endpoints
+        _metadata_updates = result.rename_previews
+        _download_matches = result.download_matches
 
         scan_result = {
             "type": scan_type,
@@ -90,6 +123,10 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
             "pending_actions": len(result.pending_actions),
             "unmatched_files": result.unmatched_files[:50],  # Limit for response
             "errors": result.errors,
+            "metadata_refreshed": result.metadata_refreshed,
+            "metadata_errors": result.metadata_errors,
+            "rename_count": len(result.rename_previews),
+            "download_match_count": len(result.download_matches),
         }
 
         _scan_status["progress"] = 100
@@ -106,6 +143,11 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
         db.rollback()
     finally:
         _scan_status["running"] = False
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
+        loop.close()
         db.close()
         watcher_service.release_scan_lock()
 
@@ -483,6 +525,151 @@ async def get_all_missing_episodes(
     # Convert to list sorted by show name
     result = sorted(shows_dict.values(), key=lambda x: x["show_name"].lower())
     return result
+
+
+@router.get("/metadata-updates")
+async def get_metadata_updates():
+    """Get computed rename previews from the last scan."""
+    return _metadata_updates
+
+
+@router.get("/download-matches")
+async def get_download_matches():
+    """Get download matches for missing episodes from the last scan."""
+    return _download_matches
+
+
+class ApplyRenamesRequest(BaseModel):
+    """Request model for applying file renames."""
+
+    rename_indices: list[int]
+
+
+@router.post("/apply-renames")
+async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)):
+    """Execute selected file renames from the metadata updates list."""
+    import shutil
+    from ..models import Episode
+    from ..services.renamer import RenamerService
+
+    renamer = RenamerService(db)
+    success = 0
+    failed = 0
+    errors = []
+
+    for idx in data.rename_indices:
+        if idx < 0 or idx >= len(_metadata_updates):
+            errors.append(f"Invalid index: {idx}")
+            failed += 1
+            continue
+
+        preview = _metadata_updates[idx]
+        source = Path(preview["current_path"])
+        dest = Path(preview["expected_path"])
+
+        if not source.exists():
+            errors.append(f"Source not found: {source.name}")
+            failed += 1
+            continue
+
+        if dest.exists() and str(source) != str(dest):
+            errors.append(f"Destination already exists: {dest.name}")
+            failed += 1
+            continue
+
+        try:
+            # Create destination directory
+            dest.parent.mkdir(parents=True, exist_ok=True)
+
+            # Move the main file
+            shutil.move(str(source), str(dest))
+
+            # Move accompanying files
+            renamer._move_accompanying_files(source, dest)
+
+            # Update episode records
+            for ep_id in preview["episode_ids"]:
+                episode = db.query(Episode).filter(Episode.id == ep_id).first()
+                if episode:
+                    episode.file_path = str(dest)
+                    episode.file_status = "renamed"
+
+            db.commit()
+            success += 1
+
+        except Exception as e:
+            errors.append(f"Failed to rename {source.name}: {str(e)}")
+            failed += 1
+            db.rollback()
+
+    return {"success": success, "failed": failed, "errors": errors}
+
+
+class ImportDownloadsRequest(BaseModel):
+    """Request model for importing download matches."""
+
+    match_indices: list[int]
+
+
+@router.post("/import-downloads")
+async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)):
+    """Import matched files from downloads to library."""
+    import shutil
+    from datetime import datetime
+    from ..models import Episode
+    from ..services.renamer import RenamerService
+
+    renamer = RenamerService(db)
+    success = 0
+    failed = 0
+    errors = []
+
+    for idx in data.match_indices:
+        if idx < 0 or idx >= len(_download_matches):
+            errors.append(f"Invalid index: {idx}")
+            failed += 1
+            continue
+
+        match = _download_matches[idx]
+        source = Path(match["source_path"])
+        dest = Path(match["dest_path"])
+
+        if not source.exists():
+            errors.append(f"Source not found: {source.name}")
+            failed += 1
+            continue
+
+        if dest.exists():
+            errors.append(f"Destination already exists: {dest.name}")
+            failed += 1
+            continue
+
+        try:
+            # Create destination directory
+            dest.parent.mkdir(parents=True, exist_ok=True)
+
+            # Move the file
+            shutil.move(str(source), str(dest))
+
+            # Move accompanying files
+            renamer._move_accompanying_files(source, dest)
+
+            # Update episode record
+            episode = db.query(Episode).filter(Episode.id == match["episode_id"]).first()
+            if episode:
+                episode.file_path = str(dest)
+                episode.file_status = "found"
+                episode.matched_at = datetime.utcnow()
+
+            db.commit()
+            success += 1
+
+        except Exception as e:
+            errors.append(f"Failed to import {source.name}: {str(e)}")
+            failed += 1
+            db.rollback()
+
+    return {"success": success, "failed": failed, "errors": errors}
 
 
 # Library folder discovery scan status (separate from regular scan)

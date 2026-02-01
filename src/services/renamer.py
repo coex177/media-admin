@@ -288,6 +288,8 @@ class RenamerService:
         invalid_chars = '<>:"/\\|?*'
         for char in invalid_chars:
             name = name.replace(char, "")
+        # Collapse multiple spaces left by removed characters
+        name = " ".join(name.split())
         return name.strip()
 
     def approve_action(self, action_id: int) -> Optional[RenameResult]:

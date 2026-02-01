@@ -8,10 +8,12 @@ async function renderScan() {
     appContent.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
     try {
-        const [actions, scanStatus, missingEpisodes, settings] = await Promise.all([
+        const [actions, scanStatus, missingEpisodes, metadataUpdates, downloadMatches, settings] = await Promise.all([
             api('/actions'),
             api('/scan/status'),
             api('/scan/missing'),
+            api('/scan/metadata-updates'),
+            api('/scan/download-matches'),
             api('/settings')
         ]);
         state.actions = actions;
@@ -32,7 +34,7 @@ async function renderScan() {
         `;
 
         if (activeScanTab === 'operations') {
-            renderScanOperationsTab(actions, scanStatus, missingEpisodes, settings);
+            renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataUpdates, downloadMatches, settings);
         } else if (activeScanTab === 'issues') {
             renderIssuesTab();
         } else {
@@ -67,10 +69,19 @@ function switchScanTab(tab) {
     }
 }
 
-function renderScanOperationsTab(actions, scanStatus, missingEpisodes, settings) {
+function renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataUpdates, downloadMatches, settings) {
     const container = document.getElementById('scan-tab-content');
     if (!container) return;
     const displayEpFormat = settings?.display_episode_format || '{season}x{episode:02d}';
+
+    // Build download match lookup by episode_id
+    const downloadMatchByEpId = {};
+    downloadMatches.forEach((m, idx) => { m.globalIndex = idx; downloadMatchByEpId[m.episode_id] = m; });
+
+    const hasPendingActions = actions.length > 0 && !scanStatus.running;
+    const hasMetadataUpdates = metadataUpdates.length > 0 && !scanStatus.running;
+    const hasMissingEpisodes = (missingEpisodes.length > 0 || downloadMatches.length > 0) && !scanStatus.running;
+    const noDataAtAll = !scanStatus.running && !hasPendingActions && !hasMetadataUpdates && !hasMissingEpisodes;
 
     container.innerHTML = `
         <!-- Scan Buttons -->
@@ -106,20 +117,13 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, settings)
             </div>
         </div>
 
-        <!-- Results Area -->
-        <div class="card" id="scan-results-card">
-            <div class="card-header flex flex-between">
-                <h3 class="card-title" id="results-title">
-                    ${scanStatus.running ? 'Scanning...' :
-                      actions.length > 0 ? 'Pending Actions' :
-                      missingEpisodes.length > 0 ? 'Missing Episodes' : 'Results'}
-                </h3>
-                ${actions.length > 0 && !scanStatus.running ? `
-                    <button class="btn btn-success" onclick="approveAllActions()">Approve All</button>
-                ` : ''}
-            </div>
-            <div id="scan-results-content">
-                ${scanStatus.running ? `
+        <!-- Scan Progress -->
+        ${scanStatus.running ? `
+            <div class="card mb-20" id="scan-results-card">
+                <div class="card-header">
+                    <h3 class="card-title" id="results-title">Scanning...</h3>
+                </div>
+                <div id="scan-results-content">
                     <div class="scan-progress-area">
                         <div class="scan-progress-spinner"></div>
                         <div class="scan-progress-text">${escapeHtml(scanStatus.message || 'Scanning...')}</div>
@@ -127,111 +131,235 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, settings)
                             <div class="progress-bar-fill" style="width: ${scanStatus.progress}%"></div>
                         </div>
                     </div>
-                ` : actions.length > 0 ? `
-                    <div class="actions-list">
-                        ${actions.map(action => `
-                            <div class="action-item">
-                                <div class="action-item-info">
-                                    <strong>${escapeHtml(action.show_name || 'Unknown Show')} - ${action.season != null ? formatEpisodeCode(action.season, action.episode, displayEpFormat) : escapeHtml(action.episode_code || '')}</strong>
-                                    <div class="action-item-path" title="${escapeHtml(action.source_path)}">
-                                        From: ${escapeHtml(action.source_path)}
-                                    </div>
-                                    <div class="action-item-path" title="${escapeHtml(action.dest_path || '')}">
-                                        To: ${escapeHtml(action.dest_path || '')}
-                                    </div>
+                </div>
+            </div>
+        ` : ''}
+
+        <!-- Pending Actions -->
+        ${hasPendingActions ? `
+            <div class="card mb-20">
+                <div class="card-header flex flex-between">
+                    <h3 class="card-title">Pending Actions</h3>
+                    <button class="btn btn-success" onclick="approveAllActions()">Approve All</button>
+                </div>
+                <div class="actions-list">
+                    ${actions.map(action => `
+                        <div class="action-item">
+                            <div class="action-item-info">
+                                <strong>${escapeHtml(action.show_name || 'Unknown Show')} - ${action.season != null ? formatEpisodeCode(action.season, action.episode, displayEpFormat) : escapeHtml(action.episode_code || '')}</strong>
+                                <div class="action-item-path" title="${escapeHtml(action.source_path)}">
+                                    From: ${escapeHtml(action.source_path)}
                                 </div>
-                                <div class="action-item-buttons">
-                                    <button class="btn btn-sm btn-success" onclick="approveAction(${action.id})">Approve</button>
-                                    <button class="btn btn-sm btn-danger" onclick="rejectAction(${action.id})">Reject</button>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                ` : missingEpisodes.length > 0 ? `
-                    <div class="missing-episodes-toolbar">
-                        <div class="missing-toolbar-left">
-                            <span class="missing-selected-count" id="missing-selected-count">0 selected</span>
-                            <button class="missing-toolbar-btn btn-primary" onclick="showFixMatchModal()" id="btn-fix-match" disabled>Fix Match</button>
-                            <button class="missing-toolbar-btn btn-warning" onclick="ignoreSelectedEpisodes()" id="btn-ignore" disabled>Ignore</button>
-                            <button class="missing-toolbar-btn" onclick="markSelectedAsSpecials()" id="btn-specials" disabled>Specials</button>
-                        </div>
-                        <div class="missing-toolbar-right">
-                            <button class="missing-toolbar-btn" onclick="toggleAllMissingGroups(true)">Expand All</button>
-                            <button class="missing-toolbar-btn" onclick="toggleAllMissingGroups(false)">Collapse All</button>
-                        </div>
-                    </div>
-                    <div class="missing-episodes-grouped">
-                        ${missingEpisodes.map(show => {
-                            const isCollapsed = getMissingGroupCollapseState(show.show_id);
-                            return `
-                            <div class="missing-show-group" data-show-id="${show.show_id}">
-                                <div class="missing-show-header" onclick="toggleMissingShowGroup(this, ${show.show_id})">
-                                    <span class="missing-show-chevron">${isCollapsed ? '&#9654;' : '&#9660;'}</span>
-                                    <span class="missing-show-name">${escapeHtml(show.show_name)}</span>
-                                    <span class="missing-show-count">(${show.episodes.length} ${show.episodes.length === 1 ? 'item' : 'items'})</span>
-                                </div>
-                                <div class="missing-episodes-table-wrapper ${isCollapsed ? '' : 'open'}">
-                                    <table class="missing-episodes-table">
-                                        <thead>
-                                            <tr>
-                                                <th class="checkbox-col"><input type="checkbox" onclick="toggleAllMissingInShow(this, ${show.show_id})" title="Select all"></th>
-                                                <th>Season</th>
-                                                <th>Episode</th>
-                                                <th>Air Date</th>
-                                                <th>Filename</th>
-                                                <th class="missing-show-link-col"><img src="/static/images/goto.png" class="missing-show-goto" onclick="event.stopPropagation(); showShowDetail(${show.show_id})" title="Go to ${escapeHtml(show.show_name)}" alt="Go to show"></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            ${(() => {
-                                                // Group episodes by season
-                                                const seasonGroups = {};
-                                                show.episodes.forEach(ep => {
-                                                    const s = ep.season;
-                                                    if (!seasonGroups[s]) seasonGroups[s] = [];
-                                                    seasonGroups[s].push(ep);
-                                                });
-                                                const seasonKeys = Object.keys(seasonGroups).sort((a, b) => a - b);
-                                                return seasonKeys.map(seasonNum => {
-                                                    const eps = seasonGroups[seasonNum];
-                                                    const seasonKey = show.show_id + '-' + seasonNum;
-                                                    const seasonCollapsed = getMissingSeasonCollapseState(seasonKey);
-                                                    let rows = '';
-                                                    rows += '<tr class="missing-season-header" onclick="toggleMissingSeason(\'' + seasonKey + '\', this)">' +
-                                                            '<td colspan="6" class="missing-season-header-cell">' +
-                                                            '<img src="/static/images/' + (seasonCollapsed ? 'show-expand.png' : 'show-collapse.png') + '" class="missing-season-chevron" alt="">' +
-                                                            ' Season ' + seasonNum +
-                                                            '<span class="missing-season-count">(' + eps.length + ')</span>' +
-                                                            '</td></tr>';
-                                                    eps.forEach(ep => {
-                                                        rows += '<tr class="missing-episode-row' + (seasonCollapsed ? ' missing-season-hidden' : '') + '" data-season-key="' + seasonKey + '">' +
-                                                            '<td class="checkbox-col"><input type="checkbox" class="episode-checkbox" data-show-id="' + show.show_id + '" data-episode-id="' + ep.id + '" data-show-name="' + escapeHtml(show.show_name) + '" onclick="event.stopPropagation(); updateMissingSelectionCount()"></td>' +
-                                                            '<td>' + ep.season + '</td>' +
-                                                            '<td>' + ep.episode + '</td>' +
-                                                            '<td>' + (ep.air_date || '-') + '</td>' +
-                                                            '<td class="filename-cell">' +
-                                                            '<div class="filename-line" onclick="showShowDetail(' + show.show_id + ', ' + ep.season + ', ' + ep.episode + ')" title="' + escapeHtml(ep.expected_filename) + '">' + escapeHtml(ep.expected_filename) + '</div>' +
-                                                            '<div class="folder-line" title="' + escapeHtml(ep.expected_folder) + '">' + escapeHtml(ep.expected_folder) + '</div>' +
-                                                            '</td>' +
-                                                            '<td></td>' +
-                                                            '</tr>';
-                                                    });
-                                                    return rows;
-                                                }).join('');
-                                            })()}
-                                        </tbody>
-                                    </table>
+                                <div class="action-item-path" title="${escapeHtml(action.dest_path || '')}">
+                                    To: ${escapeHtml(action.dest_path || '')}
                                 </div>
                             </div>
-                        `}).join('')}
+                            <div class="action-item-buttons">
+                                <button class="btn btn-sm btn-success" onclick="approveAction(${action.id})">Approve</button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectAction(${action.id})">Reject</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        ` : ''}
+
+        <!-- Metadata Updates (File Renames) -->
+        ${hasMetadataUpdates ? renderMetadataUpdatesCard(metadataUpdates) : ''}
+
+        <!-- Missing Episodes -->
+        ${hasMissingEpisodes ? renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, settings) : ''}
+
+        <!-- Empty State -->
+        ${noDataAtAll ? `
+            <div class="card">
+                <div class="empty-state" style="padding: 40px 20px;">
+                    <div class="empty-state-icon">&#10003;</div>
+                    <h3>All Caught Up</h3>
+                    <p>No pending actions, renames, or missing episodes. Your library is complete!</p>
+                </div>
+            </div>
+        ` : ''}
+    `;
+
+    // Initialize selection counts after render
+    if (hasMetadataUpdates) updateRenameSelectionCount();
+    if (hasMissingEpisodes) updateMissingSelectionCount();
+}
+
+function renderMetadataUpdatesCard(metadataUpdates) {
+    // Group by show
+    const showGroups = {};
+    metadataUpdates.forEach((update, idx) => {
+        update._globalIndex = idx;
+        if (!showGroups[update.show_id]) {
+            showGroups[update.show_id] = { show_name: update.show_name, show_id: update.show_id, items: [] };
+        }
+        showGroups[update.show_id].items.push(update);
+    });
+    const groups = Object.values(showGroups).sort((a, b) => a.show_name.localeCompare(b.show_name));
+
+    const cardCollapsed = getUiPref('metadataUpdatesCardCollapsed', false);
+
+    return `
+        <div class="card mb-20 ${cardCollapsed ? 'card-collapsed' : ''}" id="metadata-updates-card">
+            <div class="card-header" onclick="toggleScanCard('metadata-updates-card', 'metadataUpdatesCardCollapsed')" style="cursor: pointer;">
+                <img src="/static/images/${cardCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="card-collapse-chevron" alt="">
+                <h3 class="card-title">Metadata Updates</h3>
+                <div class="card-header-actions" onclick="event.stopPropagation()">
+                    <span class="rename-selected-count" id="rename-selected-count">${metadataUpdates.length} selected</span>
+                    <button class="btn btn-primary btn-sm" id="btn-apply-renames" onclick="applySelectedRenames()">Apply Renames</button>
+                    <button class="card-control-btn" onclick="toggleAllRenameGroups(false)" title="Collapse all"><img src="/static/images/show-expand.png" alt="Collapse all"></button>
+                    <button class="card-control-btn" onclick="toggleAllRenameGroups(true)" title="Expand all"><img src="/static/images/show-collapse.png" alt="Expand all"></button>
+                </div>
+            </div>
+            <div class="card-body-collapsible ${cardCollapsed ? '' : 'open'}">
+            <div class="missing-episodes-grouped">
+                ${groups.map(group => {
+                    const isCollapsed = getRenameGroupCollapseState(group.show_id);
+                    return `
+                    <div class="rename-show-group" data-show-id="${group.show_id}">
+                        <div class="rename-show-header" onclick="toggleRenameShowGroup(this, ${group.show_id})">
+                            <img src="/static/images/${isCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="rename-show-chevron" alt="">
+                            <input type="checkbox" class="rename-show-select-all" checked onclick="event.stopPropagation(); toggleAllRenamesInShow(this, ${group.show_id})" title="Select all">
+                            <span class="rename-show-name">${escapeHtml(group.show_name)}</span>
+                            <span class="rename-show-count">(${group.items.length} ${group.items.length === 1 ? 'rename' : 'renames'})</span>
+                        </div>
+                        <div class="rename-episodes-table-wrapper ${isCollapsed ? '' : 'open'}">
+                            <table class="rename-episodes-table">
+                                <thead>
+                                    <tr>
+                                        <th class="checkbox-col"></th>
+                                        <th>Episode</th>
+                                        <th>Current Filename</th>
+                                        <th class="arrow-col"></th>
+                                        <th>New Filename</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${group.items.map(item => `
+                                        <tr class="rename-episode-row">
+                                            <td class="checkbox-col">
+                                                <input type="checkbox" class="rename-checkbox" checked
+                                                       data-rename-index="${item._globalIndex}"
+                                                       data-show-id="${group.show_id}"
+                                                       onclick="event.stopPropagation(); updateRenameSelectionCount()">
+                                            </td>
+                                            <td>${escapeHtml(item.episode_code)}</td>
+                                            <td class="filename-cell">
+                                                <div class="filename-line" title="${escapeHtml(item.current_filename)}">${escapeHtml(item.current_filename)}</div>
+                                                ${item.rename_type !== 'file' ? '<div class="folder-line" title="' + escapeHtml(item.current_folder) + '">' + escapeHtml(item.current_folder) + '</div>' : ''}
+                                            </td>
+                                            <td class="arrow-col">&rarr;</td>
+                                            <td class="filename-cell">
+                                                <div class="filename-line" title="${escapeHtml(item.expected_filename)}">${escapeHtml(item.expected_filename)}</div>
+                                                ${item.rename_type !== 'file' ? '<div class="folder-line" title="' + escapeHtml(item.expected_folder) + '">' + escapeHtml(item.expected_folder) + '</div>' : ''}
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                ` : `
-                    <div class="empty-state" style="padding: 40px 20px;">
-                        <div class="empty-state-icon">✓</div>
-                        <h3>All Caught Up</h3>
-                        <p>No pending actions or missing episodes. Your library is complete!</p>
+                `}).join('')}
+            </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, settings) {
+    const hasDownloadMatches = Object.keys(downloadMatchByEpId).length > 0;
+
+    const cardCollapsed = getUiPref('missingEpisodesCardCollapsed', false);
+
+    return `
+        <div class="card mb-20 ${cardCollapsed ? 'card-collapsed' : ''}" id="missing-episodes-card">
+            <div class="card-header" onclick="toggleScanCard('missing-episodes-card', 'missingEpisodesCardCollapsed')" style="cursor: pointer;">
+                <img src="/static/images/${cardCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="card-collapse-chevron" alt="">
+                <h3 class="card-title">Missing Episodes</h3>
+                <div class="card-header-actions" onclick="event.stopPropagation()">
+                    <span class="missing-selected-count" id="missing-selected-count">0 selected</span>
+                    ${hasDownloadMatches ? `<button class="btn btn-success btn-sm" onclick="importCheckedDownloads()" id="btn-import-downloads">Import Episodes</button>` : ''}
+                    <button class="btn btn-primary btn-sm" onclick="showFixMatchModal()" id="btn-fix-match" disabled>Fix Match</button>
+                    <button class="btn btn-warning btn-sm" onclick="ignoreSelectedEpisodes()" id="btn-ignore" disabled>Ignore</button>
+                    <button class="btn btn-sm" onclick="markSelectedAsSpecials()" id="btn-specials" disabled>Specials</button>
+                    <button class="card-control-btn" onclick="toggleAllMissingGroups(false)" title="Collapse all"><img src="/static/images/show-expand.png" alt="Collapse all"></button>
+                    <button class="card-control-btn" onclick="toggleAllMissingGroups(true)" title="Expand all"><img src="/static/images/show-collapse.png" alt="Expand all"></button>
+                </div>
+            </div>
+            <div class="card-body-collapsible ${cardCollapsed ? '' : 'open'}">
+            <div class="missing-episodes-grouped">
+                ${missingEpisodes.map(show => {
+                    const isCollapsed = getMissingGroupCollapseState(show.show_id);
+                    return `
+                    <div class="missing-show-group" data-show-id="${show.show_id}">
+                        <div class="missing-show-header" onclick="toggleMissingShowGroup(this, ${show.show_id})">
+                            <img src="/static/images/${isCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="missing-show-chevron" alt="">
+                            <span class="missing-show-name">${escapeHtml(show.show_name)}</span>
+                            <span class="missing-show-count">(${show.episodes.length} ${show.episodes.length === 1 ? 'item' : 'items'})</span>
+                        </div>
+                        <div class="missing-episodes-table-wrapper ${isCollapsed ? '' : 'open'}">
+                            <table class="missing-episodes-table">
+                                <thead>
+                                    <tr>
+                                        <th class="checkbox-col"><input type="checkbox" onclick="toggleAllMissingInShow(this, ${show.show_id})" title="Select all"></th>
+                                        <th>Season</th>
+                                        <th>Episode</th>
+                                        <th>Air Date</th>
+                                        <th>Filename</th>
+                                        <th class="missing-show-link-col"><img src="/static/images/goto.png" class="missing-show-goto" onclick="event.stopPropagation(); showShowDetail(${show.show_id})" title="Go to ${escapeHtml(show.show_name)}" alt="Go to show"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(() => {
+                                        // Group episodes by season
+                                        const seasonGroups = {};
+                                        show.episodes.forEach(ep => {
+                                            const s = ep.season;
+                                            if (!seasonGroups[s]) seasonGroups[s] = [];
+                                            seasonGroups[s].push(ep);
+                                        });
+                                        const seasonKeys = Object.keys(seasonGroups).sort((a, b) => a - b);
+                                        return seasonKeys.map(seasonNum => {
+                                            const eps = seasonGroups[seasonNum];
+                                            const seasonKey = show.show_id + '-' + seasonNum;
+                                            const seasonCollapsed = getMissingSeasonCollapseState(seasonKey);
+                                            let rows = '';
+                                            rows += '<tr class="missing-season-header" onclick="toggleMissingSeason(\'' + seasonKey + '\', this)">' +
+                                                    '<td colspan="6" class="missing-season-header-cell">' +
+                                                    '<img src="/static/images/' + (seasonCollapsed ? 'show-expand.png' : 'show-collapse.png') + '" class="missing-season-chevron" alt="">' +
+                                                    ' Season ' + seasonNum +
+                                                    '<span class="missing-season-count">(' + eps.length + ')</span>' +
+                                                    '</td></tr>';
+                                            eps.forEach(ep => {
+                                                const match = downloadMatchByEpId[ep.id];
+                                                const hasMatch = !!match;
+                                                rows += '<tr class="missing-episode-row' + (hasMatch ? ' download-match-row' : '') + (seasonCollapsed ? ' missing-season-hidden' : '') + '" data-season-key="' + seasonKey + '">' +
+                                                    '<td class="checkbox-col"><input type="checkbox" class="episode-checkbox" ' + (hasMatch ? 'checked ' : '') +
+                                                    'data-show-id="' + show.show_id + '" data-episode-id="' + ep.id + '" data-show-name="' + escapeHtml(show.show_name) + '"' +
+                                                    (hasMatch ? ' data-download-index="' + match.globalIndex + '"' : '') +
+                                                    ' onclick="event.stopPropagation(); updateMissingSelectionCount()"></td>' +
+                                                    '<td>' + ep.season + '</td>' +
+                                                    '<td>' + ep.episode + '</td>' +
+                                                    '<td>' + (ep.air_date || '-') + '</td>' +
+                                                    '<td class="filename-cell">' +
+                                                    '<div class="filename-line" onclick="showShowDetail(' + show.show_id + ', ' + ep.season + ', ' + ep.episode + ')" title="' + escapeHtml(ep.expected_filename) + '">' + escapeHtml(ep.expected_filename) + '</div>' +
+                                                    '<div class="folder-line" title="' + escapeHtml(ep.expected_folder) + '">' + escapeHtml(ep.expected_folder) + '</div>' +
+                                                    (hasMatch ? '<div class="download-match-line">Found: ' + escapeHtml(match.source_filename) + '</div>' : '') +
+                                                    '</td>' +
+                                                    '<td></td>' +
+                                                    '</tr>';
+                                            });
+                                            return rows;
+                                        }).join('');
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                `}
+                `}).join('')}
+            </div>
             </div>
         </div>
     `;
@@ -296,22 +424,44 @@ function pollScanStatusWithUI() {
     if (ongoingBtn) ongoingBtn.disabled = true;
     if (selectedBtn) selectedBtn.disabled = true;
 
-    // Update title
-    const resultsTitle = document.getElementById('results-title');
-    if (resultsTitle) resultsTitle.textContent = 'Scanning...';
-
-    // Show progress in results area
-    const resultsContent = document.getElementById('scan-results-content');
-    if (resultsContent) {
-        resultsContent.innerHTML = `
-            <div class="scan-progress-area">
-                <div class="scan-progress-spinner"></div>
-                <div class="scan-progress-text" id="scan-status-text">Starting scan...</div>
-                <div class="progress-bar-container mt-10">
-                    <div class="progress-bar-fill" id="scan-progress-bar" style="width: 0%"></div>
+    // Show progress in a dedicated card if not already visible
+    let resultsCard = document.getElementById('scan-results-card');
+    if (!resultsCard) {
+        // Insert progress card after scan buttons
+        const scanButtons = document.querySelector('.card.mb-20');
+        if (scanButtons) {
+            const progressCard = document.createElement('div');
+            progressCard.className = 'card mb-20';
+            progressCard.id = 'scan-results-card';
+            progressCard.innerHTML = `
+                <div class="card-header">
+                    <h3 class="card-title" id="results-title">Scanning...</h3>
                 </div>
-            </div>
-        `;
+                <div id="scan-results-content">
+                    <div class="scan-progress-area">
+                        <div class="scan-progress-spinner"></div>
+                        <div class="scan-progress-text" id="scan-status-text">Starting scan...</div>
+                        <div class="progress-bar-container mt-10">
+                            <div class="progress-bar-fill" id="scan-progress-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            scanButtons.after(progressCard);
+        }
+    } else {
+        const resultsContent = document.getElementById('scan-results-content');
+        if (resultsContent) {
+            resultsContent.innerHTML = `
+                <div class="scan-progress-area">
+                    <div class="scan-progress-spinner"></div>
+                    <div class="scan-progress-text" id="scan-status-text">Starting scan...</div>
+                    <div class="progress-bar-container mt-10">
+                        <div class="progress-bar-fill" id="scan-progress-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            `;
+        }
     }
 
     const checkStatus = async () => {
@@ -414,7 +564,114 @@ async function pollScanStatus() {
     setTimeout(checkStatus, 1000);
 }
 
-// Missing Episodes - Collapse State Management
+// ── Card-level Collapse ──
+
+function toggleScanCard(cardId, prefKey) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const body = card.querySelector('.card-body-collapsible');
+    const chevron = card.querySelector('.card-collapse-chevron');
+    if (!body) return;
+
+    const isOpen = body.classList.contains('open');
+    body.classList.toggle('open', !isOpen);
+    card.classList.toggle('card-collapsed', isOpen);
+    if (chevron) chevron.src = isOpen ? '/static/images/show-expand.png' : '/static/images/show-collapse.png';
+    setUiPref(prefKey, isOpen);
+}
+
+// ── Metadata Updates (Rename) — Collapse State Management ──
+
+function getRenameGroupCollapseState(showId) {
+    const states = getUiPref('renameGroupCollapseStates', {});
+    return states[showId] === true;
+}
+
+function setRenameGroupCollapseState(showId, collapsed) {
+    const states = getUiPref('renameGroupCollapseStates', {});
+    if (collapsed) {
+        states[showId] = true;
+    } else {
+        delete states[showId];
+    }
+    setUiPref('renameGroupCollapseStates', states);
+}
+
+function toggleRenameShowGroup(header, showId) {
+    const wrapper = header.nextElementSibling;
+    const chevron = header.querySelector('.rename-show-chevron');
+
+    if (wrapper.classList.contains('open')) {
+        wrapper.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+        setRenameGroupCollapseState(showId, true);
+    } else {
+        wrapper.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+        setRenameGroupCollapseState(showId, false);
+    }
+}
+
+function toggleAllRenameGroups(expand) {
+    document.querySelectorAll('.rename-show-group').forEach(group => {
+        const showId = group.dataset.showId;
+        const wrapper = group.querySelector('.rename-episodes-table-wrapper');
+        const chevron = group.querySelector('.rename-show-chevron');
+
+        if (expand) {
+            wrapper.classList.add('open');
+            if (chevron) chevron.src = '/static/images/show-collapse.png';
+            setRenameGroupCollapseState(showId, false);
+        } else {
+            wrapper.classList.remove('open');
+            if (chevron) chevron.src = '/static/images/show-expand.png';
+            setRenameGroupCollapseState(showId, true);
+        }
+    });
+}
+
+function toggleAllRenamesInShow(headerCheckbox, showId) {
+    const checkboxes = document.querySelectorAll(`.rename-checkbox[data-show-id="${showId}"]`);
+    checkboxes.forEach(cb => cb.checked = headerCheckbox.checked);
+    updateRenameSelectionCount();
+}
+
+function updateRenameSelectionCount() {
+    const checked = document.querySelectorAll('.rename-checkbox:checked');
+    const total = document.querySelectorAll('.rename-checkbox');
+    const countEl = document.getElementById('rename-selected-count');
+    const applyBtn = document.getElementById('btn-apply-renames');
+
+    if (countEl) {
+        countEl.textContent = `${checked.length} of ${total.length} selected`;
+    }
+    if (applyBtn) {
+        applyBtn.disabled = checked.length === 0;
+    }
+}
+
+async function applySelectedRenames() {
+    const indices = [];
+    document.querySelectorAll('.rename-checkbox:checked').forEach(cb => {
+        indices.push(parseInt(cb.dataset.renameIndex));
+    });
+    if (indices.length === 0) { showToast('No renames selected', 'warning'); return; }
+    if (!confirm(`Apply ${indices.length} file rename${indices.length > 1 ? 's' : ''}?`)) return;
+
+    try {
+        const result = await api('/scan/apply-renames', {
+            method: 'POST',
+            body: JSON.stringify({ rename_indices: indices })
+        });
+        showToast(`${result.success} renamed, ${result.failed} failed`, result.failed > 0 ? 'warning' : 'success');
+        renderScan();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+// ── Missing Episodes — Collapse State Management ──
+
 function getMissingGroupCollapseState(showId) {
     const states = getUiPref('missingGroupCollapseStates', {});
     return states[showId] === true;
@@ -466,11 +723,11 @@ function toggleMissingShowGroup(header, showId) {
 
     if (wrapper.classList.contains('open')) {
         wrapper.classList.remove('open');
-        chevron.innerHTML = '&#9654;'; // Right arrow
+        if (chevron) chevron.src = '/static/images/show-expand.png';
         setMissingGroupCollapseState(showId, true);
     } else {
         wrapper.classList.add('open');
-        chevron.innerHTML = '&#9660;'; // Down arrow
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
         setMissingGroupCollapseState(showId, false);
     }
 }
@@ -483,11 +740,11 @@ function toggleAllMissingGroups(expand) {
 
         if (expand) {
             wrapper.classList.add('open');
-            chevron.innerHTML = '&#9660;';
+            if (chevron) chevron.src = '/static/images/show-collapse.png';
             setMissingGroupCollapseState(showId, false);
         } else {
             wrapper.classList.remove('open');
-            chevron.innerHTML = '&#9654;';
+            if (chevron) chevron.src = '/static/images/show-expand.png';
             setMissingGroupCollapseState(showId, true);
         }
     });
@@ -501,23 +758,24 @@ function toggleAllMissingInShow(headerCheckbox, showId) {
 
 function updateMissingSelectionCount() {
     const selected = getSelectedMissingEpisodes();
+    const importable = selected.filter(s => s.downloadIndex !== null);
     const countEl = document.getElementById('missing-selected-count');
     const fixMatchBtn = document.getElementById('btn-fix-match');
     const ignoreBtn = document.getElementById('btn-ignore');
     const specialsBtn = document.getElementById('btn-specials');
+    const importBtn = document.getElementById('btn-import-downloads');
 
     if (countEl) {
-        countEl.textContent = `${selected.length} selected`;
+        let text = `${selected.length} selected`;
+        if (importable.length > 0) {
+            text += ` (${importable.length} importable)`;
+        }
+        countEl.textContent = text;
     }
-    if (fixMatchBtn) {
-        fixMatchBtn.disabled = selected.length === 0;
-    }
-    if (ignoreBtn) {
-        ignoreBtn.disabled = selected.length === 0;
-    }
-    if (specialsBtn) {
-        specialsBtn.disabled = selected.length === 0;
-    }
+    if (fixMatchBtn) fixMatchBtn.disabled = selected.length === 0;
+    if (ignoreBtn) ignoreBtn.disabled = selected.length === 0;
+    if (specialsBtn) specialsBtn.disabled = selected.length === 0;
+    if (importBtn) importBtn.disabled = importable.length === 0;
 }
 
 function getSelectedMissingEpisodes() {
@@ -526,10 +784,33 @@ function getSelectedMissingEpisodes() {
         selected.push({
             showId: parseInt(cb.dataset.showId),
             episodeId: parseInt(cb.dataset.episodeId),
-            showName: cb.dataset.showName
+            showName: cb.dataset.showName,
+            downloadIndex: cb.dataset.downloadIndex != null ? parseInt(cb.dataset.downloadIndex) : null,
         });
     });
     return selected;
+}
+
+// ── Import Downloads ──
+
+async function importCheckedDownloads() {
+    const indices = [];
+    document.querySelectorAll('.episode-checkbox:checked[data-download-index]').forEach(cb => {
+        indices.push(parseInt(cb.dataset.downloadIndex));
+    });
+    if (indices.length === 0) { showToast('No importable episodes selected', 'warning'); return; }
+    if (!confirm(`Import ${indices.length} episode${indices.length > 1 ? 's' : ''} from downloads?`)) return;
+
+    try {
+        const result = await api('/scan/import-downloads', {
+            method: 'POST',
+            body: JSON.stringify({ match_indices: indices })
+        });
+        showToast(`${result.success} imported, ${result.failed} failed`, result.failed > 0 ? 'warning' : 'success');
+        renderScan();
+    } catch (error) {
+        // Error already shown
+    }
 }
 
 // Scan Selected Episodes
@@ -587,7 +868,7 @@ async function scanSelectedEpisodes() {
                         <div class="scan-results-list">
                             ${foundResults.map(r => `
                                 <div class="scan-result-item scan-result-found">
-                                    <span class="scan-result-icon">✓</span>
+                                    <span class="scan-result-icon">&#10003;</span>
                                     <span class="scan-result-text"><strong>${escapeHtml(r.show_name)}</strong> ${r.episode_code}</span>
                                 </div>
                             `).join('')}
@@ -600,7 +881,7 @@ async function scanSelectedEpisodes() {
                         <div class="scan-results-list">
                             ${notFoundResults.map(r => `
                                 <div class="scan-result-item scan-result-notfound">
-                                    <span class="scan-result-icon">✗</span>
+                                    <span class="scan-result-icon">&#10007;</span>
                                     <span class="scan-result-text"><strong>${escapeHtml(r.show_name)}</strong> ${r.episode_code}</span>
                                     <span class="scan-result-message">${escapeHtml(r.message)}</span>
                                 </div>
