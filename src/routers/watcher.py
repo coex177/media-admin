@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -324,6 +324,124 @@ async def delete_watcher_log_entry(entry_id: int, db: Session = Depends(get_db))
     db.delete(entry)
     db.commit()
     return {"message": "Log entry deleted", "deleted": 1}
+
+
+# ── Issues folder browsing ───────────────────────────────────────
+
+@router.get("/watcher/issues")
+async def get_issues_files(db: Session = Depends(get_db)):
+    """List all files in the configured issues folder."""
+    issues_entry = (
+        db.query(ScanFolder)
+        .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
+        .first()
+    )
+    issues_folder = issues_entry.path if issues_entry else ""
+
+    if not issues_folder or not Path(issues_folder).is_dir():
+        return {"total": 0, "issues_folder": issues_folder, "files": []}
+
+    root = Path(issues_folder)
+    files = []
+    for f in root.rglob("*"):
+        if not f.is_file():
+            continue
+        try:
+            stat = f.stat()
+            rel = f.relative_to(root)
+            # Subfolder is the first parent component relative to root, or empty
+            subfolder = str(rel.parent) if str(rel.parent) != "." else ""
+            files.append({
+                "name": f.name,
+                "path": str(rel),
+                "full_path": str(f),
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "subfolder": subfolder,
+            })
+        except OSError:
+            continue
+
+    return {"total": len(files), "issues_folder": issues_folder, "files": files}
+
+
+@router.delete("/watcher/issues")
+async def delete_issues_file(
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Delete a specific file from the issues folder."""
+    rel_path = body.get("path", "")
+    if not rel_path:
+        raise HTTPException(status_code=400, detail="Missing 'path' in request body")
+
+    issues_entry = (
+        db.query(ScanFolder)
+        .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
+        .first()
+    )
+    issues_folder = issues_entry.path if issues_entry else ""
+    if not issues_folder:
+        raise HTTPException(status_code=400, detail="Issues folder not configured")
+
+    root = Path(issues_folder).resolve()
+    target = (root / rel_path).resolve()
+
+    # Prevent path traversal
+    if not str(target).startswith(str(root)):
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    target.unlink()
+
+    # Clean up empty parent directories up to the issues root
+    parent = target.parent
+    while parent != root and parent.is_dir():
+        try:
+            parent.rmdir()  # Only succeeds if empty
+            parent = parent.parent
+        except OSError:
+            break
+
+    return {"message": "File deleted"}
+
+
+@router.delete("/watcher/issues/all")
+async def delete_all_issues_files(db: Session = Depends(get_db)):
+    """Delete all files in the issues folder."""
+    issues_entry = (
+        db.query(ScanFolder)
+        .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
+        .first()
+    )
+    issues_folder = issues_entry.path if issues_entry else ""
+    if not issues_folder:
+        raise HTTPException(status_code=400, detail="Issues folder not configured")
+
+    root = Path(issues_folder)
+    if not root.is_dir():
+        return {"message": "Deleted 0 files", "deleted": 0}
+
+    deleted = 0
+    for f in list(root.rglob("*")):
+        if f.is_file():
+            try:
+                f.unlink()
+                deleted += 1
+            except OSError:
+                continue
+
+    # Clean up empty subdirectories
+    for d in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if d.is_dir():
+            try:
+                d.rmdir()
+            except OSError:
+                continue
+
+    return {"message": f"Deleted {deleted} files", "deleted": deleted}
 
 
 # ── Prerequisites validation ────────────────────────────────────────

@@ -4055,3 +4055,37 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     padding-left: 60px;
 }
 
+/* ── Issues tab ──────────────────────────────────────────────── */
+
+.issues-file-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.issues-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.issues-file-size {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.issues-file-subfolder {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    background-color: rgba(52, 152, 219, 0.15);
+    color: #3498db;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+

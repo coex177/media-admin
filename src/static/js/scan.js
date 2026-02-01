@@ -23,8 +23,9 @@ async function renderScan() {
             </div>
 
             <div class="scan-tabs">
-                <button class="scan-tab ${activeScanTab === 'operations' ? 'active' : ''}" onclick="switchScanTab('operations')"><img src="/static/images/operations.png" class="tab-icon-img" alt="">Operations</button>
-                <button class="scan-tab ${activeScanTab === 'watcher-log' ? 'active' : ''}" onclick="switchScanTab('watcher-log')"><img src="/static/images/watcher-log.png" class="tab-icon-img" alt="">Watcher Log</button>
+                <button class="scan-tab ${activeScanTab === 'operations' ? 'active' : ''}" data-tab="operations" onclick="switchScanTab('operations')"><img src="/static/images/operations.png" class="tab-icon-img" alt="">Operations</button>
+                <button class="scan-tab ${activeScanTab === 'watcher-log' ? 'active' : ''}" data-tab="watcher-log" onclick="switchScanTab('watcher-log')"><img src="/static/images/watcher-log.png" class="tab-icon-img" alt="">Watcher Log</button>
+                <button class="scan-tab ${activeScanTab === 'issues' ? 'active' : ''}" data-tab="issues" onclick="switchScanTab('issues')"><img src="/static/images/issues.png" class="tab-icon-img" alt="">Issues</button>
             </div>
 
             <div id="scan-tab-content"></div>
@@ -32,6 +33,8 @@ async function renderScan() {
 
         if (activeScanTab === 'operations') {
             renderScanOperationsTab(actions, scanStatus, missingEpisodes, settings);
+        } else if (activeScanTab === 'issues') {
+            renderIssuesTab();
         } else {
             renderWatcherLogTab();
         }
@@ -48,8 +51,7 @@ function switchScanTab(tab) {
     setUiPref('scanActiveTab', tab);
 
     document.querySelectorAll('.scan-tab').forEach(btn => {
-        btn.classList.toggle('active', btn.textContent.trim().toLowerCase().replace(/\s+/g, '-') ===
-            (tab === 'operations' ? 'operations' : 'watcher-log'));
+        btn.classList.toggle('active', btn.dataset.tab === tab);
     });
 
     const container = document.getElementById('scan-tab-content');
@@ -58,6 +60,8 @@ function switchScanTab(tab) {
     if (tab === 'operations') {
         // Re-render full scan page to get fresh data
         renderScan();
+    } else if (tab === 'issues') {
+        renderIssuesTab();
     } else {
         renderWatcherLogTab();
     }
