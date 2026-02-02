@@ -495,7 +495,7 @@ def _check_prerequisites(db: Session) -> list[dict]:
         .all()
     )
     results.append({
-        "name": "TV Folder",
+        "name": "Saved/Download Folder",
         "key": "tv_folder",
         "met": len(tv_folders) > 0,
         "detail": f"{len(tv_folders)} folder(s)" if tv_folders else "None configured",
