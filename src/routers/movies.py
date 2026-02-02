@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Movie, AppSettings
 from ..services.tmdb import TMDBService
+from ..services.movie_scanner import MovieScannerService
 
 logger = logging.getLogger("movie_scanner")
 
@@ -472,6 +473,14 @@ async def create_movie(
     db.add(movie)
     db.commit()
     db.refresh(movie)
+
+    # Auto-scan to find the file on disk
+    try:
+        scanner = MovieScannerService(db)
+        scanner.scan_single_movie(movie)
+        db.refresh(movie)
+    except Exception as e:
+        logger.warning(f"Auto-scan failed for '{movie.title}': {e}")
 
     return movie.to_dict()
 
