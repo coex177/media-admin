@@ -1935,7 +1935,7 @@ async def scan_single_movie(
     }
 
 
-def run_movie_library_discovery(db_session_maker, folder_id: int, tmdb_api_key: str):
+def run_movie_library_discovery(db_session_maker, folder_id: int, tmdb_api_key: str, limit: int = None):
     """Background task to discover movies from a folder."""
     global _movie_discovery_status
     import time
@@ -1974,6 +1974,9 @@ def run_movie_library_discovery(db_session_maker, folder_id: int, tmdb_api_key: 
 
         # Discover files
         discovered_files = scanner.discover_movie_folder(folder.path, progress_callback=update_progress)
+
+        if limit and limit > 0:
+            discovered_files = discovered_files[:limit]
 
         _movie_discovery_status["message"] = f"Found {len(discovered_files)} potential movies, searching TMDB..."
 
@@ -2116,6 +2119,7 @@ class MovieLibraryFolderScanRequest(BaseModel):
     """Request model for scanning a movie library folder for new movies."""
 
     folder_id: int
+    limit: Optional[int] = None
 
 
 @router.post("/movie-library-folder")
@@ -2152,6 +2156,7 @@ async def scan_movie_library_folder(
         get_session_maker,
         data.folder_id,
         tmdb_key,
+        limit=data.limit,
     )
 
     return {"message": "Movie discovery scan started", "status": "running"}

@@ -264,14 +264,6 @@ function renderSettingsLibrary(settings, folders) {
         </div>
 
         <div class="card">
-            <div class="form-group" style="max-width: 250px; margin-bottom: 10px;">
-                <label>Managed Import Count</label>
-                <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500" onchange="autoSaveSlowImportCount()">
-                <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}).</small>
-            </div>
-        </div>
-
-        <div class="card">
             <h2 class="card-title mb-20">Movie Formats</h2>
             <div class="form-group">
                 <label>Movie Path Format</label>
@@ -284,6 +276,11 @@ function renderSettingsLibrary(settings, folders) {
                     <code>{year}/{title} ({year})</code> → year-based folders<br>
                     <code>{title} ({year})</code> → flat (no subfolders)
                 </small>
+            </div>
+            <div class="form-group" style="max-width: 250px;">
+                <label>Managed Import Count</label>
+                <input type="number" id="settings-slow-import-count" class="form-control" value="${settings.slow_import_count || 10}" min="1" max="500" onchange="autoSaveSlowImportCount()">
+                <small class="text-muted">Number of shows/movies to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}).</small>
             </div>
         </div>
     `;

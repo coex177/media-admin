@@ -258,6 +258,7 @@ async function renderMoviesList() {
                         <button class="card-control-btn" onclick="expandAllMovieListItems()" title="Expand all" ${currentMoviesView !== 'list' ? 'disabled' : ''}><img src="/static/images/expand.png" alt="Expand"></button>
                     </div>
                     <button class="btn btn-secondary" onclick="refreshAllMovies()" id="movie-refresh-all-btn">Refresh All Metadata</button>
+                    <button class="btn btn-secondary" onclick="startMovieSlowImport()">Managed Import</button>
                     <button class="btn btn-primary" onclick="showAddMovieModal()">+ Add Movie</button>
                 </div>
             </div>
@@ -358,6 +359,129 @@ function goToMoviesPage(page) {
     state.moviesPage = page;
     window.scrollTo(0, 0);
     renderMoviesList();
+}
+
+// ── Managed Import (Movies) ──────────────────────────────────────
+
+async function startMovieSlowImport() {
+    try {
+        const [settings, folders] = await Promise.all([
+            api('/settings'),
+            api('/folders')
+        ]);
+
+        const slowImportCount = settings.slow_import_count || 10;
+        const movieFolders = folders.filter(f => f.type === 'movie_library' && f.enabled);
+
+        if (movieFolders.length === 0) {
+            showToast('No movie library folders configured. Add one in Settings.', 'warning');
+            return;
+        }
+
+        const folder = movieFolders[0];
+        showMovieSlowImportModal(folder.path);
+
+        await api('/scan/movie-library-folder', {
+            method: 'POST',
+            body: JSON.stringify({ folder_id: folder.id, limit: slowImportCount })
+        });
+
+        pollMovieSlowImportStatus();
+    } catch (error) {
+        closeMovieSlowImportModal();
+    }
+}
+
+function showMovieSlowImportModal(folderPath) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Movie Managed Import';
+    modalBody.innerHTML = `
+        <div class="library-scan-modal">
+            <div class="library-scan-header">
+                <div class="library-scan-folder" title="${escapeHtml(folderPath)}">${escapeHtml(folderPath)}</div>
+                <div class="library-scan-status">
+                    <div class="library-scan-spinner"></div>
+                    <span id="movie-import-message">Initializing...</span>
+                </div>
+                <div class="library-scan-progress-container">
+                    <div class="library-scan-progress-bar" id="movie-import-progress" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="library-scan-stats" id="movie-import-stats">
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value" id="movie-stat-added">0</span>
+                    <span class="library-scan-stat-label">Added</span>
+                </div>
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value" id="movie-stat-skipped">0</span>
+                    <span class="library-scan-stat-label">Skipped</span>
+                </div>
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value" id="movie-stat-errors">0</span>
+                    <span class="library-scan-stat-label">Errors</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.querySelector('.modal-close').style.display = 'none';
+    modal.classList.add('active');
+}
+
+function updateMovieSlowImportModal(status) {
+    const messageEl = document.getElementById('movie-import-message');
+    if (messageEl) messageEl.textContent = status.message || 'Discovering...';
+
+    const progressEl = document.getElementById('movie-import-progress');
+    if (progressEl) progressEl.style.width = `${status.progress || 0}%`;
+
+    const discovered = status.discovered || [];
+    const added = discovered.filter(d => d.status === 'added').length;
+    const skipped = discovered.filter(d => d.status === 'existing' || d.status === 'not_found').length;
+    const errors = discovered.filter(d => d.status === 'error').length;
+
+    const statAdded = document.getElementById('movie-stat-added');
+    const statSkipped = document.getElementById('movie-stat-skipped');
+    const statErrors = document.getElementById('movie-stat-errors');
+    if (statAdded) statAdded.textContent = added;
+    if (statSkipped) statSkipped.textContent = skipped;
+    if (statErrors) statErrors.textContent = errors;
+}
+
+function closeMovieSlowImportModal() {
+    document.querySelector('.modal-close').style.display = '';
+    closeModal();
+}
+
+function pollMovieSlowImportStatus() {
+    const checkStatus = async () => {
+        try {
+            const status = await fetch(`${API_BASE}/scan/movie-library-folder/status`).then(r => r.json());
+
+            if (status.running) {
+                updateMovieSlowImportModal(status);
+                setTimeout(checkStatus, 500);
+            } else {
+                updateMovieSlowImportModal(status);
+                setTimeout(() => {
+                    closeMovieSlowImportModal();
+                    if (status.result?.error) {
+                        showToast(`Import failed: ${status.result.error}`, 'error');
+                    } else {
+                        const r = status.result || {};
+                        showToast(`Import complete: ${r.movies_added || 0} added, ${r.movies_skipped || 0} skipped`, 'success');
+                    }
+                    renderMoviesList();
+                }, 1000);
+            }
+        } catch (error) {
+            setTimeout(checkStatus, 2000);
+        }
+    };
+    setTimeout(checkStatus, 300);
 }
 
 // ── Refresh All Metadata ─────────────────────────────────────────

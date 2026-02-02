@@ -89,11 +89,18 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataU
     const noDataAtAll = !scanStatus.running && !hasPendingActions && !hasMetadataUpdates && !hasMissingEpisodes;
 
     container.innerHTML = `
-        <!-- Scan Buttons -->
-        <div class="card mb-20">
-            <div class="card-header">
-                <h3 class="card-title">Scan Operations</h3>
+        <!-- Show Operations -->
+        ${(() => {
+            const showOpsCollapsed = getUiPref('showOpsCardCollapsed', false);
+            return `
+        <div class="card mb-20 ${showOpsCollapsed ? 'card-collapsed' : ''}" id="show-operations-card">
+            <div class="card-header" onclick="toggleScanCard('show-operations-card', 'showOpsCardCollapsed')" style="cursor: pointer;">
+                <div class="card-header-left">
+                    <img src="/static/images/${showOpsCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="card-collapse-chevron" alt="">
+                    <h3 class="card-title">Show Operations</h3>
+                </div>
             </div>
+            <div class="card-body-collapsible ${showOpsCollapsed ? '' : 'open'}">
             <div class="scan-buttons">
                 <div class="scan-button-group">
                     <button class="btn btn-primary btn-lg" onclick="triggerFullScan()" id="scan-full-btn" ${scanStatus.running ? 'disabled' : ''}>
@@ -120,13 +127,22 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataU
                     <p class="scan-description">Scan only selected shows/episodes from the lists below.</p>
                 </div>
             </div>
-        </div>
-
-        <!-- Movie Scan Operations -->
-        <div class="card mb-20">
-            <div class="card-header">
-                <h3 class="card-title">Movie Operations</h3>
             </div>
+        </div>`;
+        })()}
+
+        <!-- Movie Operations -->
+        ${(() => {
+            const movieOpsCollapsed = getUiPref('movieOpsCardCollapsed', false);
+            return `
+        <div class="card mb-20 ${movieOpsCollapsed ? 'card-collapsed' : ''}" id="movie-operations-card">
+            <div class="card-header" onclick="toggleScanCard('movie-operations-card', 'movieOpsCardCollapsed')" style="cursor: pointer;">
+                <div class="card-header-left">
+                    <img src="/static/images/${movieOpsCollapsed ? 'show-expand.png' : 'show-collapse.png'}" class="card-collapse-chevron" alt="">
+                    <h3 class="card-title">Movie Operations</h3>
+                </div>
+            </div>
+            <div class="card-body-collapsible ${movieOpsCollapsed ? '' : 'open'}">
             <div class="scan-buttons">
                 <div class="scan-button-group">
                     <button class="btn btn-primary btn-lg" onclick="triggerMovieLibraryScan()" id="scan-movies-btn" ${scanStatus.running ? 'disabled' : ''}>
@@ -147,7 +163,9 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataU
                     <p class="scan-description">Preview and apply pending movie file renames.</p>
                 </div>
             </div>
-        </div>
+            </div>
+        </div>`;
+        })()}
 
         <!-- Scan Progress -->
         ${scanStatus.running ? `
