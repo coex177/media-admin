@@ -340,7 +340,7 @@ function renderSettingsFolders(settings, folders) {
     return `
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Library Folders</h2>
+                <h2 class="card-title">Shows Library Folders</h2>
                 <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('library')">+ Add Folder</button>
             </div>
             ${libraryFolders.length === 0 ? `
@@ -368,6 +368,39 @@ function renderSettingsFolders(settings, folders) {
                     </tbody>
                 </table>
             `}
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Movies Library Folders</h2>
+                <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('movie_library')">+ Add Folder</button>
+            </div>
+            ${movieLibraryFolders.length === 0 ? `
+                <p class="text-muted" id="movie_library-folders-placeholder">No movie library folders configured.</p>
+            ` : `
+                <table id="movie_library-folders-table" class="folders-table">
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${movieLibraryFolders.map(folder => `
+                            <tr data-folder-id="${folder.id}">
+                                <td>${escapeHtml(folder.path)}</td>
+                                <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                                <td>
+                                    <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
+                                    <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\'")}')">Remove</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `}
+            <p class="text-muted" style="padding: 10px 15px 0; font-size: 0.85rem;">Folders containing your movie library files.</p>
         </div>
 
         <div class="card">
@@ -435,38 +468,6 @@ function renderSettingsFolders(settings, folders) {
             <p class="text-muted" style="padding: 10px 15px 0; font-size: 0.85rem;">Files that can't be matched or resolved are moved here. Only one issues folder can be active at a time.</p>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <h2 class="card-title">Movie Library Folders</h2>
-                <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('movie_library')">+ Add Folder</button>
-            </div>
-            ${movieLibraryFolders.length === 0 ? `
-                <p class="text-muted" id="movie_library-folders-placeholder">No movie library folders configured.</p>
-            ` : `
-                <table id="movie_library-folders-table" class="folders-table">
-                    <thead>
-                        <tr>
-                            <th>Path</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${movieLibraryFolders.map(folder => `
-                            <tr data-folder-id="${folder.id}">
-                                <td>${escapeHtml(folder.path)}</td>
-                                <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
-                                <td>
-                                    <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
-                                    <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\\\'")}')"">Remove</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `}
-            <p class="text-muted" style="padding: 10px 15px 0; font-size: 0.85rem;">Folders containing your movie library files.</p>
-        </div>
     `;
 }
 
