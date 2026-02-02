@@ -59,6 +59,12 @@ class MatcherService:
     # Release group pattern (usually at the end, after a dash)
     RELEASE_GROUP_PATTERN = r"-([A-Za-z0-9]+)(?:\.[a-z]{3,4})?$"
 
+    # Codec patterns that look like episode numbers (e.g. x264, x265, h264, h265)
+    CODEC_FALSE_POSITIVE = re.compile(r"[xXhH](\d{3})(?:[^0-9]|$)")
+
+    # Resolution patterns that look like episode numbers (e.g. 720p, 480i)
+    RESOLUTION_FALSE_POSITIVE = re.compile(r"(\d{3,4})[pPiI]")
+
     # Year pattern
     YEAR_PATTERN = r"(?:^|[.\s_\-\[])((19|20)\d{2})(?:[.\s_\-\]]|$)"
 
@@ -76,6 +82,16 @@ class MatcherService:
         for pattern in self._compiled_patterns:
             match = pattern.search(name)
             if match:
+                # Reject codec false positives (x264, x265, h264, h265)
+                match_str = name[max(0, match.start() - 1):match.end()]
+                if self.CODEC_FALSE_POSITIVE.search(match_str):
+                    continue
+
+                # Reject resolution false positives (720p, 480i, etc.)
+                match_plus = name[match.start():match.end() + 1] if match.end() < len(name) else name[match.start():match.end()]
+                if self.RESOLUTION_FALSE_POSITIVE.search(match_plus):
+                    continue
+
                 groups = match.groups()
                 season = int(groups[0])
                 episode = int(groups[1])
