@@ -463,6 +463,8 @@ function showMovieImportComplete(status) {
     _renderMovieImportCompleteModal(status);
     const indicator = document.getElementById('movie-import-results-indicator');
     if (indicator) indicator.remove();
+    // Refresh movie list in the background so it's up to date
+    renderMoviesList();
 }
 
 function _renderMovieImportCompleteModal(status) {
@@ -530,7 +532,7 @@ function _renderMovieImportCompleteModal(status) {
                 <button class="btn btn-primary" onclick="continueMovieImport();">Continue Import</button>
                 <button class="btn btn-primary" onclick="closeModal(); renderMoviesList();">View Movies</button>
                 <button class="btn btn-secondary" onclick="minimizeMovieImportResults();">Minimize</button>
-                <button class="btn btn-secondary" onclick="dismissMovieImportResults(); closeModal();">Close</button>
+                <button class="btn btn-secondary" onclick="dismissMovieImportResults(); closeModal(); renderMoviesList();">Close</button>
             </div>
         </div>
     `;
