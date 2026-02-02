@@ -268,19 +268,26 @@ class MovieScannerService:
         safe_title = self._sanitize_folder_name(movie.title)
         year_str = str(movie.year) if movie.year else None
 
-        # Look for files in various locations
-        search_dirs = [folder]
+        # Look for files in various locations (most specific first)
+        search_dirs = []
 
-        # Check individual movie folder
         if year_str:
+            # Check individual movie folder first (most specific)
             individual_folder = folder / f"{safe_title} ({year_str})"
             if individual_folder.is_dir():
-                search_dirs.insert(0, individual_folder)
+                search_dirs.append(individual_folder)
 
-            # Check year-based folder
+            # Check year-based folder next
             year_folder = folder / year_str
             if year_folder.is_dir():
                 search_dirs.append(year_folder)
+
+        # Base folder last (broadest search)
+        search_dirs.append(folder)
+
+        best_score = 0.0
+        best_item = None
+        best_parsed = None
 
         for search_dir in search_dirs:
             for item in search_dir.iterdir():
@@ -294,15 +301,17 @@ class MovieScannerService:
                 score = self.matcher.match_movie_title(
                     parsed.title, movie.title, parsed.year, movie.year
                 )
-                if score >= 0.7:
-                    movie.file_path = str(item)
-                    movie.file_status = "found"
-                    movie.matched_at = datetime.utcnow()
-                    if parsed.edition and not movie.edition:
-                        movie.edition = parsed.edition
-                    self.db.commit()
-                    logger.info(f"  _scan_for_movie_file: matched '{item.name}' → '{movie.title}' (score={score:.2f})")
-                    return True
+                if score > best_score:
+                    best_score = score
+                    best_item = item
+                    best_parsed = parsed
+                    # Perfect score — no need to keep looking
+                    if score >= 1.0:
+                        break
+
+            # If we found a perfect match in this dir, stop searching
+            if best_score >= 1.0:
+                break
 
             # Also check subdirectories (one level deep)
             for subdir in search_dir.iterdir():
@@ -319,15 +328,27 @@ class MovieScannerService:
                     score = self.matcher.match_movie_title(
                         parsed.title, movie.title, parsed.year, movie.year
                     )
-                    if score >= 0.7:
-                        movie.file_path = str(item)
-                        movie.file_status = "found"
-                        movie.matched_at = datetime.utcnow()
-                        if parsed.edition and not movie.edition:
-                            movie.edition = parsed.edition
-                        self.db.commit()
-                        logger.info(f"  _scan_for_movie_file: matched '{item.name}' → '{movie.title}' (score={score:.2f})")
-                        return True
+                    if score > best_score:
+                        best_score = score
+                        best_item = item
+                        best_parsed = parsed
+                        if score >= 1.0:
+                            break
+                if best_score >= 1.0:
+                    break
+
+            if best_score >= 1.0:
+                break
+
+        if best_item and best_score >= 0.7:
+            movie.file_path = str(best_item)
+            movie.file_status = "found"
+            movie.matched_at = datetime.utcnow()
+            if best_parsed.edition and not movie.edition:
+                movie.edition = best_parsed.edition
+            self.db.commit()
+            logger.info(f"  _scan_for_movie_file: matched '{best_item.name}' → '{movie.title}' (score={best_score:.2f})")
+            return True
 
         return False
 
@@ -354,9 +375,11 @@ class MovieScannerService:
                         logger.info(f"  _search_library: found '{movie.title}' at {item}")
                         return True
 
-            # Try year folder
+            # Try year folder — use best match in case multiple similar titles exist
             year_folder = folder / year_str
             if year_folder.is_dir():
+                best_score = 0.0
+                best_item = None
                 for item in year_folder.iterdir():
                     if not item.is_file() or not self.is_video_file(item):
                         continue
@@ -365,13 +388,16 @@ class MovieScannerService:
                         score = self.matcher.match_movie_title(
                             parsed.title, movie.title, parsed.year, movie.year
                         )
-                        if score >= 0.7:
-                            movie.file_path = str(item)
-                            movie.file_status = "found"
-                            movie.matched_at = datetime.utcnow()
-                            self.db.commit()
-                            logger.info(f"  _search_library: found '{movie.title}' in year folder at {item}")
-                            return True
+                        if score > best_score:
+                            best_score = score
+                            best_item = item
+                if best_item and best_score >= 0.7:
+                    movie.file_path = str(best_item)
+                    movie.file_status = "found"
+                    movie.matched_at = datetime.utcnow()
+                    self.db.commit()
+                    logger.info(f"  _search_library: found '{movie.title}' in year folder at {best_item} (score={best_score:.2f})")
+                    return True
 
         return False
 
