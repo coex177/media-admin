@@ -162,8 +162,8 @@ function renderMovieListItem(movie) {
                 <div class="show-list-details-content">
                     <p class="text-muted mb-10">${escapeHtml((movie.overview || 'No description available.').substring(0, 200))}${(movie.overview || '').length > 200 ? '...' : ''}</p>
                     <div class="show-list-meta">
-                        ${movie.folder_path ? `<span><strong>Folder:</strong> ${escapeHtml(movie.folder_path)}</span>` : ''}
-                        ${movie.file_path ? `<span><strong>File:</strong> ${escapeHtml(movie.file_path)}</span>` : ''}
+                        ${movie.file_path ? `<span><strong>Folder:</strong> ${escapeHtml(movie.file_path.substring(0, movie.file_path.lastIndexOf('/')))}</span>` : ''}
+                        ${movie.file_path ? `<span><strong>File:</strong> ${escapeHtml(movie.file_path.substring(movie.file_path.lastIndexOf('/') + 1))}</span>` : ''}
                     </div>
                     <button class="btn btn-sm btn-primary mt-10" onclick="event.stopPropagation(); showMovieDetail(${movie.id})">View Details</button>
                 </div>
@@ -363,6 +363,8 @@ function goToMoviesPage(page) {
 
 // ── Managed Import (Movies) ──────────────────────────────────────
 
+let _lastMovieImportStatus = null;
+
 async function startMovieSlowImport() {
     try {
         const [settings, folders] = await Promise.all([
@@ -456,6 +458,124 @@ function closeMovieSlowImportModal() {
     closeModal();
 }
 
+function showMovieImportComplete(status) {
+    _lastMovieImportStatus = status;
+    _renderMovieImportCompleteModal(status);
+    const indicator = document.getElementById('movie-import-results-indicator');
+    if (indicator) indicator.remove();
+}
+
+function _renderMovieImportCompleteModal(status) {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    const result = status.result || {};
+    const discovered = status.discovered || [];
+
+    const statusDisplay = (item) => {
+        switch (item.status) {
+            case 'added': return { icon: '✓', cls: 'console-success', label: 'Added' };
+            case 'existing': return { icon: '→', cls: 'console-skip', label: 'Existing' };
+            case 'not_found': return { icon: '⚠', cls: 'console-warning', label: 'Not Found' };
+            case 'error': return { icon: '✗', cls: 'console-error', label: item.error || 'Error' };
+            default: return { icon: '•', cls: 'console-info', label: item.status };
+        }
+    };
+
+    modalTitle.textContent = 'Import Complete';
+    modalBody.innerHTML = `
+        <div class="library-scan-modal">
+            <div class="library-scan-complete-stats">
+                <div class="library-scan-stat ${result.added > 0 ? 'stat-highlight' : ''}">
+                    <span class="library-scan-stat-value">${result.added || 0}</span>
+                    <span class="library-scan-stat-label">Added</span>
+                </div>
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value">${result.skipped || 0}</span>
+                    <span class="library-scan-stat-label">Skipped</span>
+                </div>
+                <div class="library-scan-stat">
+                    <span class="library-scan-stat-value">${result.errors || 0}</span>
+                    <span class="library-scan-stat-label">Errors</span>
+                </div>
+            </div>
+            ${discovered.length > 0 ? `
+                <div class="table-container" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                    <table style="font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th style="width: 30px;"></th>
+                                <th>Movie</th>
+                                <th>Filename</th>
+                                <th>Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${discovered.map(item => {
+                                const sd = statusDisplay(item);
+                                const displayTitle = item.title ? `${escapeHtml(item.title)}${item.year ? ' (' + item.year + ')' : ''}` : '—';
+                                return `<tr>
+                                    <td class="${sd.cls}" style="text-align: center; font-weight: bold;">${sd.icon}</td>
+                                    <td>${displayTitle}</td>
+                                    <td class="text-muted" style="font-size: 0.8rem;" title="${escapeHtml(item.filename)}">${escapeHtml(item.filename)}</td>
+                                    <td class="text-muted" style="font-size: 0.8rem;">${escapeHtml(sd.label)}</td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+            <div class="library-scan-actions">
+                <button class="btn btn-primary" onclick="continueMovieImport();">Continue Import</button>
+                <button class="btn btn-primary" onclick="closeModal(); renderMoviesList();">View Movies</button>
+                <button class="btn btn-secondary" onclick="minimizeMovieImportResults();">Minimize</button>
+                <button class="btn btn-secondary" onclick="dismissMovieImportResults(); closeModal();">Close</button>
+            </div>
+        </div>
+    `;
+
+    document.querySelector('.modal-close').style.display = '';
+    modal.classList.add('active');
+    modal.classList.add('modal-wide');
+}
+
+function minimizeMovieImportResults() {
+    closeModal();
+    renderMoviesList();
+
+    if (document.getElementById('movie-import-results-indicator')) return;
+
+    const nav = document.querySelector('.nav-menu');
+    const li = document.createElement('li');
+    li.id = 'movie-import-results-indicator';
+    li.innerHTML = `
+        <a href="#" onclick="restoreMovieImportResults(); return false;" style="color: var(--success-color);">
+            <img src="/static/images/minimized-window.png" class="nav-icon-img" alt="">
+            Movie Import Results
+        </a>
+    `;
+    nav.appendChild(li);
+}
+
+function restoreMovieImportResults() {
+    if (_lastMovieImportStatus) {
+        _renderMovieImportCompleteModal(_lastMovieImportStatus);
+    }
+}
+
+function dismissMovieImportResults() {
+    _lastMovieImportStatus = null;
+    const indicator = document.getElementById('movie-import-results-indicator');
+    if (indicator) indicator.remove();
+}
+
+async function continueMovieImport() {
+    closeModal();
+    dismissMovieImportResults();
+    startMovieSlowImport();
+}
+
 function pollMovieSlowImportStatus() {
     const checkStatus = async () => {
         try {
@@ -467,14 +587,12 @@ function pollMovieSlowImportStatus() {
             } else {
                 updateMovieSlowImportModal(status);
                 setTimeout(() => {
-                    closeMovieSlowImportModal();
                     if (status.result?.error) {
+                        closeMovieSlowImportModal();
                         showToast(`Import failed: ${status.result.error}`, 'error');
                     } else {
-                        const r = status.result || {};
-                        showToast(`Import complete: ${r.movies_added || 0} added, ${r.movies_skipped || 0} skipped`, 'success');
+                        showMovieImportComplete(status);
                     }
-                    renderMoviesList();
                 }, 1000);
             }
         } catch (error) {
@@ -822,8 +940,8 @@ async function showMovieDetail(movieId, skipHistoryPush = false) {
                 <h3 class="card-title" style="margin-bottom: 12px;">File Information</h3>
                 <div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 16px;">
                     <strong>File Status:</strong> <span>${fileStatusBadge}</span>
-                    ${movie.file_path ? `<strong>File Path:</strong> <span><code style="font-size: 0.85rem;">${escapeHtml(movie.file_path)}</code></span>` : ''}
-                    ${movie.folder_path ? `<strong>Folder:</strong> <span><code style="font-size: 0.85rem;">${escapeHtml(movie.folder_path)}</code></span>` : ''}
+                    ${movie.file_path ? `<strong>Folder Path:</strong> <span><code style="font-size: 0.85rem;">${escapeHtml(movie.file_path.substring(0, movie.file_path.lastIndexOf('/')))}</code></span>` : ''}
+                    ${movie.file_path ? `<strong>File Name:</strong> <span><code style="font-size: 0.85rem;">${escapeHtml(movie.file_path.substring(movie.file_path.lastIndexOf('/') + 1))}</code></span>` : ''}
                     ${fileSizeStr ? `<strong>File Size:</strong> <span>${fileSizeStr}</span>` : ''}
                 </div>
 
