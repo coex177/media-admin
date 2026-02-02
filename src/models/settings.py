@@ -55,6 +55,9 @@ class PendingAction(Base):
     episode_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("episodes.id", ondelete="SET NULL"), nullable=True
     )
+    movie_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("movies.id", ondelete="SET NULL"), nullable=True
+    )
 
     status: Mapped[str] = mapped_column(String(50), default="pending")
     # Status values: pending, approved, completed, rejected, failed
@@ -78,6 +81,7 @@ class PendingAction(Base):
             "dest_path": self.dest_path,
             "show_id": self.show_id,
             "episode_id": self.episode_id,
+            "movie_id": self.movie_id,
             "status": self.status,
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat() if self.created_at else None,

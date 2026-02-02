@@ -181,6 +181,71 @@ class TMDBService:
             "episodes": episodes,
         }
 
+    # ── Movie endpoints ──────────────────────────────────────────
+
+    async def search_movies(self, query: str, page: int = 1, year: int = None) -> dict:
+        """Search for movies by name, optionally filtered by year."""
+        params = {"query": query, "page": page}
+        if year:
+            params["year"] = year
+        return await self._request("/search/movie", params)
+
+    async def get_movie(self, tmdb_id: int) -> dict:
+        """Get detailed information about a movie."""
+        return await self._request(f"/movie/{tmdb_id}")
+
+    async def get_movie_external_ids(self, tmdb_id: int) -> dict:
+        """Get external IDs (IMDB) for a movie."""
+        return await self._request(f"/movie/{tmdb_id}/external_ids")
+
+    async def get_movie_with_details(self, tmdb_id: int) -> dict:
+        """Get movie details with external IDs, formatted for DB storage."""
+        import json
+
+        movie = await self.get_movie(tmdb_id)
+        external_ids = await self.get_movie_external_ids(tmdb_id)
+
+        # Extract genre names
+        genres = [g.get("name") for g in movie.get("genres", []) if g.get("name")]
+
+        # Extract production company names
+        studios = [c.get("name") for c in movie.get("production_companies", []) if c.get("name")]
+
+        # Extract year from release_date
+        release_date = movie.get("release_date", "")
+        year = None
+        if release_date and len(release_date) >= 4:
+            try:
+                year = int(release_date[:4])
+            except ValueError:
+                pass
+
+        # Collection info
+        collection = movie.get("belongs_to_collection")
+        collection_id = collection.get("id") if collection else None
+        collection_name = collection.get("name") if collection else None
+
+        return {
+            "tmdb_id": tmdb_id,
+            "imdb_id": external_ids.get("imdb_id"),
+            "title": movie.get("title"),
+            "original_title": movie.get("original_title"),
+            "overview": movie.get("overview"),
+            "tagline": movie.get("tagline"),
+            "year": year,
+            "release_date": release_date,
+            "runtime": movie.get("runtime"),
+            "poster_path": movie.get("poster_path"),
+            "backdrop_path": movie.get("backdrop_path"),
+            "genres": json.dumps(genres),
+            "studio": json.dumps(studios),
+            "vote_average": movie.get("vote_average"),
+            "popularity": movie.get("popularity"),
+            "status": movie.get("status", "Released"),
+            "collection_id": collection_id,
+            "collection_name": collection_name,
+        }
+
     def get_image_url(self, path: str, size: str = "w500") -> str:
         """Get full URL for an image path."""
         if not path:

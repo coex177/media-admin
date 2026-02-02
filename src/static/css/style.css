@@ -4247,3 +4247,233 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     flex-shrink: 0;
 }
 
+/* ── Movie Styles ─────────────────────────────────────── */
+
+/* Movie detail page */
+.movie-detail-header {
+    display: flex;
+    gap: 25px;
+    margin-bottom: 20px;
+}
+
+.movie-detail-poster {
+    width: 250px;
+    min-width: 250px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.movie-detail-poster img {
+    width: 100%;
+    display: block;
+    border-radius: 8px;
+}
+
+.movie-detail-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.movie-detail-title {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+    line-height: 1.2;
+}
+
+.movie-detail-year {
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.movie-detail-tagline {
+    font-style: italic;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    font-size: 0.95rem;
+}
+
+.movie-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 15px;
+    font-size: 0.9rem;
+}
+
+.movie-detail-meta span {
+    color: var(--text-secondary);
+}
+
+.movie-detail-meta strong {
+    color: var(--text-primary);
+}
+
+.movie-detail-overview {
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 15px;
+    font-size: 0.95rem;
+}
+
+.movie-detail-genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 15px;
+}
+
+.movie-genre-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    background-color: rgba(52, 152, 219, 0.15);
+    color: var(--primary-color);
+}
+
+.movie-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 15px;
+}
+
+.movie-detail-links {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.movie-detail-links a {
+    font-size: 0.85rem;
+    color: var(--link-color);
+}
+
+.movie-file-info {
+    margin-top: 20px;
+}
+
+.movie-file-info .card {
+    margin-bottom: 0;
+}
+
+.movie-file-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 15px;
+}
+
+.movie-file-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.movie-file-item .label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.movie-file-item .value {
+    font-size: 0.9rem;
+    word-break: break-all;
+}
+
+.movie-collection-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 6px;
+    background-color: rgba(155, 89, 182, 0.15);
+    color: #9b59b6;
+    font-size: 0.85rem;
+    margin-bottom: 12px;
+}
+
+.movie-edition-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 6px;
+    background-color: rgba(241, 196, 15, 0.15);
+    color: #f1c40f;
+    font-size: 0.85rem;
+}
+
+.movie-rating {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #f1c40f;
+    font-weight: 600;
+}
+
+.movie-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.movie-status-badge.found {
+    background-color: rgba(39, 174, 96, 0.2);
+    color: var(--success-color);
+}
+
+.movie-status-badge.missing {
+    background-color: rgba(231, 76, 60, 0.2);
+    color: var(--danger-color);
+}
+
+.movie-status-badge.renamed {
+    background-color: rgba(52, 152, 219, 0.2);
+    color: var(--primary-color);
+}
+
+/* Movie card overlay additions */
+.show-card .movie-runtime,
+.show-tile .movie-runtime {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+@media (max-width: 768px) {
+    .movie-detail-header {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .movie-detail-poster {
+        width: 200px;
+        min-width: 200px;
+    }
+
+    .movie-detail-info {
+        text-align: center;
+    }
+
+    .movie-detail-meta {
+        justify-content: center;
+    }
+
+    .movie-detail-genres {
+        justify-content: center;
+    }
+
+    .movie-detail-actions {
+        justify-content: center;
+    }
+
+    .movie-file-grid {
+        grid-template-columns: 1fr;
+    }
+}
+

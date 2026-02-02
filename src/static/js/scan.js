@@ -122,6 +122,33 @@ function renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataU
             </div>
         </div>
 
+        <!-- Movie Scan Operations -->
+        <div class="card mb-20">
+            <div class="card-header">
+                <h3 class="card-title">Movie Operations</h3>
+            </div>
+            <div class="scan-buttons">
+                <div class="scan-button-group">
+                    <button class="btn btn-primary btn-lg" onclick="triggerMovieLibraryScan()" id="scan-movies-btn" ${scanStatus.running ? 'disabled' : ''}>
+                        Scan Movie Library
+                    </button>
+                    <p class="scan-description">Match files in movie library folders to existing movies.</p>
+                </div>
+                <div class="scan-button-group">
+                    <button class="btn btn-secondary btn-lg" onclick="showMovieDiscoveryModal()" id="scan-movie-discover-btn" ${scanStatus.running ? 'disabled' : ''}>
+                        Discover Movies
+                    </button>
+                    <p class="scan-description">Discover and add movies from a library folder.</p>
+                </div>
+                <div class="scan-button-group">
+                    <button class="btn btn-secondary btn-lg" onclick="showMovieRenamePreviewsModal()" id="scan-movie-renames-btn" ${scanStatus.running ? 'disabled' : ''}>
+                        Movie Rename Previews
+                    </button>
+                    <p class="scan-description">Preview and apply pending movie file renames.</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Scan Progress -->
         ${scanStatus.running ? `
             <div class="card mb-20" id="scan-results-card">
@@ -1844,6 +1871,197 @@ async function confirmDeleteLibRange(start, end) {
         const result = await api(`/scan/library-log/range/${encodeURIComponent(start)}/${encodeURIComponent(end)}`, { method: 'DELETE' });
         showToast(result.message, 'success');
         await loadLibraryLog();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+// ── Movie Scan Operations ──
+
+async function triggerMovieLibraryScan() {
+    const btn = document.getElementById('scan-movies-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Scanning...'; }
+
+    try {
+        await api('/scan/movies', { method: 'POST' });
+        showToast('Movie library scan started', 'info');
+        pollMovieScanStatus();
+    } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Scan Movie Library'; }
+    }
+}
+
+function pollMovieScanStatus() {
+    const checkStatus = async () => {
+        try {
+            const status = await fetch(`${API_BASE}/scan/movies/status`).then(r => r.json());
+            if (status.running) {
+                setTimeout(checkStatus, 1000);
+            } else {
+                if (status.result?.error) {
+                    showToast(`Movie scan failed: ${status.result.error}`, 'error');
+                } else {
+                    const r = status.result || {};
+                    showToast(`Movie scan complete: ${r.matched || 0} matched, ${r.unmatched || 0} unmatched`, 'success');
+                }
+                renderScan();
+            }
+        } catch (error) {
+            setTimeout(checkStatus, 2000);
+        }
+    };
+    setTimeout(checkStatus, 500);
+}
+
+function showMovieDiscoveryModal() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Discover Movies from Folder';
+    modalBody.innerHTML = `
+        <div class="form-group">
+            <label>Movie Library Folder</label>
+            <input type="text" id="movie-discover-folder" class="form-control" placeholder="/path/to/movies">
+            <small class="text-muted">Enter a folder containing movie files to discover and add them.</small>
+        </div>
+        <div class="modal-buttons" style="margin-top: 20px;">
+            <button class="btn btn-primary" onclick="startMovieDiscovery()">Start Discovery</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    modal.classList.add('active');
+}
+
+async function startMovieDiscovery() {
+    const folderPath = document.getElementById('movie-discover-folder')?.value.trim();
+    if (!folderPath) {
+        showToast('Please enter a folder path', 'warning');
+        return;
+    }
+
+    closeModal();
+
+    try {
+        await api('/scan/movie-library-folder', {
+            method: 'POST',
+            body: JSON.stringify({ folder_path: folderPath })
+        });
+        showToast('Movie discovery started', 'info');
+        pollMovieDiscoveryStatus();
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+function pollMovieDiscoveryStatus() {
+    const checkStatus = async () => {
+        try {
+            const status = await fetch(`${API_BASE}/scan/movie-library-folder/status`).then(r => r.json());
+            if (status.running) {
+                setTimeout(checkStatus, 1000);
+            } else {
+                if (status.result?.error) {
+                    showToast(`Discovery failed: ${status.result.error}`, 'error');
+                } else {
+                    const r = status.result || {};
+                    showToast(`Discovery complete: ${r.movies_added || 0} added, ${r.movies_skipped || 0} skipped`, 'success');
+                }
+                renderScan();
+            }
+        } catch (error) {
+            setTimeout(checkStatus, 2000);
+        }
+    };
+    setTimeout(checkStatus, 500);
+}
+
+async function showMovieRenamePreviewsModal() {
+    const modal = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+
+    modalTitle.textContent = 'Movie Rename Previews';
+    modalBody.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    modal.classList.add('active');
+    modal.classList.add('modal-wide');
+
+    try {
+        const previews = await api('/scan/movie-rename-previews');
+
+        if (!previews || previews.length === 0) {
+            modalBody.innerHTML = `
+                <p class="text-muted text-center" style="padding: 20px;">No movie renames pending. All movies have correct filenames.</p>
+                <div class="modal-buttons">
+                    <button class="btn btn-outline" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            return;
+        }
+
+        modalBody.innerHTML = `
+            <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                <table style="font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="movie-rename-select-all" checked onchange="toggleAllMovieRenames(this.checked)"></th>
+                            <th>Movie</th>
+                            <th>Current</th>
+                            <th></th>
+                            <th>New</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${previews.map((p, i) => `
+                            <tr>
+                                <td><input type="checkbox" class="movie-rename-cb" data-index="${i}" checked></td>
+                                <td>${escapeHtml(p.title || 'Unknown')}</td>
+                                <td class="filename-cell"><div class="filename-line" title="${escapeHtml(p.current_filename || '')}">${escapeHtml(p.current_filename || '')}</div></td>
+                                <td>&rarr;</td>
+                                <td class="filename-cell"><div class="filename-line" title="${escapeHtml(p.new_filename || '')}">${escapeHtml(p.new_filename || '')}</div></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-buttons" style="margin-top: 15px;">
+                <button class="btn btn-primary" onclick="applySelectedMovieRenames()">Apply Selected Renames</button>
+                <button class="btn btn-outline" onclick="closeModal()">Close</button>
+            </div>
+        `;
+    } catch (error) {
+        modalBody.innerHTML = `
+            <p class="text-muted text-center">Failed to load rename previews.</p>
+            <div class="modal-buttons">
+                <button class="btn btn-outline" onclick="closeModal()">Close</button>
+            </div>
+        `;
+    }
+}
+
+function toggleAllMovieRenames(checked) {
+    document.querySelectorAll('.movie-rename-cb').forEach(cb => cb.checked = checked);
+}
+
+async function applySelectedMovieRenames() {
+    const indices = [];
+    document.querySelectorAll('.movie-rename-cb:checked').forEach(cb => {
+        indices.push(parseInt(cb.dataset.index));
+    });
+
+    if (indices.length === 0) {
+        showToast('No renames selected', 'warning');
+        return;
+    }
+
+    closeModal();
+
+    try {
+        const result = await api('/scan/apply-movie-renames', {
+            method: 'POST',
+            body: JSON.stringify({ rename_indices: indices })
+        });
+        showToast(`${result.success || 0} renamed, ${result.failed || 0} failed`, result.failed > 0 ? 'warning' : 'success');
     } catch (error) {
         // Error already shown
     }

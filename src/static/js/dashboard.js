@@ -8,7 +8,8 @@ let currentShowsView = 'cards';
 // Stat card order (loaded from DB in checkSetup)
 const defaultStatCardOrder = [
     'total-shows', 'episodes-found', 'episodes-missing', 'specials',
-    'ignored', 'pending-actions', 'collection-progress'
+    'ignored', 'pending-actions', 'collection-progress',
+    'total-movies', 'movies-found', 'movies-missing'
 ];
 let statCardOrder = [...defaultStatCardOrder];
 let hiddenCards = [];
@@ -18,7 +19,8 @@ const defaultCardOrder = [
     'recently-aired', 'upcoming', 'recently-added', 'recently-ended',
     'most-incomplete', 'recently-matched', 'returning-soon',
     'last-scan', 'storage-stats', 'genre-distribution', 'network-distribution',
-    'extra-files'
+    'extra-files',
+    'recently-added-movies', 'recently-matched-movies'
 ];
 let dashboardCardOrder = [...defaultCardOrder];
 let dashboardCardStates = {};
@@ -30,7 +32,8 @@ let dashboardData = {};
 const _arrayDataKeys = new Set([
     'recentlyAired', 'recentlyAdded', 'upcoming', 'recentlyEnded',
     'mostIncomplete', 'recentlyMatched', 'returningSoon',
-    'genreDistribution', 'networkDistribution', 'extraFiles'
+    'genreDistribution', 'networkDistribution', 'extraFiles',
+    'recentlyAddedMovies', 'recentlyMatchedMovies'
 ]);
 
 // Map dashboard card IDs to their API endpoint and dashboardData key
@@ -46,7 +49,9 @@ const cardDataEndpoints = {
     'storage-stats':        { key: 'storageStats',        endpoint: '/storage-stats' },
     'genre-distribution':   { key: 'genreDistribution',   endpoint: '/genre-distribution' },
     'network-distribution': { key: 'networkDistribution', endpoint: '/network-distribution' },
-    'extra-files':          { key: 'extraFiles',          endpoint: '/extra-files' }
+    'extra-files':          { key: 'extraFiles',          endpoint: '/extra-files' },
+    'recently-added-movies':    { key: 'recentlyAddedMovies',    endpoint: '/movies/recently-added' },
+    'recently-matched-movies':  { key: 'recentlyMatchedMovies',  endpoint: '/movies/recently-matched' }
 };
 
 // Dashboard
@@ -55,14 +60,16 @@ async function renderDashboard() {
 
     try {
         // Always load stats + settings (needed for stat cards and pending actions alert)
-        const [stats, settings] = await Promise.all([
+        const [stats, settings, movieStats] = await Promise.all([
             api('/stats'),
-            api('/settings')
+            api('/settings'),
+            api('/movies/stats').catch(() => ({ total_movies: 0, movies_found: 0, movies_missing: 0 }))
         ]);
 
         state.stats = stats;
         state.settings = settings;
         dashboardData = { stats, settings };
+        dashboardData.movieStats = movieStats;
 
         // Render immediately with stat cards; dashboard cards show loading state
         renderDashboardContent();
@@ -117,7 +124,8 @@ function renderDashboardContent() {
         stats, recentlyAired, recentlyAdded, upcoming, recentlyEnded,
         mostIncomplete, recentlyMatched, returningSoon, lastScan,
         storageStats, genreDistribution, networkDistribution, settings,
-        extraFiles
+        extraFiles, movieStats,
+        recentlyAddedMovies, recentlyMatchedMovies
     } = dashboardData;
     const upcomingDays = settings?.upcoming_days || 14;
     const recentlyAiredDays = settings?.recently_aired_days || 14;
@@ -203,6 +211,31 @@ function renderDashboardContent() {
                 <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('collection-progress')">&times;</button>
                 <div class="stat-value">${collectionPercent}%</div>
                 <div class="stat-label">Collection Progress</div>
+            </div>`,
+        'total-movies': () => `
+            <div class="stat-card draggable-card" draggable="true" data-card-id="total-movies"
+                 ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                 ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)"
+                 onclick="navigateTo('movies')">
+                <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('total-movies')">&times;</button>
+                <div class="stat-value">${(movieStats && movieStats.total_movies) || 0}</div>
+                <div class="stat-label">Total Movies</div>
+            </div>`,
+        'movies-found': () => `
+            <div class="stat-card success draggable-card" draggable="true" data-card-id="movies-found"
+                 ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                 ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('movies-found')">&times;</button>
+                <div class="stat-value">${(movieStats && movieStats.movies_found) || 0}</div>
+                <div class="stat-label">Movies Found</div>
+            </div>`,
+        'movies-missing': () => `
+            <div class="stat-card danger draggable-card" draggable="true" data-card-id="movies-missing"
+                 ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                 ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('movies-missing')">&times;</button>
+                <div class="stat-value">${(movieStats && movieStats.movies_missing) || 0}</div>
+                <div class="stat-label">Movies Missing</div>
             </div>`
     };
 
@@ -746,6 +779,109 @@ function renderDashboardContent() {
                     </div>
                 </div>
             `;
+        },
+        'recently-added-movies': () => {
+            if (recentlyAddedMovies === undefined) return _cardLoading('recently-added-movies', 'Recently Added Movies');
+            const isOpen = dashboardCardStates['recently-added-movies'];
+            return `
+                <div class="card dashboard-card draggable-card" draggable="true" data-card-id="recently-added-movies"
+                     ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                     ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('recently-added-movies')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-recently-added-movies" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Recently Added Movies
+                        </h2>
+                        <span class="text-muted">${recentlyAddedMovies.length} movies</span>
+                        <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('recently-added-movies')">&times;</button>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-recently-added-movies">
+                        ${recentlyAddedMovies.length === 0 ? `
+                            <div class="empty-state-sm">
+                                <p class="text-muted">No movies added yet</p>
+                                <button class="btn btn-sm btn-primary" onclick="showAddMovieModal()">+ Add Movie</button>
+                            </div>
+                        ` : `
+                            <div class="recent-shows-list">
+                                ${recentlyAddedMovies.map(movie => {
+                                    const posterUrl = movie.poster_path ? getImageUrl(movie.poster_path) : null;
+                                    return `
+                                        <div class="recent-show-item" onclick="showMovieDetail(${movie.id})">
+                                            <div class="recent-show-poster">
+                                                ${posterUrl
+                                                    ? `<img src="${posterUrl}" alt="${escapeHtml(movie.title)}">`
+                                                    : `<div class="poster-placeholder"></div>`}
+                                            </div>
+                                            <div class="recent-show-info">
+                                                <div class="recent-show-name">${escapeHtml(movie.title)}</div>
+                                                <div class="recent-show-meta">
+                                                    <span>${movie.year || 'Unknown'}</span>
+                                                    ${movie.runtime ? `<span class="text-muted">|</span><span>${movie.runtime} min</span>` : ''}
+                                                </div>
+                                                <div class="recent-show-status">
+                                                    ${movie.file_status === 'found' || movie.file_status === 'renamed'
+                                                        ? `<span class="badge badge-success badge-sm">Found</span>`
+                                                        : `<span class="badge badge-danger badge-sm">Missing</span>`}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
+        'recently-matched-movies': () => {
+            if (recentlyMatchedMovies === undefined) return _cardLoading('recently-matched-movies', 'Recently Matched Movies');
+            const isOpen = dashboardCardStates['recently-matched-movies'];
+            return `
+                <div class="card dashboard-card draggable-card" draggable="true" data-card-id="recently-matched-movies"
+                     ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                     ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('recently-matched-movies')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-recently-matched-movies" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Recently Matched Movies
+                        </h2>
+                        <span class="text-muted">${recentlyMatchedMovies.length} movies</span>
+                        <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('recently-matched-movies')">&times;</button>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-recently-matched-movies">
+                        ${recentlyMatchedMovies.length === 0 ? `
+                            <p class="text-muted text-center" style="padding: 20px;">No recently matched movies</p>
+                        ` : `
+                            <div class="recent-shows-list">
+                                ${recentlyMatchedMovies.map(movie => {
+                                    const posterUrl = movie.poster_path ? getImageUrl(movie.poster_path) : null;
+                                    const matchedDate = movie.matched_at ? new Date(movie.matched_at).toLocaleDateString() : 'Unknown';
+                                    return `
+                                        <div class="recent-show-item" onclick="showMovieDetail(${movie.id})">
+                                            <div class="recent-show-poster">
+                                                ${posterUrl
+                                                    ? `<img src="${posterUrl}" alt="${escapeHtml(movie.title)}">`
+                                                    : `<div class="poster-placeholder"></div>`}
+                                            </div>
+                                            <div class="recent-show-info">
+                                                <div class="recent-show-name">${escapeHtml(movie.title)}</div>
+                                                <div class="recent-show-meta">
+                                                    <span>${movie.year || 'Unknown'}</span>
+                                                    <span class="text-muted">|</span>
+                                                    <span>Matched ${matchedDate}</span>
+                                                </div>
+                                                <div class="recent-show-status">
+                                                    <span class="badge badge-success badge-sm">Matched</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
         }
     };
 
@@ -983,7 +1119,12 @@ const cardNameMap = {
     'storage-stats': 'Storage Stats',
     'genre-distribution': 'Genres',
     'network-distribution': 'Networks',
-    'extra-files': 'Extra Files'
+    'extra-files': 'Extra Files',
+    'total-movies': 'Total Movies',
+    'movies-found': 'Movies Found',
+    'movies-missing': 'Movies Missing',
+    'recently-added-movies': 'Recently Added Movies',
+    'recently-matched-movies': 'Recently Matched Movies'
 };
 
 function showRestoreCardsModal() {

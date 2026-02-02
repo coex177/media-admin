@@ -12,8 +12,9 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from ..config import settings, TVDB_API_KEY_DEFAULT
-from ..models import Show, Episode, AppSettings, ScanFolder, WatcherLog
+from ..models import Show, Episode, Movie, AppSettings, ScanFolder, WatcherLog
 from .matcher import MatcherService
+from .movie_matcher import MovieMatcherService
 from .quality import QualityService
 from .tmdb import TMDBService
 from .tvdb import TVDBService
@@ -46,6 +47,7 @@ class WatcherPipeline:
     def __init__(self, db: Session):
         self.db = db
         self.matcher = MatcherService()
+        self.movie_matcher = MovieMatcherService()
 
     # ── Ownership helpers ─────────────────────────────────────────
 
@@ -418,6 +420,9 @@ class WatcherPipeline:
         show_id: int = None,
         episode_code: str = None,
         details: str = None,
+        movie_id: int = None,
+        movie_title: str = None,
+        media_type: str = None,
     ):
         entry = WatcherLog(
             action_type=action_type,
@@ -425,6 +430,9 @@ class WatcherPipeline:
             show_name=show_name,
             show_id=show_id,
             episode_code=episode_code,
+            movie_id=movie_id,
+            movie_title=movie_title,
+            media_type=media_type or ("movie" if movie_id else "tv" if show_id else None),
             result=result,
             details=details,
         )
@@ -525,9 +533,16 @@ class WatcherPipeline:
         logger.info(f"Pipeline: processing {path.name}")
         self._log("file_detected", file_path=file_path, details=path.name)
 
-        # 1. Parse filename
+        # 1. Parse filename for TV (SxE pattern)
         parsed = self.matcher.parse_filename(path.name)
         if not parsed or not parsed.title:
+            # No SxE pattern found — try movie detection
+            movie_parsed = self.movie_matcher.parse_filename(path.name)
+            if movie_parsed and movie_parsed.title:
+                logger.info(f"Pipeline: no SxE pattern, trying movie pipeline for '{movie_parsed.title}'")
+                self._process_movie_file(file_path, movie_parsed)
+                return
+
             logger.info(f"Pipeline: could not parse filename: {path.name}")
             self._move_to_issues(file_path, "parse_failed", f"Could not parse: {path.name}")
             return
@@ -1162,6 +1177,300 @@ class WatcherPipeline:
                         companion.unlink()
                     except Exception as e:
                         logger.warning(f"Pipeline: failed to move companion {companion}: {e}")
+
+    # ── Movie pipeline ─────────────────────────────────────────────
+
+    def _process_movie_file(self, file_path: str, parsed_movie):
+        """Process a file detected as a movie (no SxE pattern)."""
+        from .movie_matcher import ParsedMovie
+
+        path = Path(file_path)
+        title = parsed_movie.title
+        year = parsed_movie.year
+
+        logger.info(f"Pipeline: movie detected — '{title}' ({year or 'no year'})")
+        self._log(
+            "file_detected",
+            file_path=file_path,
+            details=f"Movie detected: '{title}' ({year or 'unknown year'})",
+            media_type="movie",
+        )
+
+        # 1. Try to match against existing movies in DB
+        movies = self.db.query(Movie).all()
+        movie_dicts = [
+            {"id": m.id, "title": m.title, "year": m.year}
+            for m in movies
+        ]
+        match_result = self.movie_matcher.find_best_movie_match(title, year, movie_dicts)
+
+        movie = None
+        if match_result:
+            matched_dict, score = match_result
+            movie = self.db.query(Movie).filter(Movie.id == matched_dict["id"]).first()
+            if movie:
+                logger.info(f"Pipeline: matched movie '{title}' → '{movie.title}' (score={score:.2f})")
+                self._log(
+                    "match_found",
+                    result="success",
+                    file_path=file_path,
+                    details=f"Matched movie '{title}' → '{movie.title}' (score={score:.2f})",
+                    movie_title=movie.title,
+                    movie_id=movie.id,
+                    media_type="movie",
+                )
+
+        if not movie:
+            # 2. Try TMDB lookup and auto-add
+            logger.info(f"Pipeline: no DB match for movie '{title}', attempting TMDB lookup")
+            movie = self._auto_import_movie(title, year)
+            if not movie:
+                self._move_to_issues(
+                    file_path,
+                    "movie_not_found",
+                    f"No match for movie '{title}' ({year or 'no year'}) in DB or TMDB",
+                )
+                return
+
+        # 3. Check if movie already has a file
+        if movie.file_path and Path(movie.file_path).exists():
+            # Quality comparison
+            self._handle_movie_quality_comparison(file_path, movie, path.suffix)
+            return
+
+        # 4. Move to movie library
+        self._move_movie_to_library(file_path, movie, path.suffix, parsed_movie.edition)
+
+    def _auto_import_movie(self, title: str, year: int = None) -> Movie:
+        """Search TMDB for a movie and auto-import it."""
+        tmdb_key = self._get_setting("tmdb_api_key", "")
+        if not tmdb_key:
+            logger.warning("Pipeline: no TMDB API key for movie auto-import")
+            return None
+
+        loop = asyncio.new_event_loop()
+        try:
+            tmdb = TMDBService(api_key=tmdb_key)
+            try:
+                search_data = loop.run_until_complete(tmdb.search_movies(title, year=year))
+                results = search_data.get("results", [])
+
+                if not results and year:
+                    search_data = loop.run_until_complete(tmdb.search_movies(title))
+                    results = search_data.get("results", [])
+
+                if not results:
+                    return None
+
+                # Pick best match
+                best = results[0]
+                for r in results[:5]:
+                    r_title = r.get("title", "")
+                    r_date = r.get("release_date", "")
+                    r_year = int(r_date[:4]) if r_date and len(r_date) >= 4 else None
+                    score = self.movie_matcher.match_movie_title(title, r_title, year, r_year)
+                    best_date = best.get("release_date", "")
+                    best_year = int(best_date[:4]) if best_date and len(best_date) >= 4 else None
+                    if score > self.movie_matcher.match_movie_title(title, best.get("title", ""), year, best_year):
+                        best = r
+
+                tmdb_id = best.get("id")
+                if not tmdb_id:
+                    return None
+
+                # Check if already in DB
+                existing = self.db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
+                if existing:
+                    logger.info(f"Pipeline: TMDB movie {tmdb_id} already in DB as '{existing.title}'")
+                    return existing
+
+                movie_data = loop.run_until_complete(tmdb.get_movie_with_details(tmdb_id))
+
+                # Get first movie_library folder for folder_path
+                library_folder = (
+                    self.db.query(ScanFolder)
+                    .filter(ScanFolder.folder_type == "movie_library", ScanFolder.enabled == True)
+                    .first()
+                )
+
+                movie = Movie(
+                    tmdb_id=movie_data.get("tmdb_id"),
+                    imdb_id=movie_data.get("imdb_id"),
+                    title=movie_data.get("title", "Unknown"),
+                    original_title=movie_data.get("original_title"),
+                    overview=movie_data.get("overview"),
+                    tagline=movie_data.get("tagline"),
+                    year=movie_data.get("year"),
+                    release_date=movie_data.get("release_date"),
+                    runtime=movie_data.get("runtime"),
+                    poster_path=movie_data.get("poster_path"),
+                    backdrop_path=movie_data.get("backdrop_path"),
+                    genres=movie_data.get("genres"),
+                    studio=movie_data.get("studio"),
+                    vote_average=movie_data.get("vote_average"),
+                    popularity=movie_data.get("popularity"),
+                    status=movie_data.get("status", "Released"),
+                    collection_id=movie_data.get("collection_id"),
+                    collection_name=movie_data.get("collection_name"),
+                    folder_path=library_folder.path if library_folder else None,
+                )
+                self.db.add(movie)
+                self.db.commit()
+                self.db.refresh(movie)
+
+                self._log(
+                    "auto_import",
+                    result="success",
+                    movie_title=movie.title,
+                    movie_id=movie.id,
+                    media_type="movie",
+                    details=f"Auto-imported movie '{movie.title}' ({movie.year}) from TMDB",
+                )
+                logger.info(f"Pipeline: auto-imported movie '{movie.title}' ({movie.year}) from TMDB")
+                return movie
+
+            finally:
+                loop.run_until_complete(tmdb.close())
+
+        except Exception as e:
+            logger.error(f"Pipeline: movie TMDB lookup failed: {e}", exc_info=True)
+            return None
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            loop.close()
+
+    def _move_movie_to_library(self, file_path: str, movie: Movie, extension: str, edition: str = None):
+        """Move a movie file to the library folder."""
+        if not movie.folder_path:
+            self._move_to_issues(
+                file_path,
+                "movie_no_folder",
+                f"Movie '{movie.title}' has no library folder",
+            )
+            return
+
+        # Generate destination path
+        from .movie_renamer import MovieRenamerService
+        renamer = MovieRenamerService(self.db)
+
+        movie_format = self._get_setting("movie_format", "{title} ({year})/{title} ({year})")
+
+        # Temporarily set edition for path generation
+        orig_edition = movie.edition
+        if edition and not movie.edition:
+            movie.edition = edition
+
+        dest_path_str = renamer.generate_movie_path(
+            movie, movie.folder_path, extension, movie_format
+        )
+        dest_path = Path(dest_path_str)
+
+        # Restore original edition if we changed it temporarily
+        movie.edition = orig_edition
+
+        logger.info(f"Pipeline: moving movie {Path(file_path).name} → {dest_path}")
+
+        try:
+            self._safe_copy(file_path, str(dest_path))
+            self._move_companions(file_path, str(dest_path))
+            self._safe_delete_source(file_path)
+
+            # Update DB
+            movie.file_path = str(dest_path)
+            movie.file_status = "found"
+            movie.matched_at = datetime.utcnow()
+            if edition and not movie.edition:
+                movie.edition = edition
+            self.db.commit()
+
+            self._log(
+                "moved_to_library",
+                result="success",
+                file_path=str(dest_path),
+                movie_title=movie.title,
+                movie_id=movie.id,
+                media_type="movie",
+                details=f"Movie moved to {dest_path}",
+            )
+            logger.info(f"Pipeline: movie successfully moved to library: {dest_path}")
+
+        except Exception as e:
+            logger.error(f"Pipeline: failed to move movie to library: {e}", exc_info=True)
+            self._move_to_issues(
+                file_path,
+                "move_failed",
+                f"Failed to move movie to library: {e}",
+            )
+
+    def _handle_movie_quality_comparison(self, new_file_path: str, movie: Movie, extension: str):
+        """Compare quality of incoming movie file vs existing."""
+        existing_path = movie.file_path
+
+        if not existing_path or not Path(existing_path).exists():
+            self._move_movie_to_library(new_file_path, movie, extension)
+            return
+
+        if not QualityService.is_available():
+            logger.warning("Pipeline: ffprobe unavailable for movie quality comparison")
+            self._move_to_issues(
+                new_file_path,
+                "duplicate_movie",
+                f"Duplicate movie '{movie.title}' (ffprobe unavailable)",
+            )
+            return
+
+        existing_quality = QualityService.analyze(existing_path)
+        new_quality = QualityService.analyze(new_file_path)
+
+        if not existing_quality or not new_quality:
+            self._move_to_issues(
+                new_file_path,
+                "duplicate_movie",
+                f"Duplicate movie '{movie.title}' (quality analysis failed)",
+            )
+            return
+
+        priorities = self._get_quality_priorities()
+        verdict = QualityService.compare(existing_quality, new_quality, priorities)
+
+        logger.info(
+            f"Pipeline: movie quality comparison for '{movie.title}': "
+            f"existing=[{existing_quality.summary()}] vs new=[{new_quality.summary()}] → {verdict}"
+        )
+
+        if verdict == "new_better":
+            # Move old file to issues, new file to library
+            old_path = Path(existing_path)
+            issues_root = self._get_issues_folder()
+            organization = self._get_issues_organization()
+            issues_dir = self._resolve_issues_dir(issues_root, organization, "quality_replaced")
+
+            try:
+                self._mkdir_inherit(issues_dir)
+                safe_title = self._sanitize(movie.title)
+                old_issues_dest = issues_dir / f"{safe_title} - {old_path.name}"
+                self._safe_copy(existing_path, str(old_issues_dest))
+                old_path.unlink()
+            except Exception as e:
+                logger.error(f"Pipeline: failed to move old movie to Issues: {e}")
+                self._move_to_issues(
+                    new_file_path,
+                    "upgrade_failed",
+                    f"Movie upgrade failed for '{movie.title}': {e}",
+                )
+                return
+
+            self._move_movie_to_library(new_file_path, movie, extension)
+        else:
+            reason_label = "equal quality" if verdict == "equal" else "lower quality"
+            self._move_to_issues(
+                new_file_path,
+                "duplicate_movie",
+                f"{reason_label.capitalize()} duplicate of '{movie.title}'",
+            )
 
     # ── Helpers ─────────────────────────────────────────────────────
 

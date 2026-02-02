@@ -46,6 +46,7 @@ function switchSettingsTab(tabName) {
 }
 
 function applySettingsTab(tabName) {
+    if (tabName === 'movies') tabName = 'library';
     state.activeSettingsTab = tabName;
     setUiPref('settingsActiveTab', tabName);
 
@@ -232,7 +233,7 @@ function renderSettingsMetadata(settings) {
 function renderSettingsLibrary(settings, folders) {
     return `
         <div class="card">
-            <h2 class="card-title mb-20">TV Formats</h2>
+            <h2 class="card-title mb-20">Show Formats</h2>
             <div class="form-group">
                 <label>Episode Filename Format</label>
                 <input type="text" id="settings-episode-format" class="form-control" value="${escapeHtml(settings.episode_format)}" oninput="updateFormatPreviews()" onchange="autoSaveFormats()">
@@ -269,13 +270,75 @@ function renderSettingsLibrary(settings, folders) {
                 <small class="text-muted">Number of shows to import per managed import batch. Uses the default metadata source (${settings.default_metadata_source?.toUpperCase() || 'TMDB'}).</small>
             </div>
         </div>
+
+        <div class="card">
+            <h2 class="card-title mb-20">Movie Formats</h2>
+            <div class="form-group">
+                <label>Movie Path Format</label>
+                <input type="text" id="settings-movie-format" class="form-control" value="${escapeHtml(settings.movie_format || '{title} ({year})/{title} ({year})')}" oninput="updateMovieFormatPreview()" onchange="autoSaveMovieFormat()">
+                <div class="format-preview">Preview: <strong id="preview-movie-format"></strong></div>
+                <small class="text-muted">
+                    Variables: <code>{title}</code>, <code>{year}</code>, <code>{edition}</code><br>
+                    Use <code>/</code> to create folder structure. Examples:<br>
+                    <code>{title} ({year})/{title} ({year})</code> → individual folders<br>
+                    <code>{year}/{title} ({year})</code> → year-based folders<br>
+                    <code>{title} ({year})</code> → flat (no subfolders)
+                </small>
+            </div>
+        </div>
     `;
+}
+
+
+async function autoSaveMovieFormat() {
+    const movieFormat = document.getElementById('settings-movie-format')?.value.trim();
+    if (!movieFormat) return;
+
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ movie_format: movieFormat })
+        });
+        state.settings.movie_format = movieFormat;
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+function updateMovieFormatPreview() {
+    const formatInput = document.getElementById('settings-movie-format');
+    const preview = document.getElementById('preview-movie-format');
+    if (formatInput && preview) {
+        let format = formatInput.value || '{title} ({year})/{title} ({year})';
+        let hasEdition = format.includes('{edition}');
+
+        // Apply substitutions globally
+        let result = format
+            .replace(/\{title\}/g, 'The Dark Knight')
+            .replace(/\{year\}/g, '2008')
+            .replace(/\{edition\}/g, "Director's Cut");
+
+        // Split on / to show folder structure, filter empties
+        let segments = result.split('/').filter(s => s.trim());
+        if (segments.length === 0) segments = ['The Dark Knight'];
+
+        // Last segment is filename — auto-append edition if not in format
+        let filename = segments[segments.length - 1];
+        if (!hasEdition) {
+            filename += " {Director's Cut}";
+        }
+        filename += '.mkv';
+        segments[segments.length - 1] = filename;
+
+        preview.textContent = segments.join('/');
+    }
 }
 
 function renderSettingsFolders(settings, folders) {
     const libraryFolders = folders.filter(f => f.type === 'library');
     const tvFolders = folders.filter(f => f.type === 'tv');
     const issuesFolders = folders.filter(f => f.type === 'issues');
+    const movieLibraryFolders = folders.filter(f => f.type === 'movie_library');
 
     return `
         <div class="card">
@@ -312,7 +375,7 @@ function renderSettingsFolders(settings, folders) {
 
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Saved/Downloaded TV Folders</h2>
+                <h2 class="card-title">Saved/Downloaded Folders</h2>
                 <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('tv')">+ Add Folder</button>
             </div>
             ${tvFolders.length === 0 ? `
@@ -374,6 +437,39 @@ function renderSettingsFolders(settings, folders) {
             `}
             <p class="text-muted" style="padding: 10px 15px 0; font-size: 0.85rem;">Files that can't be matched or resolved are moved here. Only one issues folder can be active at a time.</p>
         </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Movie Library Folders</h2>
+                <button class="btn btn-sm btn-primary" onclick="showAddFolderModal('movie_library')">+ Add Folder</button>
+            </div>
+            ${movieLibraryFolders.length === 0 ? `
+                <p class="text-muted" id="movie_library-folders-placeholder">No movie library folders configured.</p>
+            ` : `
+                <table id="movie_library-folders-table" class="folders-table">
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${movieLibraryFolders.map(folder => `
+                            <tr data-folder-id="${folder.id}">
+                                <td>${escapeHtml(folder.path)}</td>
+                                <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                                <td>
+                                    <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
+                                    <button class="btn btn-sm btn-danger" onclick="confirmDeleteFolder(${folder.id}, '${escapeHtml(folder.path).replace(/'/g, "\\\\'")}')"">Remove</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `}
+            <p class="text-muted" style="padding: 10px 15px 0; font-size: 0.85rem;">Folders containing your movie library files.</p>
+        </div>
     `;
 }
 
@@ -428,6 +524,9 @@ function updateFormatPreviews() {
             episode: sampleEpisode
         });
     }
+
+    // Movie format preview
+    updateMovieFormatPreview();
 }
 
 async function autoSaveApiKey(provider) {
@@ -607,7 +706,7 @@ function showAddFolderModal(folderType) {
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
 
-    const typeLabel = folderType === 'library' ? 'Library' : folderType === 'tv' ? 'TV' : 'Issues';
+    const typeLabel = folderType === 'library' ? 'Library' : folderType === 'tv' ? 'TV' : folderType === 'movie_library' ? 'Movie Library' : 'Issues';
     modalTitle.textContent = `Add ${typeLabel} Folder`;
     modalBody.innerHTML = `
         <div class="form-group">
@@ -650,8 +749,8 @@ async function addFolder(folderType) {
         state.folders.push(newFolder);
 
         // Find the appropriate table or placeholder
-        const tableId = folderType === 'library' ? 'library-folders-table' : 'tv-folders-table';
-        const placeholderId = folderType === 'library' ? 'library-folders-placeholder' : 'tv-folders-placeholder';
+        const tableId = folderType === 'library' ? 'library-folders-table' : folderType === 'movie_library' ? 'movie_library-folders-table' : 'tv-folders-table';
+        const placeholderId = folderType === 'library' ? 'library-folders-placeholder' : folderType === 'movie_library' ? 'movie_library-folders-placeholder' : 'tv-folders-placeholder';
         let table = document.getElementById(tableId);
         let placeholder = document.getElementById(placeholderId);
 
@@ -779,6 +878,10 @@ async function deleteFolder(folderId) {
         }
         if (issuesTable && issuesTable.querySelectorAll('tbody tr').length === 0) {
             issuesTable.outerHTML = '<p class="text-muted" id="issues-folders-placeholder">No issues folder configured.</p>';
+        }
+        const movieLibTable = document.getElementById('movie_library-folders-table');
+        if (movieLibTable && movieLibTable.querySelectorAll('tbody tr').length === 0) {
+            movieLibTable.outerHTML = '<p class="text-muted" id="movie_library-folders-placeholder">No movie library folders configured.</p>';
         }
 
         closeModal();

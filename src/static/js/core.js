@@ -22,6 +22,12 @@ const state = {
     showsPerPage: 0,
     totalShows: 0,
     totalPages: 1,
+    movies: [],
+    currentMovie: null,
+    moviesPage: 1,
+    moviesPerPage: 0,
+    totalMovies: 0,
+    moviesTotalPages: 1,
     activeSettingsTab: 'general',
     uiPrefs: {}
 };
@@ -103,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Get page from URL hash
 function getPageFromHash() {
     const hash = window.location.hash.slice(1); // Remove the #
-    const validPages = ['dashboard', 'shows', 'scan', 'settings'];
+    const validPages = ['dashboard', 'shows', 'movies', 'scan', 'settings'];
     return validPages.includes(hash) ? hash : 'dashboard';
 }
 
@@ -144,6 +150,9 @@ function navigateTo(page, skipUnsavedCheck = false, skipHashUpdate = false, push
         case 'shows':
             renderShowsList();
             break;
+        case 'movies':
+            renderMoviesList();
+            break;
         case 'scan':
             renderScan();
             break;
@@ -168,6 +177,8 @@ function goBack() {
         performGlobalSearch(entry.searchQuery, true);
     } else if (entry.type === 'show') {
         showShowDetail(entry.showId, null, null, true);
+    } else if (entry.type === 'movie') {
+        showMovieDetail(entry.movieId, true);
     } else {
         // page
         navigateTo(entry.page, false, false, false);
@@ -302,24 +313,30 @@ async function performGlobalSearch(query, skipHistoryPush = false) {
 
     try {
         const searchSource = getSearchSource();
-        const searchEndpoint = searchSource === 'tvdb'
+        const showSearchEndpoint = searchSource === 'tvdb'
             ? `/shows/search/tvdb?q=${encodeURIComponent(query)}`
             : `/shows/search/tmdb?q=${encodeURIComponent(query)}`;
 
-        // Search provider and local library
-        const [providerResults, localShowsResp] = await Promise.all([
-            api(searchEndpoint),
-            api('/shows')
+        // Search provider shows, local shows, and TMDB movies
+        const [providerResults, localShowsResp, movieResults, localMoviesResp] = await Promise.all([
+            api(showSearchEndpoint),
+            api('/shows'),
+            api(`/movies/search/tmdb?q=${encodeURIComponent(query)}`).catch(() => ({ results: [] })),
+            api('/movies').catch(() => ({ movies: [] }))
         ]);
         const localShows = localShowsResp.shows;
+        const localMovies = localMoviesResp.movies || [];
 
-        // Filter local shows by name
+        // Filter local shows and movies by name
         const queryLower = query.toLowerCase();
         const matchingLocalShows = localShows.filter(show =>
             show.name.toLowerCase().includes(queryLower)
         );
+        const matchingLocalMovies = localMovies.filter(movie =>
+            movie.title.toLowerCase().includes(queryLower)
+        );
 
-        renderSearchResults(query, providerResults.results || [], matchingLocalShows, searchSource);
+        renderSearchResults(query, providerResults.results || [], matchingLocalShows, searchSource, movieResults.results || [], matchingLocalMovies);
         restorePendingScroll();
     } catch (error) {
         appContent.innerHTML = `
@@ -331,9 +348,11 @@ async function performGlobalSearch(query, skipHistoryPush = false) {
     }
 }
 
-function renderSearchResults(query, providerResults, localShows, searchSource = 'tmdb') {
+function renderSearchResults(query, providerResults, localShows, searchSource = 'tmdb', movieResults = [], matchingLocalMovies = []) {
     const hasLocalResults = localShows.length > 0;
     const hasProviderResults = providerResults.length > 0;
+    const hasLocalMovies = matchingLocalMovies.length > 0;
+    const hasMovieResults = movieResults.length > 0;
     const sourceName = searchSource === 'tvdb' ? 'TVDB' : 'TMDB';
     const placeholder = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>";
 
@@ -392,7 +411,54 @@ function renderSearchResults(query, providerResults, localShows, searchSource = 
             </div>
         ` : ''}
 
-        ${!hasLocalResults && !hasProviderResults ? `
+        ${hasLocalMovies ? `
+            <div class="card">
+                <h2 class="card-title">Movies in Your Library (${matchingLocalMovies.length})</h2>
+                <div class="search-results-grid">
+                    ${matchingLocalMovies.map(movie => `
+                        <div class="search-result-card" onclick="showMovieDetail(${movie.id})">
+                            <img src="${getImageUrlOrPlaceholder(movie.poster_path)}"
+                                 class="search-result-poster-large"
+                                 onerror="this.src='${placeholder}'">
+                            <div class="search-result-card-info">
+                                <h3>${escapeHtml(movie.title)}</h3>
+                                <p class="text-muted">${movie.year || 'Unknown year'}</p>
+                                <span class="badge badge-success">In Library</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        ` : ''}
+
+        ${hasMovieResults ? `
+            <div class="card">
+                <h2 class="card-title">Add Movie from TMDB (${movieResults.length})</h2>
+                <div class="search-results-grid">
+                    ${movieResults.slice(0, 12).map(movie => {
+                        const inLibrary = matchingLocalMovies.some(lm => lm.tmdb_id === movie.id);
+                        const posterUrl = getImageUrlOrPlaceholder(movie.poster_path);
+                        const year = movie.release_date ? movie.release_date.substring(0, 4) : '';
+                        return `
+                            <div class="search-result-card ${inLibrary ? 'in-library' : ''}" onclick="showMoviePreviewModal(${movie.id})">
+                                <img src="${posterUrl}"
+                                     class="search-result-poster-large"
+                                     onerror="this.src='${placeholder}'">
+                                <div class="search-result-card-info">
+                                    <h3>${escapeHtml(movie.title)}</h3>
+                                    <p class="text-muted">${year}</p>
+                                    ${inLibrary
+                                        ? '<span class="badge badge-success">In Library</span>'
+                                        : '<span class="badge badge-primary">+ Add</span>'}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        ` : ''}
+
+        ${!hasLocalResults && !hasProviderResults && !hasLocalMovies && !hasMovieResults ? `
             <div class="card">
                 <p class="text-muted text-center">No results found for "${escapeHtml(query)}"</p>
             </div>
@@ -699,6 +765,7 @@ async function checkSetup() {
         state.activeSettingsTab = getUiPref('settingsActiveTab', 'general');
         activeScanTab = getUiPref('scanActiveTab', 'operations');
         currentShowsView = getUiPref('showsViewMode', 'cards');
+        currentMoviesView = getUiPref('moviesViewMode', 'cards');
         dashboardCardOrder = getUiPref('dashboardCardOrder', null) || [...defaultCardOrder];
         // Ensure any new cards are added to existing user's order
         defaultCardOrder.forEach(cardId => {

@@ -26,6 +26,9 @@ def log_library_event(
     show_id: int = None,
     episode_code: str = None,
     details: str = None,
+    movie_id: int = None,
+    movie_title: str = None,
+    media_type: str = None,
 ):
     """Write an entry to the library_log table."""
     entry = LibraryLog(
@@ -35,6 +38,9 @@ def log_library_event(
         show_name=show_name,
         show_id=show_id,
         episode_code=episode_code,
+        movie_id=movie_id,
+        movie_title=movie_title,
+        media_type=media_type,
         result=result,
         details=details,
     )
@@ -1815,3 +1821,438 @@ async def delete_library_log_entry(entry_id: int, db: Session = Depends(get_db))
     db.delete(entry)
     db.commit()
     return {"message": "Log entry deleted", "deleted": 1}
+
+
+# ── Movie scan endpoints ──────────────────────────────────────────
+
+_movie_scan_status = {
+    "running": False,
+    "progress": 0,
+    "message": "",
+    "result": None,
+}
+
+_movie_discovery_status = {
+    "running": False,
+    "progress": 0,
+    "message": "",
+    "discovered": [],
+    "result": None,
+}
+
+
+def run_movie_library_scan(db_session_maker):
+    """Background task to scan movie library."""
+    global _movie_scan_status
+    import time
+
+    time.sleep(0.3)
+
+    SessionLocal = db_session_maker()
+    db = SessionLocal()
+
+    try:
+        from ..services.movie_scanner import MovieScannerService
+
+        _movie_scan_status["running"] = True
+        _movie_scan_status["result"] = None
+
+        scanner = MovieScannerService(db)
+
+        def update_progress(message, percent):
+            _movie_scan_status["message"] = message
+            _movie_scan_status["progress"] = percent
+
+        result = scanner.scan_movie_library(progress_callback=update_progress)
+
+        _movie_scan_status["result"] = {
+            "movies_matched": result.movies_matched,
+            "movies_missing": result.movies_missing,
+            "unmatched_files": len(result.unmatched_files),
+            "rename_previews": len(result.rename_previews),
+        }
+        _movie_scan_status["message"] = "Complete"
+        _movie_scan_status["progress"] = 100
+
+    except Exception as e:
+        _movie_scan_status["message"] = f"Error: {e}"
+        _movie_scan_status["result"] = {"error": str(e)}
+    finally:
+        _movie_scan_status["running"] = False
+        db.close()
+
+
+@router.post("/movies")
+async def scan_movie_library(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Scan movie library (match files to existing movies)."""
+    global _movie_scan_status
+
+    if _movie_scan_status["running"]:
+        raise HTTPException(status_code=400, detail="Movie scan already in progress")
+
+    _movie_scan_status = {
+        "running": True,
+        "progress": 0,
+        "message": "Starting movie scan...",
+        "result": None,
+    }
+
+    from ..database import get_session_maker
+
+    background_tasks.add_task(run_movie_library_scan, get_session_maker)
+
+    return {"message": "Movie scan started", "status": "running"}
+
+
+@router.get("/movies/status")
+async def get_movie_scan_status():
+    """Get movie scan status."""
+    return _movie_scan_status
+
+
+@router.post("/movie/{movie_id}")
+async def scan_single_movie(
+    movie_id: int,
+    db: Session = Depends(get_db),
+):
+    """Scan for a single movie's file."""
+    from ..models import Movie
+    from ..services.movie_scanner import MovieScannerService
+
+    movie = db.query(Movie).filter(Movie.id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found")
+
+    scanner = MovieScannerService(db)
+    result = scanner.scan_single_movie(movie)
+
+    return {
+        "movies_matched": result.movies_matched,
+        "movies_missing": result.movies_missing,
+    }
+
+
+def run_movie_library_discovery(db_session_maker, folder_id: int, tmdb_api_key: str):
+    """Background task to discover movies from a folder."""
+    global _movie_discovery_status
+    import time
+    import asyncio
+
+    time.sleep(0.3)
+
+    SessionLocal = db_session_maker()
+    db = SessionLocal()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        from ..models import Movie, ScanFolder
+        from ..services.movie_scanner import MovieScannerService
+        from ..services.tmdb import TMDBService
+        from ..services.movie_matcher import MovieMatcherService
+
+        _movie_discovery_status["running"] = True
+        _movie_discovery_status["discovered"] = []
+        _movie_discovery_status["result"] = None
+
+        folder = db.query(ScanFolder).filter(ScanFolder.id == folder_id).first()
+        if not folder:
+            _movie_discovery_status["message"] = "Folder not found"
+            return
+
+        scanner = MovieScannerService(db)
+        tmdb = TMDBService(api_key=tmdb_api_key)
+        matcher = MovieMatcherService()
+
+        def update_progress(message, percent):
+            _movie_discovery_status["message"] = message
+            _movie_discovery_status["progress"] = percent
+
+        # Discover files
+        discovered_files = scanner.discover_movie_folder(folder.path, progress_callback=update_progress)
+
+        _movie_discovery_status["message"] = f"Found {len(discovered_files)} potential movies, searching TMDB..."
+
+        added = 0
+        skipped = 0
+        errors = 0
+
+        for i, file_info in enumerate(discovered_files):
+            title = file_info["parsed_title"]
+            year = file_info.get("parsed_year")
+
+            _movie_discovery_status["progress"] = int((i / max(len(discovered_files), 1)) * 100)
+            _movie_discovery_status["message"] = f"Searching: {title}"
+
+            try:
+                search_results = loop.run_until_complete(
+                    tmdb.search_movies(title, year=year)
+                )
+                results = search_results.get("results", [])
+
+                if not results and year:
+                    search_results = loop.run_until_complete(tmdb.search_movies(title))
+                    results = search_results.get("results", [])
+
+                if not results:
+                    skipped += 1
+                    _movie_discovery_status["discovered"].append({
+                        "filename": file_info["filename"],
+                        "title": title,
+                        "status": "not_found",
+                    })
+                    continue
+
+                # Pick best match
+                best = results[0]
+                for r in results[:5]:
+                    r_title = r.get("title", "")
+                    r_date = r.get("release_date", "")
+                    r_year = int(r_date[:4]) if r_date and len(r_date) >= 4 else None
+                    score = matcher.match_movie_title(title, r_title, year, r_year)
+                    if score > matcher.match_movie_title(title, best.get("title", ""), year,
+                        int(best.get("release_date", "")[:4]) if best.get("release_date") and len(best.get("release_date", "")) >= 4 else None):
+                        best = r
+
+                tmdb_id = best.get("id")
+
+                # Check if already in DB
+                existing = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
+                if existing:
+                    # Update file path if not set
+                    if not existing.file_path:
+                        existing.file_path = file_info["path"]
+                        existing.file_status = "found"
+                        from datetime import datetime
+                        existing.matched_at = datetime.utcnow()
+                        db.commit()
+                    skipped += 1
+                    _movie_discovery_status["discovered"].append({
+                        "filename": file_info["filename"],
+                        "title": existing.title,
+                        "status": "existing",
+                    })
+                    continue
+
+                # Fetch full details and add
+                movie_data = loop.run_until_complete(tmdb.get_movie_with_details(tmdb_id))
+
+                movie = Movie(
+                    tmdb_id=movie_data.get("tmdb_id"),
+                    imdb_id=movie_data.get("imdb_id"),
+                    title=movie_data.get("title", "Unknown"),
+                    original_title=movie_data.get("original_title"),
+                    overview=movie_data.get("overview"),
+                    tagline=movie_data.get("tagline"),
+                    year=movie_data.get("year"),
+                    release_date=movie_data.get("release_date"),
+                    runtime=movie_data.get("runtime"),
+                    poster_path=movie_data.get("poster_path"),
+                    backdrop_path=movie_data.get("backdrop_path"),
+                    genres=movie_data.get("genres"),
+                    studio=movie_data.get("studio"),
+                    vote_average=movie_data.get("vote_average"),
+                    popularity=movie_data.get("popularity"),
+                    status=movie_data.get("status", "Released"),
+                    collection_id=movie_data.get("collection_id"),
+                    collection_name=movie_data.get("collection_name"),
+                    file_path=file_info["path"],
+                    folder_path=folder.path,
+                    file_status="found",
+                    edition=file_info.get("edition"),
+                )
+                from datetime import datetime
+                movie.matched_at = datetime.utcnow()
+
+                db.add(movie)
+                db.commit()
+                added += 1
+
+                _movie_discovery_status["discovered"].append({
+                    "filename": file_info["filename"],
+                    "title": movie.title,
+                    "year": movie.year,
+                    "status": "added",
+                })
+
+                time.sleep(0.3)  # Rate limiting
+
+            except Exception as e:
+                errors += 1
+                _movie_discovery_status["discovered"].append({
+                    "filename": file_info["filename"],
+                    "title": title,
+                    "status": "error",
+                    "error": str(e),
+                })
+
+        _movie_discovery_status["result"] = {
+            "added": added,
+            "skipped": skipped,
+            "errors": errors,
+            "total": len(discovered_files),
+        }
+        _movie_discovery_status["message"] = f"Complete: {added} added, {skipped} skipped, {errors} errors"
+        _movie_discovery_status["progress"] = 100
+
+    except Exception as e:
+        _movie_discovery_status["message"] = f"Error: {e}"
+        _movie_discovery_status["result"] = {"error": str(e)}
+    finally:
+        _movie_discovery_status["running"] = False
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
+        loop.close()
+        db.close()
+
+
+class MovieLibraryFolderScanRequest(BaseModel):
+    """Request model for scanning a movie library folder for new movies."""
+
+    folder_id: int
+
+
+@router.post("/movie-library-folder")
+async def scan_movie_library_folder(
+    data: MovieLibraryFolderScanRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Discover and add movies from a movie library folder."""
+    global _movie_discovery_status
+
+    if _movie_discovery_status["running"]:
+        raise HTTPException(status_code=400, detail="Movie discovery scan already in progress")
+
+    # Get TMDB API key
+    from ..models import AppSettings
+    tmdb_key_setting = db.query(AppSettings).filter(AppSettings.key == "tmdb_api_key").first()
+    tmdb_key = tmdb_key_setting.value if tmdb_key_setting else ""
+    if not tmdb_key:
+        raise HTTPException(status_code=400, detail="TMDB API key not configured")
+
+    _movie_discovery_status = {
+        "running": True,
+        "progress": 0,
+        "message": "Starting movie discovery...",
+        "discovered": [],
+        "result": None,
+    }
+
+    from ..database import get_session_maker
+
+    background_tasks.add_task(
+        run_movie_library_discovery,
+        get_session_maker,
+        data.folder_id,
+        tmdb_key,
+    )
+
+    return {"message": "Movie discovery scan started", "status": "running"}
+
+
+@router.get("/movie-library-folder/status")
+async def get_movie_discovery_status():
+    """Get the status of the movie library folder discovery scan."""
+    return _movie_discovery_status
+
+
+@router.get("/movie-rename-previews")
+async def get_movie_rename_previews(db: Session = Depends(get_db)):
+    """Get pending movie rename previews."""
+    from ..services.movie_scanner import MovieScannerService
+    from ..models import AppSettings
+
+    scanner = MovieScannerService(db)
+
+    movie_format_setting = db.query(AppSettings).filter(AppSettings.key == "movie_format").first()
+    movie_format = movie_format_setting.value if movie_format_setting else "{title} ({year})/{title} ({year})"
+
+    previews = scanner.compute_movie_rename_previews(movie_format)
+    return previews
+
+
+@router.post("/apply-movie-renames")
+async def apply_movie_renames(db: Session = Depends(get_db)):
+    """Execute movie file renames."""
+    from ..models import Movie, AppSettings
+    from ..services.movie_renamer import MovieRenamerService
+
+    renamer = MovieRenamerService(db)
+
+    movie_format_setting = db.query(AppSettings).filter(AppSettings.key == "movie_format").first()
+    movie_format = movie_format_setting.value if movie_format_setting else "{title} ({year})/{title} ({year})"
+
+    movies = (
+        db.query(Movie)
+        .filter(
+            Movie.do_rename == True,
+            Movie.file_path.isnot(None),
+            Movie.file_status.in_(["found", "renamed"]),
+        )
+        .all()
+    )
+
+    results = []
+    success_count = 0
+    error_count = 0
+
+    for movie in movies:
+        preview = renamer.compute_movie_rename_preview(movie, movie_format)
+        if not preview:
+            continue
+
+        result = renamer.move_movie_file(preview["current_path"], preview["expected_path"])
+        if result.success:
+            movie.file_path = result.dest_path
+            movie.file_status = "renamed"
+            success_count += 1
+
+            log_library_event(
+                db,
+                action_type="rename",
+                result="success",
+                file_path=result.source_path,
+                dest_path=result.dest_path,
+                movie_title=movie.title,
+                movie_id=movie.id,
+                media_type="movie",
+                details=f"Renamed: {Path(result.source_path).name} → {Path(result.dest_path).name}",
+            )
+        else:
+            error_count += 1
+
+            log_library_event(
+                db,
+                action_type="rename_failed",
+                result="failed",
+                file_path=result.source_path,
+                movie_title=movie.title,
+                movie_id=movie.id,
+                media_type="movie",
+                details=f"Rename failed: {result.error}",
+            )
+
+        results.append({
+            "movie_id": movie.id,
+            "movie_title": movie.title,
+            "success": result.success,
+            "source_path": result.source_path,
+            "dest_path": result.dest_path,
+            "error": result.error,
+        })
+
+    db.commit()
+
+    return {
+        "message": f"Renamed {success_count} movies, {error_count} errors",
+        "success_count": success_count,
+        "error_count": error_count,
+        "results": results,
+    }

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_database
-from .routers import shows_router, scan_router, actions_router, settings_router, watcher_router
+from .routers import shows_router, scan_router, actions_router, settings_router, watcher_router, movies_router
 
 # Configure logging
 logging.basicConfig(
@@ -136,6 +136,36 @@ def run_migrations():
                 conn.execute(text("UPDATE scan_folders SET folder_type = 'tv' WHERE folder_type = 'download'"))
                 conn.commit()
 
+        # ── Movie support migrations ──
+
+        # Add movie_id to pending_actions if missing
+        if "pending_actions" in inspector.get_table_names():
+            pa_columns = [c["name"] for c in inspector.get_columns("pending_actions")]
+            if "movie_id" not in pa_columns:
+                logger.info("Adding movie_id column to pending_actions table")
+                conn.execute(text("ALTER TABLE pending_actions ADD COLUMN movie_id INTEGER REFERENCES movies(id) ON DELETE SET NULL"))
+                conn.commit()
+
+        # Add movie columns to library_log if missing
+        if "library_log" in inspector.get_table_names():
+            ll_columns = [c["name"] for c in inspector.get_columns("library_log")]
+            if "movie_id" not in ll_columns:
+                logger.info("Adding movie columns to library_log table")
+                conn.execute(text("ALTER TABLE library_log ADD COLUMN movie_id INTEGER REFERENCES movies(id) ON DELETE SET NULL"))
+                conn.execute(text("ALTER TABLE library_log ADD COLUMN movie_title VARCHAR(500)"))
+                conn.execute(text("ALTER TABLE library_log ADD COLUMN media_type VARCHAR(20)"))
+                conn.commit()
+
+        # Add movie columns to watcher_log if missing
+        if "watcher_log" in inspector.get_table_names():
+            wl_columns = [c["name"] for c in inspector.get_columns("watcher_log")]
+            if "movie_id" not in wl_columns:
+                logger.info("Adding movie columns to watcher_log table")
+                conn.execute(text("ALTER TABLE watcher_log ADD COLUMN movie_id INTEGER REFERENCES movies(id) ON DELETE SET NULL"))
+                conn.execute(text("ALTER TABLE watcher_log ADD COLUMN movie_title VARCHAR(500)"))
+                conn.execute(text("ALTER TABLE watcher_log ADD COLUMN media_type VARCHAR(20)"))
+                conn.commit()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -192,6 +222,7 @@ app.include_router(scan_router)
 app.include_router(actions_router)
 app.include_router(settings_router)
 app.include_router(watcher_router)
+app.include_router(movies_router)
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"

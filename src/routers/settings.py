@@ -36,13 +36,15 @@ class SettingsUpdate(BaseModel):
     shows_per_page: Optional[int] = None
     shows_per_page_options: Optional[list] = None
     timezone: Optional[str] = None
+    movie_format: Optional[str] = None
+    movies_per_page: Optional[int] = None
 
 
 class FolderCreate(BaseModel):
     """Request model for creating a scan folder."""
 
     path: str
-    type: str  # library, tv, or issues
+    type: str  # library, tv, issues, or movie_library
 
 
 class SettingsResponse(BaseModel):
@@ -102,6 +104,31 @@ async def update_ui_prefs(data: dict, db: Session = Depends(get_db)):
     return existing
 
 
+def _get_migrated_movie_format(db: Session) -> str:
+    """Get movie_format, migrating from old folder_format if needed."""
+    old_folder_format = get_setting(db, "movie_folder_format", "")
+    movie_format = get_setting(db, "movie_format", "")
+
+    if old_folder_format:
+        # Migrate: merge old folder_format into movie_format
+        base = movie_format or "{title} ({year})"
+        if old_folder_format == "year":
+            new_format = f"{{year}}/{base}"
+        else:
+            # "individual" → prepend title(year) folder
+            new_format = f"{base}/{base}"
+
+        set_setting(db, "movie_format", new_format)
+        # Delete the old setting
+        old_setting = db.query(AppSettings).filter(AppSettings.key == "movie_folder_format").first()
+        if old_setting:
+            db.delete(old_setting)
+            db.commit()
+        return new_format
+
+    return movie_format or "{title} ({year})/{title} ({year})"
+
+
 @router.get("/settings")
 async def get_settings(db: Session = Depends(get_db)):
     """Get application settings."""
@@ -138,6 +165,8 @@ async def get_settings(db: Session = Depends(get_db)):
         "shows_per_page": int(get_setting(db, "shows_per_page", "0")),
         "shows_per_page_options": json.loads(get_setting(db, "shows_per_page_options", "[100,300,500,1000,1500]")),
         "timezone": get_setting(db, "timezone", ""),
+        "movie_format": _get_migrated_movie_format(db),
+        "movies_per_page": int(get_setting(db, "movies_per_page", "0")),
     }
 
 
@@ -203,6 +232,12 @@ async def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
         opts = sorted([int(v) for v in data.shows_per_page_options if int(v) > 0])[:5]
         set_setting(db, "shows_per_page_options", json.dumps(opts))
 
+    if data.movie_format is not None:
+        set_setting(db, "movie_format", data.movie_format)
+
+    if data.movies_per_page is not None:
+        set_setting(db, "movies_per_page", str(data.movies_per_page))
+
     # Mark setup as completed if API key is set
     if data.tmdb_api_key:
         set_setting(db, "setup_completed", "true")
@@ -232,8 +267,8 @@ def _sync_watcher_issues_folder(db: Session):
 async def create_folder(data: FolderCreate, db: Session = Depends(get_db)):
     """Add a scan folder."""
     # Validate folder type
-    if data.type not in ("library", "tv", "issues"):
-        raise HTTPException(status_code=400, detail="Type must be 'library', 'tv', or 'issues'")
+    if data.type not in ("library", "tv", "issues", "movie_library"):
+        raise HTTPException(status_code=400, detail="Type must be 'library', 'tv', 'issues', or 'movie_library'")
 
     # Check if path exists
     path = Path(data.path)

@@ -28,6 +28,11 @@ class LibraryLog(Base):
         Integer, ForeignKey("shows.id", ondelete="SET NULL"), nullable=True
     )
     episode_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    movie_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("movies.id", ondelete="SET NULL"), nullable=True
+    )
+    movie_title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    media_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # "tv" or "movie"
     result: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     # Result values: success, failed
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -46,6 +51,9 @@ class LibraryLog(Base):
             "show_name": self.show_name,
             "show_id": self.show_id,
             "episode_code": self.episode_code,
+            "movie_id": self.movie_id,
+            "movie_title": self.movie_title,
+            "media_type": self.media_type,
             "result": self.result,
             "details": self.details,
         }

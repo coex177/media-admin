@@ -15,7 +15,7 @@
                 <img src="/static/images/app-icon.png" alt="Media Admin" class="sidebar-logo">
                 <div>
                     <h1>Media Admin</h1>
-                    <p>TV Show Organization</p>
+                    <p>Media Organization</p>
                 </div>
             </div>
             <nav>
@@ -30,6 +30,12 @@
                         <a href="#" data-page="shows">
                             <img src="/static/images/nav-shows.png" alt="" class="nav-icon-img">
                             Shows
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" data-page="movies">
+                            <img src="/static/images/nav-shows.png" alt="" class="nav-icon-img">
+                            Movies
                         </a>
                     </li>
                     <li>
@@ -61,7 +67,7 @@
         <main class="main-content">
             <div class="global-search-bar" id="global-search-bar">
                 <div class="search-input-row">
-                    <input type="text" id="global-search-input" placeholder="Search for shows..."
+                    <input type="text" id="global-search-input" placeholder="Search for shows and movies..."
                            oninput="debounceGlobalSearch(event)" onkeydown="handleSearchKeydown(event)">
                     <img src="/static/images/search.png" alt="" class="search-icon-img">
                 </div>
@@ -105,6 +111,7 @@
     <script src="/static/js/shows.js"></script>
     <script src="/static/js/scan.js"></script>
     <script src="/static/js/settings.js"></script>
+    <script src="/static/js/movies.js"></script>
     <script src="/static/js/watcher.js"></script>
     <script src="/static/js/issues.js"></script>
 </body>
