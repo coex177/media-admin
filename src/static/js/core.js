@@ -314,21 +314,41 @@ async function performGlobalSearch(query, skipHistoryPush = false) {
     try {
         const searchSource = getSearchSource();
 
+        // Check if query is a numeric ID (TMDB ID lookup)
+        const isNumericId = /^\d{4,}$/.test(query.trim());
+
         // Extract year from query if present (e.g., "Black 2017" or "Black (2017)")
         const yearMatch = query.match(/\b(19|20)\d{2}\b/);
         const searchYear = yearMatch ? yearMatch[0] : null;
         const yearParam = searchYear ? `&year=${searchYear}` : '';
 
-        const showSearchEndpoint = searchSource === 'tvdb'
-            ? `/shows/search/tvdb?q=${encodeURIComponent(query)}`
-            : `/shows/search/tmdb?q=${encodeURIComponent(query)}${yearParam}`;
+        let providerResults, movieResults;
 
-        // Search provider shows, local shows, and TMDB movies
-        const [providerResults, localShowsResp, movieResults, localMoviesResp] = await Promise.all([
-            api(showSearchEndpoint),
+        if (isNumericId && searchSource === 'tmdb') {
+            // Direct TMDB ID lookup for shows and movies
+            const tmdbId = parseInt(query.trim(), 10);
+            const [showLookup, movieLookup] = await Promise.all([
+                api(`/shows/lookup/tmdb/${tmdbId}`).catch(() => null),
+                api(`/movies/lookup/tmdb/${tmdbId}`).catch(() => null),
+            ]);
+            providerResults = { results: showLookup ? [showLookup] : [] };
+            movieResults = { results: movieLookup ? [movieLookup] : [] };
+        } else {
+            // Normal text search
+            const showSearchEndpoint = searchSource === 'tvdb'
+                ? `/shows/search/tvdb?q=${encodeURIComponent(query)}`
+                : `/shows/search/tmdb?q=${encodeURIComponent(query)}${yearParam}`;
+
+            [providerResults, movieResults] = await Promise.all([
+                api(showSearchEndpoint),
+                api(`/movies/search/tmdb?q=${encodeURIComponent(query)}${yearParam}`).catch(() => ({ results: [] })),
+            ]);
+        }
+
+        // Always fetch local library for matching
+        const [localShowsResp, localMoviesResp] = await Promise.all([
             api('/shows'),
-            api(`/movies/search/tmdb?q=${encodeURIComponent(query)}${yearParam}`).catch(() => ({ results: [] })),
-            api('/movies').catch(() => ({ movies: [] }))
+            api('/movies').catch(() => ({ movies: [] })),
         ]);
         const localShows = localShowsResp.shows;
         const localMovies = localMoviesResp.movies || [];

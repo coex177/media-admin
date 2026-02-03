@@ -327,6 +327,26 @@ async def search_tmdb_movies(
         raise HTTPException(status_code=400, detail=f"Search failed: {e}")
 
 
+@router.get("/lookup/tmdb/{tmdb_id}")
+async def lookup_tmdb_movie_by_id(
+    tmdb_id: int,
+    tmdb: TMDBService = Depends(get_tmdb_service),
+):
+    """Look up a specific movie by its TMDB ID. Returns it in search result format."""
+    try:
+        movie = await tmdb.get_movie(tmdb_id)
+        return {
+            "id": movie.get("id"),
+            "title": movie.get("title"),
+            "overview": movie.get("overview"),
+            "poster_path": movie.get("poster_path"),
+            "release_date": movie.get("release_date"),
+            "vote_average": movie.get("vote_average"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Movie not found: {e}")
+
+
 @router.get("/preview/{tmdb_id}")
 async def preview_movie(
     tmdb_id: int,

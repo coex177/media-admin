@@ -1152,6 +1152,28 @@ async def search_tmdb(
         raise HTTPException(status_code=400, detail=f"Search failed: {e}")
 
 
+@router.get("/lookup/tmdb/{tmdb_id}")
+async def lookup_tmdb_by_id(
+    tmdb_id: int,
+    tmdb: TMDBService = Depends(get_tmdb_service),
+):
+    """Look up a specific TV show by its TMDB ID. Returns it in search result format."""
+    try:
+        show = await tmdb.get_show(tmdb_id)
+        # Format as search result
+        return {
+            "id": show.get("id"),
+            "name": show.get("name"),
+            "overview": show.get("overview"),
+            "poster_path": show.get("poster_path"),
+            "first_air_date": show.get("first_air_date"),
+            "vote_average": show.get("vote_average"),
+            "popularity": show.get("popularity"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Show not found: {e}")
+
+
 @router.get("/search/tvdb")
 async def search_tvdb(
     q: str = Query(..., min_length=1),
