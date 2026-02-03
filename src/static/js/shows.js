@@ -1034,7 +1034,7 @@ function showAddShowModal() {
         <div class="form-group">
             <label>Search for a show</label>
             <div style="display: flex; align-items: center; gap: 10px;">
-                <input type="text" id="show-search-input" class="form-control" placeholder="Enter show name..." onkeyup="debounceSearch(event)" style="flex: 1;">
+                <input type="text" id="show-search-input" class="form-control" placeholder="Show name or TMDB/TVDB ID..." onkeyup="debounceSearch(event)" style="flex: 1;">
                 <div class="search-source-toggle" id="modal-search-source-toggle">
                     <label class="${defaultSource === 'tmdb' ? 'active' : ''}" onclick="setModalSearchSource('tmdb', this)">
                         <input type="radio" name="modal-search-source" value="tmdb" ${defaultSource === 'tmdb' ? 'checked' : ''}>
@@ -1046,6 +1046,7 @@ function showAddShowModal() {
                     </label>
                 </div>
             </div>
+            <small class="text-muted">Tip: Enter a TMDB or TVDB ID number to find a specific show (e.g. 73944)</small>
         </div>
         <div class="form-group">
             <label class="checkbox-label">
@@ -1100,16 +1101,31 @@ async function searchShows(query) {
     resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
     const searchSource = getModalSearchSource();
-    const searchEndpoint = searchSource === 'tvdb'
-        ? `/shows/search/tvdb?q=${encodeURIComponent(query)}`
-        : `/shows/search/tmdb?q=${encodeURIComponent(query)}`;
     const placeholder = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 90%22><rect fill=%22%23252542%22 width=%2260%22 height=%2290%22/></svg>";
 
+    // Check if query is a numeric ID (4+ digits)
+    const isNumericId = /^\d{4,}$/.test(query.trim());
+
     try {
-        const data = await api(searchEndpoint);
+        let data;
+        if (isNumericId) {
+            // Direct ID lookup
+            const showId = parseInt(query.trim(), 10);
+            const lookupEndpoint = searchSource === 'tvdb'
+                ? `/shows/lookup/tvdb/${showId}`
+                : `/shows/lookup/tmdb/${showId}`;
+            const show = await api(lookupEndpoint).catch(() => null);
+            data = { results: show ? [show] : [] };
+        } else {
+            // Normal text search
+            const searchEndpoint = searchSource === 'tvdb'
+                ? `/shows/search/tvdb?q=${encodeURIComponent(query)}`
+                : `/shows/search/tmdb?q=${encodeURIComponent(query)}`;
+            data = await api(searchEndpoint);
+        }
 
         if (data.results.length === 0) {
-            resultsDiv.innerHTML = '<p class="text-muted text-center">No results found.</p>';
+            resultsDiv.innerHTML = `<p class="text-muted text-center">${isNumericId ? 'No show found with that ID.' : 'No results found.'}</p>`;
             return;
         }
 

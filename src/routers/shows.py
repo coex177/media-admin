@@ -1174,6 +1174,33 @@ async def lookup_tmdb_by_id(
         raise HTTPException(status_code=404, detail=f"Show not found: {e}")
 
 
+@router.get("/lookup/tvdb/{tvdb_id}")
+async def lookup_tvdb_by_id(
+    tvdb_id: int,
+    tvdb: TVDBService = Depends(get_tvdb_service),
+):
+    """Look up a specific TV show by its TVDB ID. Returns it in search result format."""
+    try:
+        show = await tvdb.get_show(tvdb_id)
+        # Get poster from artworks
+        poster_path = None
+        for artwork in show.get("artworks", []):
+            if artwork.get("type") == 2:  # type 2 is poster
+                poster_path = artwork.get("image")
+                break
+        # Format as search result
+        return {
+            "id": show.get("id"),
+            "tvdb_id": show.get("id"),
+            "name": show.get("name"),
+            "overview": show.get("overview"),
+            "poster_path": poster_path,
+            "first_air_date": show.get("firstAired"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Show not found: {e}")
+
+
 @router.get("/search/tvdb")
 async def search_tvdb(
     q: str = Query(..., min_length=1),
