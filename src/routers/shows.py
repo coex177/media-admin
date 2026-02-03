@@ -1136,11 +1136,12 @@ async def get_missing_episodes(show_id: int, db: Session = Depends(get_db)):
 async def search_tmdb(
     q: str = Query(..., min_length=1),
     page: int = Query(1, ge=1),
+    year: int = Query(None, ge=1900, le=2100),
     tmdb: TMDBService = Depends(get_tmdb_service),
 ):
-    """Search TMDB for TV shows."""
+    """Search TMDB for TV shows, optionally filtered by first air date year."""
     try:
-        results = await tmdb.search_shows(q, page)
+        results = await tmdb.search_shows(q, page, year=year)
         return {
             "results": results.get("results", []),
             "page": results.get("page", 1),

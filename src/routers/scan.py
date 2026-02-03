@@ -978,9 +978,17 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     record_show(dir_name, show_name, "not_found", detail=f"No {source_label} results")
                     continue
 
-                # Find best match (prefer exact year match if folder has year)
+                # Find best match using title similarity + year match
+                # Score each result: exact title match + year match wins
+                def normalize_title(t):
+                    return re.sub(r'[^a-z0-9]', '', t.lower())
+
+                folder_title_norm = normalize_title(show_name)
                 best_match = None
-                for result in results[:5]:  # Check top 5 results
+                best_score = -1
+                already_handled = False
+
+                for result in results[:10]:  # Check top 10 results
                     result_year = None
                     if result.get("first_air_date"):
                         try:
@@ -1018,16 +1026,42 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                             log(f"Skipping '{result['name']}' - already in library", "skip")
                             _library_folder_scan_status["shows_skipped"] += 1
                             record_show(dir_name, result['name'], "existing", detail="Already in library")
-                        best_match = None  # Don't add, already handled
+                        already_handled = True
                         break
 
-                    # Prefer year match
-                    if folder_year and result_year == folder_year:
+                    # Calculate match score: title similarity (0-1) + year bonus (0.5)
+                    result_title_norm = normalize_title(result.get("name", ""))
+
+                    # Exact title match = 1.0, contains = 0.7, partial = lower
+                    if result_title_norm == folder_title_norm:
+                        title_score = 1.0
+                    elif folder_title_norm in result_title_norm or result_title_norm in folder_title_norm:
+                        # Prefer shorter matches (exact over partial)
+                        title_score = 0.7 * min(len(folder_title_norm), len(result_title_norm)) / max(len(folder_title_norm), len(result_title_norm))
+                    else:
+                        title_score = 0.0
+
+                    # Year match bonus
+                    year_score = 0.5 if (folder_year and result_year == folder_year) else 0.0
+
+                    # Year mismatch penalty (if folder has year but result doesn't match)
+                    if folder_year and result_year and result_year != folder_year:
+                        year_score = -0.5
+
+                    total_score = title_score + year_score
+
+                    if total_score > best_score:
+                        best_score = total_score
                         best_match = result
-                        break
-                    elif not best_match and not folder_year:
-                        # Only accept first result as fallback when folder has no year
-                        best_match = result
+
+                if already_handled:
+                    continue
+
+                # Require minimum score: year match (0.5) or decent title match (0.5)
+                if best_match and best_score < 0.5:
+                    log(f"Best match for '{show_name}' scored too low ({best_score:.2f}), skipping", "warning")
+                    record_show(dir_name, show_name, "not_found", detail=f"No good match (best score: {best_score:.2f})")
+                    best_match = None
 
                 # If folder has a year but no result matched it, skip
                 if folder_year and not best_match:
