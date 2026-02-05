@@ -59,8 +59,8 @@ class MatcherService:
     # Release group pattern (usually at the end, after a dash)
     RELEASE_GROUP_PATTERN = r"-([A-Za-z0-9]+)(?:\.[a-z]{3,4})?$"
 
-    # Codec patterns that look like episode numbers (e.g. x264, x265, h264, h265)
-    CODEC_FALSE_POSITIVE = re.compile(r"[xXhH](\d{3})(?:[^0-9]|$)")
+    # Codec patterns that look like episode numbers (e.g. x264, x265, h264, h265, H.265)
+    CODEC_FALSE_POSITIVE = re.compile(r"[xXhH]\.?(\d{3})(?:[^0-9]|$)")
 
     # Resolution patterns that look like episode numbers (e.g. 720p, 480i)
     RESOLUTION_FALSE_POSITIVE = re.compile(r"(\d{3,4})[pPiI]")
