@@ -25,6 +25,19 @@ When working on this system, always check the docs directory first for relevant 
 
 Media Admin is a FastAPI + vanilla JS web app for managing TV shows and movies. It integrates with TMDB and TVDB APIs for metadata, scans local library and download folders, and manages file renaming/importing.
 
+**Full documentation:** See `docs/` directory in the project root for comprehensive documentation:
+- [Architecture](../docs/architecture.md) — tech stack, project structure, backend/frontend layers
+- [TV Shows](../docs/shows.md) — show management, metadata refresh, source switching
+- [Movies](../docs/movies.md) — movie management, collections, editions
+- [File Organization](../docs/file-organization.md) — naming formats, renaming workflow, companion files
+- [Scanning & Import](../docs/scanning.md) — library scanning, Managed Import, pending actions
+- [Download Monitoring](../docs/watcher.md) — watcher pipeline, quality comparison, Issues folder
+- [Filename Parsing](../docs/filename-parsing.md) — TV/movie patterns, matching algorithms
+- [Dashboard](../docs/dashboard.md) — stat cards, content cards, customization
+- [Configuration](../docs/settings.md) — all settings with defaults, environment variables
+- [API Reference](../docs/api.md) — all 92 endpoints across 6 routers
+- [Database Schema](../docs/database.md) — all 9 models, relationships, migrations
+
 ### Running the Service
 - **Systemd service:** `media-admin.service` (enabled, starts on boot)
 - Start: `systemctl start media-admin`
@@ -43,33 +56,33 @@ Media Admin is a FastAPI + vanilla JS web app for managing TV shows and movies. 
 
 ---
 
-## Project Structure
+## Project Structure (Quick Reference)
 
 ```
 src/
   main.py              - FastAPI app entry point
   config.py            - Settings/configuration
-  models.py            - SQLAlchemy models
   database.py          - DB session management
+  models/              - SQLAlchemy models (Show, Episode, Movie, ScanFolder, PendingAction, AppSettings, IgnoredEpisode, WatcherLog, LibraryLog)
   routers/
     shows.py           - TV show CRUD, search, preview, lookup endpoints
     movies.py          - Movie CRUD, search, preview, lookup endpoints
     scan.py            - Scanning, library folder discovery, import operations
     actions.py         - Pending action management (rename/import)
-    settings.py        - App settings endpoints
+    settings.py        - App settings + dashboard data endpoints
     watcher.py         - File watcher control endpoints
   services/
-    tmdb.py            - TMDB API client (search, get show/movie, episodes)
-    tvdb.py            - TVDB API client (search, get show, episodes)
+    tmdb.py            - TMDB API client
+    tvdb.py            - TVDB API client
     matcher.py         - TV filename parser (SxE patterns, title extraction)
-    movie_matcher.py   - Movie filename parser (title, year, quality)
+    movie_matcher.py   - Movie filename parser (title, year, quality, edition)
     scanner.py         - Library and download folder scanner
-    watcher.py         - Filesystem watcher (inotify)
-    watcher_pipeline.py - File processing pipeline (TV and movie matching)
+    movie_scanner.py   - Movie library scanner
     renamer.py         - TV episode file renamer
     movie_renamer.py   - Movie file renamer
-    movie_scanner.py   - Movie library scanner
-    quality.py         - Quality comparison logic
+    watcher.py         - Filesystem watcher (inotify)
+    watcher_pipeline.py - File processing pipeline (TV and movie matching)
+    quality.py         - ffprobe quality comparison logic
     pagination.py      - Shared alphabetical pagination helpers
     file_utils.py      - Shared filename sanitization, companion file moves, patterns
   static/
@@ -82,20 +95,21 @@ src/
       settings.js      - Settings page
       watcher.js       - Watcher log/controls
       issues.js        - Issues folder display
+docs/                  - Full project documentation (see links above)
 ```
 
 ---
 
-## File Processing Pipeline (watcher_pipeline.py)
+## Key Implementation Notes
 
-**Decision tree for new files in download folders:**
-1. Parse filename with TV matcher (looks for SxE patterns: S01E01, 1x03, etc.)
-2. If TV pattern found → match to show in DB → match episode → import
-3. If no TV pattern → parse with movie matcher (title + year extraction)
-4. If movie parsed → match to movie in DB or auto-import from TMDB
-5. If nothing matches → move to Issues folder
-
-**Important:** The 3-digit fallback TV pattern (`101` = S1E01) can cause false positives. Codec patterns like `H.265`, `x.264` are filtered out via `CODEC_FALSE_POSITIVE` in `matcher.py`.
+- **Watcher pipeline decision tree:** TV parse → show match → episode import; else movie parse → movie match → import; else Issues folder. See `docs/watcher.md` for full details.
+- **3-digit fallback TV pattern** (`101` = S1E01) can cause false positives. Codec patterns like `H.265`, `x.264` are filtered out via `CODEC_FALSE_POSITIVE` in `matcher.py`.
+- **Cross-module imports** (scanner↔shows, watcher↔scan) MUST stay inline to avoid circular dependencies. Standard library and model imports can safely be at module top level.
+- **Shared utilities:** `services/pagination.py` (alphabetical pagination) and `services/file_utils.py` (sanitize_filename, move_accompanying_files, patterns) are shared across multiple modules.
+- **Movie renamer** uses `sanitize_filename(name, replace_colon=True)`, TV renamer uses default (no colon replace).
+- **`_scan_show_folder()`** counts per-episode matches (multi-ep files count multiple), not per-file. So `extra = total_files - matched` can be negative. Use `> 0` or `<= 0` checks, never `== 0`.
+- **`existing_shows` dict** uses `tmdb_id` as key — shows with `tmdb_id = None` all collapse to key `None`.
+- **Managed Import scoring loop:** existing shows in search results should be skipped during scoring, not used to break the loop early.
 
 ---
 
@@ -103,90 +117,42 @@ src/
 
 ### Session: Feb 7, 2026
 
+#### 5. Add comprehensive /docs documentation (commit `1f3ff78`)
+- Simplified README to concise overview with links to docs/
+- Created 12-page wiki-style documentation in docs/ covering all features, architecture, settings, API, and database schema
+
 #### 4. Code review: consolidate duplicates, remove dead code, clean up imports (commit `7aafff3`)
-- **New shared modules:**
-  - `services/pagination.py` — `compute_sort_name()`, `sort_key_char()`, `sort_key_prefix()`, `compute_page_boundaries()` extracted from shows.py and movies.py
-  - `services/file_utils.py` — `sanitize_filename()`, `move_accompanying_files()`, `QUALITY_PATTERNS`, `SOURCE_PATTERNS`, `LANGUAGE_CODES` extracted from 6+ files
-- **Dead code removed:**
-  - `quality.py` unused `quality_service` global instance
-  - `core.js` unused `showShowDetailByTmdbId()` and `showShowDetailByTvdbId()`
-  - `actions.py` unused `/actions/preview/{action_id}` endpoint
-  - `dashboard.js` duplicate `currentShowsView` variable
-  - `shows.py` unused `func` import, dead variable assignment in pagination
-  - `watcher_pipeline.py` buggy `_sanitize()` method (colon replace after colon removal was dead code)
-- **Inline imports moved to top level** in shows.py (~10 imports), scan.py (~23 imports), tmdb.py (2 imports)
-- Cross-module imports (scanner/watcher/scan) kept inline to avoid circular dependencies
+- New shared modules: `services/pagination.py`, `services/file_utils.py`
+- Dead code removed from quality.py, core.js, actions.py, dashboard.js, shows.py, watcher_pipeline.py
+- Inline imports moved to top level in shows.py, scan.py, tmdb.py
 - Net result: -249 lines across 16 files
 
-#### 1. Secondary metadata provider fallback for Managed Import
-- During `run_library_folder_discovery()` in `scan.py`, if a newly added show has extra (unmatched) files with the default provider, the system now automatically tries the secondary provider.
-- Added `_count_file_matches()` helper that counts file-to-episode matches against an episode list without touching the DB — used to evaluate the secondary provider cheaply.
-- TMDB → TVDB fallback: requires TVDB service configured and `tvdb_id` available from TMDB external IDs.
-- TVDB → TMDB fallback: searches TMDB by show name and uses the top result.
-- If the secondary provider produces `extra <= 0` (all files match; `<0` accounts for multi-episode files counting multiple matches per file), the show's episodes are deleted and recreated from the secondary provider, metadata is updated, and `metadata_source` is switched.
-- If both providers have extras, the default provider is kept unchanged.
-- Wrapped in try/except so API failures don't break the import.
+#### 3. Rename show folder on metadata refresh when year is wrong
+- `_rename_show_folder_if_year_wrong()` in shows.py compares folder year to metadata year and renames if different
 
 #### 2. Fix Managed Import false "Already in library" matches
-- **Bug:** The TMDB results scoring loop in `run_library_folder_discovery()` checked every search result against existing shows and broke on the first match. If TMDB returned an existing show (e.g. "Borgen - Power & Glory") before the correct match (e.g. "Borgen") for a folder, the wrong show would steal the match, logging "Already in library" and skipping the folder entirely.
-- **Fix:** Existing shows in search results are now skipped (`continue`) during scoring instead of breaking the loop. The existing-show check after the best match is selected (by score) still correctly handles the case where the best-scoring result is already in the library.
+- Existing shows in search results now skipped during scoring instead of breaking the loop
 
-#### 3. Rename show folder on metadata refresh when year is wrong
-- Added `_rename_show_folder_if_year_wrong()` in `shows.py`, called during `refresh_show()`.
-- Compares the year in the folder name (e.g. `Into the Dark (2021)`) against `first_air_date` from metadata (e.g. `2018`).
-- If they differ, renames the folder on disk, updates `show.folder_path`, and updates all episode `file_path` references.
-- Runs before episode file renaming so paths stay consistent.
-- Safely skips if: no year in folder name, destination already exists, or folder doesn't exist.
+#### 1. Secondary metadata provider fallback for Managed Import
+- If a show has unmatched files with default provider, automatically tries secondary provider and switches if better
 
 ### Session: Feb 6, 2026
 
-#### 1. Search and tag filters for logs (commit `7534b40`)
-- **Watcher Log:** Added text search input and 8 toggleable tag filter buttons (Detected, Matched, Library, Issues, Error, Imported, Started, Stopped). Tags use OR logic, combined with AND for search and date range. All client-side filtering.
-- **Library Log:** Same pattern with 4 tag types (Rename, Import, Rename Failed, Import Failed).
-- **Issues tab:** Added text search input to filter by filename.
-- Clear Filters button resets all filters (tags, search, and date range).
-
-#### 2. Unified rounded corner styling (commit `f9dbd62`)
-- Added `.wlog-year-group` wrapper with `border-radius: 8px` to Watcher Log, Library Log, and Issues tabs for consistent rounded year group headers.
-- Added `border-radius: 8px` to Settings > Folders tables (`.folders-table`).
-- Wrapped Ignored tab content in `<div class="card">` for consistent card background.
-
-#### 3. Bulk delete on Ignored tab + layout fixes (commit `9079f19`)
-- Added bulk delete buttons on Ignored tab show headers and season headers (trash icon).
-- Added `DELETE /api/scan/ignore-episodes` bulk endpoint with `BulkUnignoreRequest` model.
-- Fixed goto arrow positioning: rightmost on Ignored tab show headers, using `.wlog-header-actions` span.
-- Fixed Missing Episodes season header width: wrapped content in `<div>` inside `<td colspan="5">` to prevent `display: flex` from breaking colspan.
+- Search and tag filters for watcher/library logs (commit `7534b40`)
+- Unified rounded corner styling (commit `f9dbd62`)
+- Bulk delete on Ignored tab + layout fixes (commit `9079f19`)
 
 ### Session: Feb 4, 2026
 
-#### 1. Year-based search filtering (commit `24cbdc9`)
-- Global search extracts year from queries (e.g., "Black 2017") and passes to TMDB API
-- Added `year` parameter to `/shows/search/tmdb` endpoint
-- Improved library folder discovery scoring: title similarity + year bonus/penalty
-- Minimum match score of 0.5 required to avoid false positives
-
-#### 2. TMDB ID lookup in global search (commit `b387293`)
-- Typing a numeric ID (4+ digits) in the global search box fetches show/movie directly by TMDB ID
-- Added `/shows/lookup/tmdb/{id}` endpoint
-- Added `/movies/lookup/tmdb/{id}` endpoint
-- Solves issue where shows with common/non-English names (e.g., Korean drama "Black" TMDB:73944) couldn't be found via text search
-
-#### 3. TMDB/TVDB ID lookup in Add Show modal (commit `54e1eaa`)
-- Add Show modal search box now supports numeric ID search
-- Added `/shows/lookup/tvdb/{id}` endpoint
-- Updated placeholder text and added tip explaining ID search
-- Works with both TMDB and TVDB source selection
-
-#### 4. Fix H.265/x.264 codec false positive (commit `5af6ca3`)
-- `H.265` in filenames (dot-separated) was being parsed as Season 2 Episode 65
-- Root cause: `CODEC_FALSE_POSITIVE` pattern only matched `H265` (no dot), not `H.265`
-- Fix: Updated pattern from `[xXhH](\d{3})` to `[xXhH]\.?(\d{3})`
-- Movie files like `The.Thing.1982.1080p.AMZN.WEB-DL.DDP2.0.SDR.H.265-GRiMM.mkv` now correctly fall through to movie pipeline
+- Year-based search filtering (commit `24cbdc9`)
+- TMDB ID lookup in global search (commit `b387293`)
+- TMDB/TVDB ID lookup in Add Show modal (commit `54e1eaa`)
+- Fix H.265/x.264 codec false positive (commit `5af6ca3`)
 
 ---
 
 ## Known Issues / Areas for Future Work
 
-- **Download folder scanner (`scanner.py:_scan_download_folders`) only handles TV shows.** It does not attempt movie matching for unmatched files. The watcher pipeline (`watcher_pipeline.py:process_file`) does handle both TV and movies correctly. If a movie is placed in a TV download folder and the watcher isn't running, the scanner won't detect it as a movie.
-- The Korean drama "Black" (TMDB:73944) is difficult to find via text search because the title is too generic and results are dominated by shows with "Black" in longer titles. The ID lookup feature was added to work around this.
+- **Download folder scanner (`scanner.py:_scan_download_folders`) only handles TV shows.** The watcher pipeline handles both TV and movies. If a movie is placed in a TV download folder and the watcher isn't running, the scanner won't detect it as a movie.
+- The Korean drama "Black" (TMDB:73944) is difficult to find via text search — use ID lookup instead.
 - `media_admin.db` should remain untracked in git (it's the live SQLite database).
