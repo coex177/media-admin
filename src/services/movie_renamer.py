@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Movie
+from .file_utils import sanitize_filename as _sanitize_filename, move_accompanying_files
 
 
 @dataclass
@@ -40,7 +41,7 @@ class MovieRenamerService:
         if not movie_format:
             movie_format = "{title} ({year})"
 
-        safe_title = self.sanitize_filename(movie.title)
+        safe_title = _sanitize_filename(movie.title, replace_colon=True)
         year_str = str(movie.year) if movie.year else "Unknown"
 
         filename = movie_format.format(
@@ -50,7 +51,7 @@ class MovieRenamerService:
 
         # Append edition if present
         if movie.edition:
-            safe_edition = self.sanitize_filename(movie.edition)
+            safe_edition = _sanitize_filename(movie.edition, replace_colon=True)
             filename += f" {{{safe_edition}}}"
 
         return filename + extension
@@ -72,7 +73,7 @@ class MovieRenamerService:
         if not movie_format:
             movie_format = "{title} ({year})/{title} ({year})"
 
-        safe_title = self.sanitize_filename(movie.title)
+        safe_title = _sanitize_filename(movie.title, replace_colon=True)
         year_str = str(movie.year) if movie.year else "Unknown"
 
         # Apply substitutions on the full format string (including /)
@@ -80,7 +81,7 @@ class MovieRenamerService:
 
         # Handle {edition} in the format
         if "{edition}" in formatted:
-            edition_str = self.sanitize_filename(movie.edition) if movie.edition else ""
+            edition_str = _sanitize_filename(movie.edition, replace_colon=True) if movie.edition else ""
             formatted = formatted.replace("{edition}", edition_str)
             # Clean up double spaces if edition was empty
             formatted = " ".join(formatted.split())
@@ -97,7 +98,7 @@ class MovieRenamerService:
 
         # Auto-append edition to filename if {edition} was NOT in the original format
         if "{edition}" not in (movie_format or "") and movie.edition:
-            safe_edition = self.sanitize_filename(movie.edition)
+            safe_edition = _sanitize_filename(movie.edition, replace_colon=True)
             filename += f" {{{safe_edition}}}"
 
         filename += extension
@@ -109,18 +110,6 @@ class MovieRenamerService:
         result = result / filename
 
         return str(result)
-
-    def sanitize_filename(self, name: str) -> str:
-        """Remove or replace invalid characters from a filename."""
-        # Replace colon with dash (common convention)
-        name = name.replace(":", " -")
-        # Remove other invalid chars
-        invalid_chars = '<>"/\\|?*'
-        for char in invalid_chars:
-            name = name.replace(char, "")
-        # Collapse multiple spaces
-        name = " ".join(name.split())
-        return name.strip()
 
     def move_movie_file(self, source: str, dest: str) -> MovieRenameResult:
         """Move a movie file to a new location, including companion files."""
@@ -143,7 +132,12 @@ class MovieRenamerService:
             shutil.move(str(source_path), str(dest_path))
 
             # Move accompanying files
-            self._move_accompanying_files(source_path, dest_path)
+            move_accompanying_files(
+                source_path, dest_path,
+                self.subtitle_extensions,
+                self.metadata_extensions,
+                self.image_extensions,
+            )
 
             return MovieRenameResult(
                 success=True,
@@ -158,38 +152,6 @@ class MovieRenamerService:
                 dest_path=dest,
                 error=str(e),
             )
-
-    def _move_accompanying_files(self, source: Path, dest: Path):
-        """Move accompanying files (subtitles, nfo, images) along with the main file."""
-        source_stem = source.stem
-        source_dir = source.parent
-        dest_stem = dest.stem
-        dest_dir = dest.parent
-
-        for ext in self.subtitle_extensions:
-            sub_source = source_dir / f"{source_stem}{ext}"
-            if sub_source.exists():
-                sub_dest = dest_dir / f"{dest_stem}{ext}"
-                shutil.move(str(sub_source), str(sub_dest))
-
-            # Language-coded subtitles
-            for lang in ["en", "eng", "es", "spa", "fr", "fra", "de", "deu"]:
-                sub_source = source_dir / f"{source_stem}.{lang}{ext}"
-                if sub_source.exists():
-                    sub_dest = dest_dir / f"{dest_stem}.{lang}{ext}"
-                    shutil.move(str(sub_source), str(sub_dest))
-
-        for ext in self.metadata_extensions:
-            meta_source = source_dir / f"{source_stem}{ext}"
-            if meta_source.exists():
-                meta_dest = dest_dir / f"{dest_stem}{ext}"
-                shutil.move(str(meta_source), str(meta_dest))
-
-        for ext in self.image_extensions:
-            img_source = source_dir / f"{source_stem}{ext}"
-            if img_source.exists():
-                img_dest = dest_dir / f"{dest_stem}{ext}"
-                shutil.move(str(img_source), str(img_dest))
 
     def compute_movie_rename_preview(self, movie: Movie, movie_format: str = None) -> Optional[dict]:
         """Compute rename preview for a single movie.

@@ -1,8 +1,11 @@
 """API endpoints for scanning operations."""
 
+import json
+import logging
+import shutil
+import time
 from pathlib import Path
 from typing import Optional
-
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
@@ -10,7 +13,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..models import AppSettings, Episode, Show
 from ..models.library_log import LibraryLog
+from ..services.renamer import RenamerService
 from ..services.scanner import ScannerService, ScanResult
 
 router = APIRouter(prefix="/api/scan", tags=["scan"])
@@ -79,11 +84,7 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
         recent_days: Number of days back to check for recently aired episodes (only used when scan_mode="quick").
     """
     global _scan_status, _metadata_updates, _download_matches
-    import time
-    import json
     import asyncio
-    from datetime import datetime
-    from ..models import AppSettings
     from ..services.watcher import watcher_service
     from ..services.tmdb import TMDBService
     from ..services.tvdb import TVDBService
@@ -188,7 +189,6 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
 
 def _save_setting(db: Session, key: str, value: str):
     """Save a setting to the database."""
-    from ..models import AppSettings
     setting = db.query(AppSettings).filter(AppSettings.key == key).first()
     if setting:
         setting.value = value
@@ -200,9 +200,6 @@ def _save_setting(db: Session, key: str, value: str):
 def run_downloads_scan(db_session_maker):
     """Background task for downloads scan."""
     global _scan_status
-    import time
-    import json
-    from datetime import datetime
     from ..services.watcher import watcher_service
 
     # Small delay to ensure any recent commits are visible
@@ -256,11 +253,6 @@ def run_downloads_scan(db_session_maker):
 def run_single_show_scan(db_session_maker, show_id: int):
     """Background task for scanning a single show only."""
     global _scan_status
-    import time
-    import json
-    import logging
-    from datetime import datetime
-    from ..models import Show
     from ..services.watcher import watcher_service
 
     logger = logging.getLogger("scanner")
@@ -375,7 +367,6 @@ async def trigger_quick_scan(
 ):
     """Trigger a quick scan of shows with recently aired episodes."""
     global _scan_status
-    from ..models import AppSettings
 
     if _scan_status["running"]:
         raise HTTPException(status_code=400, detail="Scan already in progress")
@@ -494,10 +485,8 @@ async def get_all_missing_episodes(
     limit: int = 500,
 ):
     """Get all missing episodes across all shows, grouped by show."""
-    from datetime import datetime
-    from pathlib import Path
     from sqlalchemy import not_, exists, select
-    from ..models import Show, Episode, IgnoredEpisode
+    from ..models import IgnoredEpisode
 
     today = datetime.utcnow().strftime("%Y-%m-%d")
 
@@ -580,10 +569,6 @@ class ApplyRenamesRequest(BaseModel):
 @router.post("/apply-renames")
 async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)):
     """Execute selected file renames from the metadata updates list."""
-    import shutil
-    from ..models import Episode
-    from ..services.renamer import RenamerService
-
     global _metadata_updates
 
     renamer = RenamerService(db)
@@ -678,9 +663,6 @@ class ImportDownloadsRequest(BaseModel):
 async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)):
     """Import matched files from downloads to library."""
     global _download_matches
-    import shutil
-    from ..models import Episode
-    from ..services.renamer import RenamerService
 
     renamer = RenamerService(db)
     success = 0
@@ -798,11 +780,9 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
         tvdb_api_key: TVDB API key (used when metadata_source is "tvdb").
     """
     global _library_folder_scan_status
-    import time
     import asyncio
     import re
-    from pathlib import Path
-    from ..models import Show, Episode, ScanFolder
+    from ..models import ScanFolder
     from ..services.tmdb import TMDBService
     from ..services.tvdb import TVDBService
 
@@ -1357,8 +1337,6 @@ def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> tuple[in
     Returns (matched_count, total_files) tuple.
     """
     import re
-    from datetime import datetime
-    from ..models import Episode
 
     matched_count = 0
 
@@ -1957,7 +1935,6 @@ _movie_discovery_status = {
 def run_movie_library_scan(db_session_maker):
     """Background task to scan movie library."""
     global _movie_scan_status
-    import time
 
     time.sleep(0.3)
 
@@ -2051,7 +2028,6 @@ async def scan_single_movie(
 def run_movie_library_discovery(db_session_maker, folder_id: int, tmdb_api_key: str, limit: int = None):
     """Background task to discover movies from a folder."""
     global _movie_discovery_status
-    import time
     import asyncio
 
     time.sleep(0.3)
@@ -2143,7 +2119,6 @@ def run_movie_library_discovery(db_session_maker, folder_id: int, tmdb_api_key: 
                     if not existing.file_path:
                         existing.file_path = file_info["path"]
                         existing.file_status = "found"
-                        from datetime import datetime
                         existing.matched_at = datetime.utcnow()
                         db.commit()
                     skipped += 1
@@ -2181,7 +2156,6 @@ def run_movie_library_discovery(db_session_maker, folder_id: int, tmdb_api_key: 
                     file_status="found",
                     edition=file_info.get("edition"),
                 )
-                from datetime import datetime
                 movie.matched_at = datetime.utcnow()
 
                 db.add(movie)
@@ -2248,7 +2222,6 @@ async def scan_movie_library_folder(
         raise HTTPException(status_code=400, detail="Movie discovery scan already in progress")
 
     # Get TMDB API key
-    from ..models import AppSettings
     tmdb_key_setting = db.query(AppSettings).filter(AppSettings.key == "tmdb_api_key").first()
     tmdb_key = tmdb_key_setting.value if tmdb_key_setting else ""
     if not tmdb_key:
@@ -2285,7 +2258,6 @@ async def get_movie_discovery_status():
 async def get_movie_rename_previews(db: Session = Depends(get_db)):
     """Get pending movie rename previews."""
     from ..services.movie_scanner import MovieScannerService
-    from ..models import AppSettings
 
     scanner = MovieScannerService(db)
 

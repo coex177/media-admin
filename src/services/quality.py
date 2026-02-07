@@ -246,5 +246,3 @@ def _cmp(a: int, b: int) -> int:
     return (a > b) - (a < b)
 
 
-# Global instance
-quality_service = QualityService()

@@ -1,6 +1,7 @@
 """TMDB API client service."""
 
 import asyncio
+import json
 from typing import Optional
 from datetime import datetime, timedelta
 
@@ -147,8 +148,6 @@ class TMDBService:
 
     async def get_show_with_episodes(self, tmdb_id: int) -> dict:
         """Get show details with all episodes."""
-        import json
-
         show = await self.get_show(tmdb_id)
         external_ids = await self.get_show_external_ids(tmdb_id)
         episodes = await self.get_all_episodes(tmdb_id)
@@ -200,8 +199,6 @@ class TMDBService:
 
     async def get_movie_with_details(self, tmdb_id: int) -> dict:
         """Get movie details with external IDs, formatted for DB storage."""
-        import json
-
         movie = await self.get_movie(tmdb_id)
         external_ids = await self.get_movie_external_ids(tmdb_id)
 

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Show, Episode, PendingAction
+from .file_utils import sanitize_filename, move_accompanying_files
 
 
 @dataclass
@@ -36,7 +37,7 @@ class RenamerService:
         self, show: Show, episode: Episode, extension: str
     ) -> str:
         """Generate the proper filename for an episode."""
-        safe_title = self._sanitize_filename(episode.title)
+        safe_title = sanitize_filename(episode.title)
 
         filename = show.episode_format.format(
             season=episode.season,
@@ -78,7 +79,7 @@ class RenamerService:
         episode_code = "-".join([primary_code] + suffixes)
 
         # Build the combined title
-        titles = [self._sanitize_filename(ep.title) for ep in eps]
+        titles = [sanitize_filename(ep.title) for ep in eps]
         combined_title = " + ".join(titles)
 
         # Reconstruct: find separator between episode code and title in format
@@ -211,7 +212,12 @@ class RenamerService:
         shutil.move(str(source), str(dest))
 
         # Move accompanying files (subtitles, nfo, etc.)
-        self._move_accompanying_files(source, dest)
+        move_accompanying_files(
+            source, dest,
+            self.subtitle_extensions,
+            self.metadata_extensions,
+            self.image_extensions,
+        )
 
         return RenameResult(
             success=True,
@@ -246,51 +252,6 @@ class RenamerService:
             source_path=str(source),
             dest_path="",
         )
-
-    def _move_accompanying_files(self, source: Path, dest: Path):
-        """Move accompanying files (subtitles, nfo, images) along with the main file."""
-        source_stem = source.stem
-        source_dir = source.parent
-        dest_stem = dest.stem
-        dest_dir = dest.parent
-
-        for ext in self.subtitle_extensions:
-            # Check for subtitle with same name
-            sub_source = source_dir / f"{source_stem}{ext}"
-            if sub_source.exists():
-                sub_dest = dest_dir / f"{dest_stem}{ext}"
-                shutil.move(str(sub_source), str(sub_dest))
-
-            # Check for language-coded subtitles (e.g., .en.srt)
-            for lang in ["en", "eng", "es", "spa", "fr", "fra", "de", "deu"]:
-                sub_source = source_dir / f"{source_stem}.{lang}{ext}"
-                if sub_source.exists():
-                    sub_dest = dest_dir / f"{dest_stem}.{lang}{ext}"
-                    shutil.move(str(sub_source), str(sub_dest))
-
-        # Check for metadata files (.nfo, etc.)
-        for ext in self.metadata_extensions:
-            meta_source = source_dir / f"{source_stem}{ext}"
-            if meta_source.exists():
-                meta_dest = dest_dir / f"{dest_stem}{ext}"
-                shutil.move(str(meta_source), str(meta_dest))
-
-        # Check for image files (.jpg, .png, .tbn, etc.)
-        for ext in self.image_extensions:
-            img_source = source_dir / f"{source_stem}{ext}"
-            if img_source.exists():
-                img_dest = dest_dir / f"{dest_stem}{ext}"
-                shutil.move(str(img_source), str(img_dest))
-
-    def _sanitize_filename(self, name: str) -> str:
-        """Remove invalid characters from a filename."""
-        # Characters not allowed in filenames
-        invalid_chars = '<>:"/\\|?*'
-        for char in invalid_chars:
-            name = name.replace(char, "")
-        # Collapse multiple spaces left by removed characters
-        name = " ".join(name.split())
-        return name.strip()
 
     def approve_action(self, action_id: int) -> Optional[RenameResult]:
         """Approve and execute a pending action."""

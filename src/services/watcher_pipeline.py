@@ -18,6 +18,7 @@ from .movie_matcher import MovieMatcherService
 from .quality import QualityService
 from .tmdb import TMDBService
 from .tvdb import TVDBService
+from .file_utils import sanitize_filename, LANGUAGE_CODES
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +340,7 @@ class WatcherPipeline:
             logger.info(f"Pipeline: found existing library folder for '{show_name}': {show_folder}")
         else:
             # Create new folder in first library folder
-            safe_name = self._sanitize(show_name)
+            safe_name = sanitize_filename(show_name)
             if first_air and len(first_air) >= 4 and first_air[:4].isdigit():
                 safe_name = f"{safe_name} ({first_air[:4]})"
             show_folder = Path(library_folder.path) / safe_name
@@ -660,7 +661,7 @@ class WatcherPipeline:
         """Rename file per user prefs and safe-copy to library."""
         # Build destination path
         season_folder = show.season_format.format(season=episode.season)
-        safe_title = self._sanitize(episode.title or "TBA")
+        safe_title = sanitize_filename(episode.title or "TBA")
         new_filename = show.episode_format.format(
             season=episode.season,
             episode=episode.episode,
@@ -878,7 +879,7 @@ class WatcherPipeline:
         """
         # Build the library destination for the new file
         season_folder = show.season_format.format(season=episode.season)
-        safe_title = self._sanitize(episode.title or "TBA")
+        safe_title = sanitize_filename(episode.title or "TBA")
         new_filename = show.episode_format.format(
             season=episode.season,
             episode=episode.episode,
@@ -889,7 +890,7 @@ class WatcherPipeline:
 
         # 1. Move old file to Issues with show-name prefix
         old_path = Path(old_file_path)
-        safe_show = self._sanitize(show.name)
+        safe_show = sanitize_filename(show.name)
         prefixed_name = f"{safe_show} - {old_path.name}"
         issues_root = self._get_issues_folder()
         organization = self._get_issues_organization()
@@ -1168,7 +1169,7 @@ class WatcherPipeline:
                     logger.warning(f"Pipeline: failed to move companion {companion}: {e}")
 
             # Language-coded: video_name.en.ext, etc.
-            for lang in ["en", "eng", "es", "spa", "fr", "fra", "de", "deu", "ja", "jpn", "pt", "por", "it", "ita", "ko", "kor", "zh", "zho"]:
+            for lang in LANGUAGE_CODES:
                 companion = src_dir / f"{src_stem}.{lang}{ext}"
                 if companion.exists():
                     dest_companion = dest_dir / f"{dest_stem}.{lang}{ext}"
@@ -1450,7 +1451,7 @@ class WatcherPipeline:
 
             try:
                 self._mkdir_inherit(issues_dir)
-                safe_title = self._sanitize(movie.title)
+                safe_title = sanitize_filename(movie.title)
                 old_issues_dest = issues_dir / f"{safe_title} - {old_path.name}"
                 self._safe_copy(existing_path, str(old_issues_dest))
                 old_path.unlink()
@@ -1474,12 +1475,3 @@ class WatcherPipeline:
 
     # ── Helpers ─────────────────────────────────────────────────────
 
-    @staticmethod
-    def _sanitize(name: str) -> str:
-        """Remove characters invalid in filenames."""
-        invalid = '<>:"/\\|?*'
-        for ch in invalid:
-            name = name.replace(ch, "")
-        # Replace colon-like chars
-        name = name.replace(":", " -")
-        return name.strip()

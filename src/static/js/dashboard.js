@@ -2,9 +2,6 @@
  * Media Admin - Dashboard (rendering, card drag-drop, distribution toggles)
  */
 
-// Dashboard view state (loaded from DB in checkSetup)
-let currentShowsView = 'cards';
-
 // Stat card order (loaded from DB in checkSetup)
 const defaultStatCardOrder = [
     'total-shows', 'episodes-found', 'episodes-missing',

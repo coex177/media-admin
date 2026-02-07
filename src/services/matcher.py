@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from .file_utils import QUALITY_PATTERNS, SOURCE_PATTERNS
+
 
 @dataclass
 class ParsedEpisode:
@@ -41,20 +43,8 @@ class MatcherService:
         r"(?:^|[^0-9])(\d)(\d{2})(?:[^0-9]|$)",
     ]
 
-    # Quality patterns
-    QUALITY_PATTERNS = [
-        r"(2160[pi]|4[Kk])",
-        r"(1080[pi])",
-        r"(720[pi])",
-        r"(480[pi])",
-        r"(HDTV|WEB-?DL|WEB-?Rip|BluRay|BDRip|DVDRip|PDTV)",
-    ]
-
-    # Source patterns
-    SOURCE_PATTERNS = [
-        r"(AMZN|ATVP|NF|DSNP|HMAX|PCOK|PMTP)",  # Streaming services
-        r"(WEB|HDTV|BluRay|DVD)",
-    ]
+    QUALITY_PATTERNS = QUALITY_PATTERNS
+    SOURCE_PATTERNS = SOURCE_PATTERNS
 
     # Release group pattern (usually at the end, after a dash)
     RELEASE_GROUP_PATTERN = r"-([A-Za-z0-9]+)(?:\.[a-z]{3,4})?$"

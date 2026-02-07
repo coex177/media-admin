@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +15,7 @@ from ..database import get_db
 from ..models import Movie, AppSettings
 from ..services.tmdb import TMDBService
 from ..services.movie_scanner import MovieScannerService
+from ..services.pagination import compute_sort_name, compute_page_boundaries
 
 logger = logging.getLogger("movie_scanner")
 
@@ -60,124 +60,6 @@ def _get_setting(db: Session, key: str, default: str = "") -> str:
     return setting.value if setting else default
 
 
-_ARTICLE_RE = re.compile(r'^(the|a|an)\s+', re.IGNORECASE)
-
-
-def _compute_sort_name(name: str) -> str:
-    return _ARTICLE_RE.sub('', name).lower() if name else ''
-
-
-def _sort_key_char(sort_name: str) -> str:
-    if not sort_name:
-        return '#'
-    ch = sort_name[0].upper()
-    return ch if ch.isalpha() else '#'
-
-
-def _sort_key_prefix(sort_name: str, length: int = 2) -> str:
-    prefix = sort_name[:length] if sort_name else '#'
-    return prefix.title()
-
-
-def _compute_page_boundaries(sorted_movies, target_size: int):
-    """Break sorted movies into pages at letter boundaries."""
-    from itertools import groupby
-
-    if not sorted_movies or target_size <= 0:
-        return [{"start": 0, "end": len(sorted_movies) - 1, "label": "All"}] if sorted_movies else []
-
-    def first_letter(item):
-        return _sort_key_char(item[2])
-
-    groups = []
-    for letter, items in groupby(sorted_movies, key=first_letter):
-        groups.append((letter, list(items)))
-
-    pages = []
-    current_page_items = []
-    current_page_start = 0
-
-    def flush_page(items, start_idx):
-        if not items:
-            return
-        pages.append({
-            "start": start_idx,
-            "end": start_idx + len(items) - 1,
-            "items": items,
-        })
-
-    for letter, group_items in groups:
-        group_size = len(group_items)
-
-        if len(current_page_items) == 0:
-            if group_size > target_size:
-                sub_groups = []
-                for prefix, sub_items in groupby(group_items, key=lambda x: _sort_key_prefix(x[2])):
-                    sub_groups.append((prefix, list(sub_items)))
-                for prefix, sub_items in sub_groups:
-                    if len(current_page_items) + len(sub_items) <= target_size or len(current_page_items) == 0:
-                        current_page_items.extend(sub_items)
-                    else:
-                        flush_page(current_page_items, current_page_start)
-                        current_page_start = pages[-1]["end"] + 1 if pages else 0
-                        current_page_items = list(sub_items)
-            else:
-                current_page_items.extend(group_items)
-        elif len(current_page_items) + group_size <= target_size:
-            current_page_items.extend(group_items)
-        else:
-            flush_page(current_page_items, current_page_start)
-            current_page_start = pages[-1]["end"] + 1
-            current_page_items = []
-
-            if group_size > target_size:
-                sub_groups = []
-                for prefix, sub_items in groupby(group_items, key=lambda x: _sort_key_prefix(x[2])):
-                    sub_groups.append((prefix, list(sub_items)))
-                for prefix, sub_items in sub_groups:
-                    if len(current_page_items) + len(sub_items) <= target_size or len(current_page_items) == 0:
-                        current_page_items.extend(sub_items)
-                    else:
-                        flush_page(current_page_items, current_page_start)
-                        current_page_start = pages[-1]["end"] + 1
-                        current_page_items = list(sub_items)
-            else:
-                current_page_items.extend(group_items)
-
-    if current_page_items:
-        flush_page(current_page_items, current_page_start)
-
-    # Compute labels
-    letter_page_count = {}
-    for page in pages:
-        page_letters = set()
-        for item in page["items"]:
-            page_letters.add(_sort_key_char(item[2]))
-        for lt in page_letters:
-            letter_page_count[lt] = letter_page_count.get(lt, 0) + 1
-
-    result = []
-    for page in pages:
-        items = page["items"]
-        first_char = _sort_key_char(items[0][2])
-        last_char = _sort_key_char(items[-1][2])
-
-        if first_char == last_char and letter_page_count.get(first_char, 1) > 1:
-            first_prefix = _sort_key_prefix(items[0][2])
-            last_prefix = _sort_key_prefix(items[-1][2])
-            label = first_prefix if first_prefix == last_prefix else f"{first_prefix}-{last_prefix}"
-        elif first_char == last_char:
-            label = first_char
-        else:
-            label = f"{first_char}-{last_char}"
-
-        result.append({
-            "start": page["start"],
-            "end": page["end"],
-            "label": label,
-        })
-
-    return result
 
 
 # ── Stats endpoints (must come before parameterized routes) ──
@@ -386,12 +268,12 @@ async def list_movies(
     total = len(rows)
 
     sorted_movies = sorted(
-        [(r.id, r.title, _compute_sort_name(r.title)) for r in rows],
+        [(r.id, r.title, compute_sort_name(r.title)) for r in rows],
         key=lambda x: x[2],
     )
 
     if per_page > 0 and total > 0:
-        boundaries = _compute_page_boundaries(sorted_movies, per_page)
+        boundaries = compute_page_boundaries(sorted_movies, per_page)
     else:
         boundaries = [{"start": 0, "end": total - 1, "label": "All"}] if total > 0 else []
 

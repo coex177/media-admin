@@ -492,31 +492,6 @@ function renderSearchResults(query, providerResults, localShows, searchSource = 
     `;
 }
 
-async function showShowDetailByTmdbId(tmdbId) {
-    // Find the local show by TMDB ID
-    try {
-        const resp = await api('/shows');
-        const localShow = resp.shows.find(s => s.tmdb_id === tmdbId);
-        if (localShow) {
-            showShowDetail(localShow.id);
-        }
-    } catch (error) {
-        showToast('Failed to find show', 'error');
-    }
-}
-
-async function showShowDetailByTvdbId(tvdbId) {
-    // Find the local show by TVDB ID
-    try {
-        const resp = await api('/shows');
-        const localShow = resp.shows.find(s => s.tvdb_id === tvdbId);
-        if (localShow) {
-            showShowDetail(localShow.id);
-        }
-    } catch (error) {
-        showToast('Failed to find show', 'error');
-    }
-}
 
 async function showPreviewModal(providerId, source) {
     const modal = document.getElementById('modal');

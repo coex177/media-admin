@@ -173,15 +173,3 @@ async def delete_action(action_id: int, db: Session = Depends(get_db)):
     return {"message": "Action deleted"}
 
 
-@router.get("/preview/{action_id}")
-async def preview_action(
-    action_id: int,
-    db: Session = Depends(get_db),
-    renamer: RenamerService = Depends(get_renamer),
-):
-    """Preview what an action would do."""
-    action = db.query(PendingAction).filter(PendingAction.id == action_id).first()
-    if not action:
-        raise HTTPException(status_code=404, detail="Action not found")
-
-    return renamer.preview_rename(action)

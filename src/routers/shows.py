@@ -1,21 +1,26 @@
 """API endpoints for TV show management."""
 
 import asyncio
+import json
 import logging
+import os
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..config import settings as app_settings
+from ..database import get_db, get_session_maker
 from ..models import Show, Episode, AppSettings
 from ..services.tmdb import TMDBService
 from ..services.tvdb import TVDBService
+from ..services.renamer import RenamerService
+from ..services.pagination import compute_sort_name, compute_page_boundaries
 
 logger = logging.getLogger("scanner")
 
@@ -127,154 +132,6 @@ def get_tvdb_service(db: Session = Depends(get_db)) -> TVDBService:
     return TVDBService(api_key=api_key)
 
 
-_ARTICLE_RE = re.compile(r'^(the|a|an)\s+', re.IGNORECASE)
-
-
-def _compute_sort_name(name: str) -> str:
-    """Strip leading articles and return lowercase sort name.
-
-    "The Goldbergs" -> "goldbergs", "A Team" -> "team", "An Example" -> "example"
-    """
-    return _ARTICLE_RE.sub('', name).lower() if name else ''
-
-
-def _sort_key_char(sort_name: str) -> str:
-    """First character uppercased, or '#' for non-alpha."""
-    if not sort_name:
-        return '#'
-    ch = sort_name[0].upper()
-    return ch if ch.isalpha() else '#'
-
-
-def _sort_key_prefix(sort_name: str, length: int = 2) -> str:
-    """First `length` chars, title-cased for display labels."""
-    prefix = sort_name[:length] if sort_name else '#'
-    return prefix.title()
-
-
-def _compute_page_boundaries(sorted_shows, target_size: int):
-    """Break sorted shows into pages at letter boundaries.
-
-    Each item in sorted_shows is (id, name, sort_name).
-    Returns list of {"start": idx, "end": idx, "label": str}.
-    """
-    if not sorted_shows or target_size <= 0:
-        return [{"start": 0, "end": len(sorted_shows) - 1, "label": "All"}] if sorted_shows else []
-
-    # Group by first letter
-    from itertools import groupby
-
-    def first_letter(item):
-        return _sort_key_char(item[2])
-
-    groups = []
-    for letter, items in groupby(sorted_shows, key=first_letter):
-        items_list = list(items)
-        groups.append((letter, items_list))
-
-    pages = []
-    current_page_items = []
-    current_page_start = 0
-    idx = 0
-
-    def flush_page(items, start_idx):
-        """Add a finished page."""
-        if not items:
-            return
-        pages.append({
-            "start": start_idx,
-            "end": start_idx + len(items) - 1,
-            "items": items,
-        })
-
-    for letter, group_items in groups:
-        group_size = len(group_items)
-
-        if len(current_page_items) == 0:
-            # Page is empty, always add the group (or split if too large)
-            if group_size > target_size:
-                # Split large letter group by 2-char prefix
-                sub_groups = []
-                for prefix, sub_items in groupby(group_items, key=lambda x: _sort_key_prefix(x[2])):
-                    sub_groups.append((prefix, list(sub_items)))
-
-                for prefix, sub_items in sub_groups:
-                    if len(current_page_items) + len(sub_items) <= target_size or len(current_page_items) == 0:
-                        current_page_items.extend(sub_items)
-                    else:
-                        flush_page(current_page_items, current_page_start)
-                        current_page_start = current_page_start + len(current_page_items) if pages else idx
-                        current_page_start = pages[-1]["end"] + 1 if pages else 0
-                        current_page_items = list(sub_items)
-            else:
-                current_page_items.extend(group_items)
-        elif len(current_page_items) + group_size <= target_size:
-            # Fits in current page
-            current_page_items.extend(group_items)
-        else:
-            # Doesn't fit — flush current page, start new one
-            flush_page(current_page_items, current_page_start)
-            current_page_start = pages[-1]["end"] + 1
-            current_page_items = []
-
-            if group_size > target_size:
-                # Split large letter group by 2-char prefix
-                sub_groups = []
-                for prefix, sub_items in groupby(group_items, key=lambda x: _sort_key_prefix(x[2])):
-                    sub_groups.append((prefix, list(sub_items)))
-
-                for prefix, sub_items in sub_groups:
-                    if len(current_page_items) + len(sub_items) <= target_size or len(current_page_items) == 0:
-                        current_page_items.extend(sub_items)
-                    else:
-                        flush_page(current_page_items, current_page_start)
-                        current_page_start = pages[-1]["end"] + 1
-                        current_page_items = list(sub_items)
-            else:
-                current_page_items.extend(group_items)
-
-    # Flush remaining
-    if current_page_items:
-        flush_page(current_page_items, current_page_start)
-
-    # Track which letters span multiple pages (for sub-letter labels)
-    letter_page_count = {}
-    for page in pages:
-        page_letters = set()
-        for item in page["items"]:
-            page_letters.add(_sort_key_char(item[2]))
-        for lt in page_letters:
-            letter_page_count[lt] = letter_page_count.get(lt, 0) + 1
-
-    # Compute labels
-    result = []
-    for page in pages:
-        items = page["items"]
-        first_char = _sort_key_char(items[0][2])
-        last_char = _sort_key_char(items[-1][2])
-
-        if first_char == last_char and letter_page_count.get(first_char, 1) > 1:
-            # Same letter spans multiple pages — use 2-char prefix labels
-            first_prefix = _sort_key_prefix(items[0][2])
-            last_prefix = _sort_key_prefix(items[-1][2])
-            if first_prefix == last_prefix:
-                label = first_prefix
-            else:
-                label = f"{first_prefix}-{last_prefix}"
-        elif first_char == last_char:
-            label = first_char
-        else:
-            label = f"{first_char}-{last_char}"
-
-        result.append({
-            "start": page["start"],
-            "end": page["end"],
-            "label": label,
-        })
-
-    return result
-
-
 def _get_default_metadata_source(db: Session) -> str:
     """Get the default metadata source from settings."""
     setting = db.query(AppSettings).filter(AppSettings.key == "default_metadata_source").first()
@@ -300,13 +157,13 @@ async def list_shows(
 
     # Compute sort names and sort in Python (article-stripped)
     sorted_shows = sorted(
-        [(r.id, r.name, _compute_sort_name(r.name)) for r in rows],
+        [(r.id, r.name, compute_sort_name(r.name)) for r in rows],
         key=lambda x: x[2],
     )
 
     # Compute page boundaries
     if per_page > 0 and total > 0:
-        boundaries = _compute_page_boundaries(sorted_shows, per_page)
+        boundaries = compute_page_boundaries(sorted_shows, per_page)
     else:
         boundaries = [{"start": 0, "end": total - 1, "label": "All"}] if total > 0 else []
 
@@ -436,8 +293,6 @@ async def get_show(show_id: int, db: Session = Depends(get_db)):
     # Find extra files on disk not matched to any episode
     extra_files = []
     if show.folder_path:
-        import os
-        from ..config import settings as app_settings
         video_extensions = set(app_settings.video_extensions)
         matched_paths = set(
             ep.file_path for ep in episodes if ep.file_path
@@ -693,7 +548,6 @@ async def update_show(
     if data.do_missing is not None:
         show.do_missing = data.do_missing
     if data.aliases is not None:
-        import json
         show.aliases = json.dumps(data.aliases) if data.aliases else None
 
     db.commit()
@@ -797,8 +651,6 @@ def _rename_episodes_to_match_metadata(db: Session, show: Show) -> int:
     """
     if not show.folder_path:
         return 0
-
-    from ..services.renamer import RenamerService
 
     renamer = RenamerService(db)
     renamed_count = 0
@@ -1072,7 +924,6 @@ async def switch_metadata_source(
 
     # Rescan the show's folder to re-match files against new episode structure
     if show.folder_path:
-        from pathlib import Path
         from ..services.scanner import ScannerService
         from ..routers.scan import _scan_show_folder
 
@@ -1175,8 +1026,6 @@ async def get_missing_episodes(show_id: int, db: Session = Depends(get_db)):
     show = db.query(Show).filter(Show.id == show_id).first()
     if not show:
         raise HTTPException(status_code=404, detail="Show not found")
-
-    from datetime import datetime
 
     today = datetime.utcnow().strftime("%Y-%m-%d")
 
@@ -1489,8 +1338,6 @@ async def refresh_all_shows(
     if not tmdb_key and not tvdb_key:
         raise HTTPException(status_code=400, detail="No API keys configured")
 
-    from ..database import get_session_maker
-
     background_tasks.add_task(run_refresh_all, get_session_maker, tmdb_key, tvdb_key)
 
     return {"message": "Refresh started", "status": "running"}
@@ -1509,8 +1356,6 @@ async def fix_match_preview(
     db: Session = Depends(get_db),
 ):
     """Preview fix-match operations without moving files."""
-    from ..services.renamer import RenamerService
-
     # Validate source show exists
     source_show = db.query(Show).filter(Show.id == show_id).first()
     if not source_show:
@@ -1589,9 +1434,6 @@ async def fix_match_execute(
     db: Session = Depends(get_db),
 ):
     """Execute fix-match: move files to target show's episode locations."""
-    from datetime import datetime
-    from ..services.renamer import RenamerService
-
     # Validate source show exists
     source_show = db.query(Show).filter(Show.id == show_id).first()
     if not source_show:

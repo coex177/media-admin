@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import Show, Episode, ScanFolder, PendingAction
 from .matcher import MatcherService, ParsedEpisode
+from .file_utils import sanitize_filename
 
 # ── Scanner logger (detailed, writes to file + console) ──────────
 _log_dir = Path(__file__).resolve().parent.parent.parent / "data"
@@ -664,7 +665,7 @@ class ScannerService:
                     titles = []
                     for ep in eps_sorted:
                         if ep.title:
-                            titles.append(renamer._sanitize_filename(ep.title))
+                            titles.append(sanitize_filename(ep.title))
                     if len(titles) > 1:
                         combined_title = " + ".join(titles)
                     elif titles:
@@ -1094,7 +1095,7 @@ class ScannerService:
         season_folder = show.season_format.format(season=episode.season)
 
         # Build episode filename
-        safe_title = self._sanitize_filename(episode.title)
+        safe_title = sanitize_filename(episode.title)
         episode_name = show.episode_format.format(
             season=episode.season,
             episode=episode.episode,
@@ -1105,14 +1106,6 @@ class ScannerService:
         episode_name += file_info.extension
 
         return str(Path(show.folder_path) / season_folder / episode_name)
-
-    def _sanitize_filename(self, name: str) -> str:
-        """Remove invalid characters from a filename."""
-        # Characters not allowed in filenames
-        invalid_chars = '<>:"/\\|?*'
-        for char in invalid_chars:
-            name = name.replace(char, "")
-        return name.strip()
 
     def _create_pending_action(
         self,
