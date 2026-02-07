@@ -1610,6 +1610,7 @@ function renderLibraryLogEntries() {
             }
         }
 
+        html += `<div class="wlog-year-group">`;
         html += `<div class="wlog-year-header" onclick="toggleLibraryLogNode('${yearKey}', this)">
             <img src="/static/images/${yearExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
             <span class="wlog-year-label">${year}</span>
@@ -1699,6 +1700,7 @@ function renderLibraryLogEntries() {
         }
 
         html += `</div>`; // year-content
+        html += `</div>`; // year-group
     }
 
     if (libraryLogState.total > 0) {
@@ -2095,7 +2097,7 @@ async function renderIgnoredTab() {
             `;
             return;
         }
-        container.innerHTML = renderIgnoredGrouped(episodes);
+        container.innerHTML = `<div class="card">${renderIgnoredGrouped(episodes)}</div>`;
     } catch (error) {
         container.innerHTML = `<div class="alert alert-danger">Failed to load ignored episodes.</div>`;
     }

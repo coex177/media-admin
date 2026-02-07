@@ -377,6 +377,19 @@ a:hover {
 }
 
 /* Folders tab tables – consistent column widths across all cards */
+/* Rounded corners for folder tables */
+.folders-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.folders-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
 .folders-table th:nth-child(2),
 .folders-table td:nth-child(2) {
     width: 100px;
@@ -4200,6 +4213,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .wlog-chevron:hover {
     transform: scale(1.2);
+}
+
+/* Year group container — rounded card per year */
+.wlog-year-group {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.wlog-year-group:last-child {
+    margin-bottom: 0;
 }
 
 .wlog-year-header,

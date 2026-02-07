@@ -660,6 +660,7 @@ function renderWatcherLogEntries() {
             }
         }
 
+        html += `<div class="wlog-year-group">`;
         html += `<div class="wlog-year-header" onclick="toggleWatcherLogNode('${yearKey}', this)">
             <img src="/static/images/${yearExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
             <span class="wlog-year-label">${year}</span>
@@ -750,6 +751,7 @@ function renderWatcherLogEntries() {
         }
 
         html += `</div>`; // year-content
+        html += `</div>`; // year-group
     }
 
     // Clean up stale manual states

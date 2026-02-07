@@ -129,6 +129,7 @@ function renderIssuesEntries() {
             }
         }
 
+        html += `<div class="wlog-year-group">`;
         html += `<div class="wlog-year-header" onclick="toggleIssuesNode('${yearKey}', this)">
             <img src="/static/images/${yearExpanded ? 'show-collapse.png' : 'show-expand.png'}" class="wlog-chevron" alt="">
             <span class="wlog-year-label">${year}</span>
@@ -213,6 +214,7 @@ function renderIssuesEntries() {
         }
 
         html += `</div>`; // year-content
+        html += `</div>`; // year-group
     }
 
     cleanupStaleIssuesManualStates(activeKeys);
