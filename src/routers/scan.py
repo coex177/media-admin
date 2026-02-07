@@ -984,7 +984,6 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                 folder_title_norm = normalize_title(show_name)
                 best_match = None
                 best_score = -1
-                already_handled = False
 
                 for result in results[:10]:  # Check top 10 results
                     result_year = None
@@ -994,10 +993,10 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                         except (ValueError, TypeError):
                             pass
 
-                    # Get the correct ID based on provider
+                    # Skip results that already exist in our library —
+                    # don't let them steal the match from the correct result.
                     if use_tvdb:
                         result_id = result.get("tvdb_id") or result.get("id")
-                        # For TVDB, check existing by tvdb_id
                         existing_by_id = None
                         for s in existing_shows.values():
                             if s.tvdb_id == result_id:
@@ -1007,25 +1006,8 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                         result_id = result["id"]
                         existing_by_id = existing_shows.get(result_id)
 
-                    # Check if already exists
                     if existing_by_id:
-                        existing = existing_by_id
-                        # If it exists but has no folder, assign this folder
-                        if not existing.folder_path:
-                            log(f"Assigning folder to existing show: '{existing.name}'", "info")
-                            existing.folder_path = str(show_dir)
-                            db.commit()
-                            _library_folder_scan_status["shows_skipped"] += 1
-                            # Scan for episodes
-                            matched, total_files = _scan_show_folder(scanner, existing, show_dir)
-                            _library_folder_scan_status["episodes_matched"] += matched
-                            record_show(dir_name, existing.name, "existing", episodes_matched=matched, total_files=total_files, detail="Assigned folder")
-                        else:
-                            log(f"Skipping '{result['name']}' - already in library", "skip")
-                            _library_folder_scan_status["shows_skipped"] += 1
-                            record_show(dir_name, result['name'], "existing", detail="Already in library")
-                        already_handled = True
-                        break
+                        continue
 
                     # Calculate match score: title similarity (0-1) + year bonus (0.5)
                     result_title_norm = normalize_title(result.get("name", ""))
@@ -1051,9 +1033,6 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     if total_score > best_score:
                         best_score = total_score
                         best_match = result
-
-                if already_handled:
-                    continue
 
                 # Require minimum score: year match (0.5) or decent title match (0.5)
                 if best_match and best_score < 0.5:

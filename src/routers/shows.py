@@ -715,6 +715,76 @@ async def delete_show(show_id: int, db: Session = Depends(get_db)):
     return {"message": "Show deleted"}
 
 
+def _rename_show_folder_if_year_wrong(db: Session, show: Show) -> bool:
+    """Rename the show's folder if the year in the folder name doesn't match.
+
+    Compares the year in the folder name (e.g. "Into the Dark (2021)") against
+    the show's first_air_date year. If they differ, renames the folder and
+    updates show.folder_path and all episode file_path references.
+
+    Returns True if the folder was renamed.
+    """
+    if not show.folder_path or not show.first_air_date:
+        return False
+
+    folder = Path(show.folder_path)
+    if not folder.exists():
+        return False
+
+    # Extract year from folder name
+    folder_year_match = re.search(r'\((\d{4})\)\s*$', folder.name)
+    if not folder_year_match:
+        return False
+
+    folder_year = folder_year_match.group(1)
+
+    # Get correct year from metadata
+    try:
+        correct_year = show.first_air_date[:4]
+    except (TypeError, IndexError):
+        return False
+
+    if folder_year == correct_year:
+        return False
+
+    # Build new folder name by replacing the year
+    new_folder_name = folder.name[:folder_year_match.start()] + f"({correct_year})"
+    new_folder = folder.parent / new_folder_name
+
+    if new_folder.exists():
+        logger.warning(f"Cannot rename folder — destination already exists: {new_folder}")
+        return False
+
+    try:
+        shutil.move(str(folder), str(new_folder))
+        logger.info(f"Renamed show folder: {folder.name} → {new_folder.name}")
+
+        old_prefix = str(folder)
+        new_prefix = str(new_folder)
+
+        # Update show folder_path
+        show.folder_path = new_prefix
+
+        # Update all episode file_path references
+        episodes = (
+            db.query(Episode)
+            .filter(
+                Episode.show_id == show.id,
+                Episode.file_path.isnot(None),
+            )
+            .all()
+        )
+        for ep in episodes:
+            if ep.file_path.startswith(old_prefix):
+                ep.file_path = new_prefix + ep.file_path[len(old_prefix):]
+
+        db.commit()
+        return True
+    except Exception as exc:
+        logger.error(f"Failed to rename show folder: {exc}")
+        return False
+
+
 def _rename_episodes_to_match_metadata(db: Session, show: Show) -> int:
     """Rename episode files on disk to match current metadata titles.
 
@@ -906,6 +976,9 @@ async def refresh_show(
                 _scan_show_folder(scanner, show, show_dir)
                 db.commit()
                 db.refresh(show)
+
+    # Rename the show folder if the year in the folder name is wrong
+    _rename_show_folder_if_year_wrong(db, show)
 
     # Rename files on disk to match updated metadata
     _rename_episodes_to_match_metadata(db, show)
