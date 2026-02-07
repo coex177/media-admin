@@ -1321,7 +1321,7 @@ async function confirmFixMatch() {
 
 // ── Library Log Tab ─────────────────────────────────────────────
 
-let libraryLogState = { entries: [], total: 0, dateFrom: '', dateTo: '' };
+let libraryLogState = { entries: [], total: 0, dateFrom: '', dateTo: '', activeTags: [], searchQuery: '' };
 
 async function renderLibraryLogTab() {
     const container = document.getElementById('scan-tab-content');
@@ -1341,8 +1341,18 @@ async function renderLibraryLogTab() {
                 <input type="date" id="library-log-from" value="${libraryLogState.dateFrom}" onchange="onLibraryLogDateChange()">
                 <label>To:</label>
                 <input type="date" id="library-log-to" value="${libraryLogState.dateTo}" onchange="onLibraryLogDateChange()">
+                <label>Search:</label>
+                <input type="text" id="library-log-search" placeholder="Search..." value="${libraryLogState.searchQuery}" oninput="onLibraryLogSearchChange()">
                 <button class="btn btn-sm btn-secondary" onclick="clearLibraryLogFilters()">Clear Filters</button>
                 <button class="btn btn-sm btn-danger" onclick="confirmClearAllLibLogs()" style="margin-left: auto;">Clear All Logs</button>
+            </div>
+            <div class="log-tag-filters" id="library-log-tags">
+                ${[
+                    { type: 'rename', label: 'Rename' },
+                    { type: 'import', label: 'Import' },
+                    { type: 'rename_failed', label: 'Rename Failed' },
+                    { type: 'import_failed', label: 'Import Failed' },
+                ].map(t => `<button class="log-filter-tag action-${t.type}${libraryLogState.activeTags.includes(t.type) ? ' active' : ''}" onclick="toggleLibraryLogTag('${t.type}')">${t.label}</button>`).join('')}
             </div>
             <div id="library-log-content">
                 <div class="loading"><div class="spinner"></div></div>
@@ -1532,11 +1542,22 @@ function renderLibraryLogEntries() {
     const content = document.getElementById('library-log-content');
     if (!content) return;
 
-    const entries = libraryLogState.entries;
+    // Apply client-side filters (tags + search) on top of server-side date filtering
+    let entries = libraryLogState.entries;
+    const hasFilters = libraryLogState.activeTags.length > 0 || libraryLogState.searchQuery;
+
+    if (libraryLogState.activeTags.length > 0) {
+        entries = entries.filter(e => libraryLogState.activeTags.includes(e.action_type));
+    }
+    if (libraryLogState.searchQuery) {
+        const q = libraryLogState.searchQuery.toLowerCase();
+        entries = entries.filter(e => buildLibLogSummary(e).toLowerCase().includes(q));
+    }
+
     if (!entries.length) {
         content.innerHTML = `
             <div class="watcher-log-empty">
-                <p>No log entries${libraryLogState.dateFrom || libraryLogState.dateTo ? ' for the selected date range' : ' yet'}.</p>
+                <p>No log entries${hasFilters || libraryLogState.dateFrom || libraryLogState.dateTo ? ' matching the current filters' : ' yet'}.</p>
             </div>
         `;
         return;
@@ -1743,13 +1764,38 @@ function onLibraryLogDateChange() {
     loadLibraryLog();
 }
 
+function onLibraryLogSearchChange() {
+    libraryLogState.searchQuery = document.getElementById('library-log-search')?.value || '';
+    renderLibraryLogEntries();
+}
+
+function toggleLibraryLogTag(actionType) {
+    const idx = libraryLogState.activeTags.indexOf(actionType);
+    if (idx >= 0) {
+        libraryLogState.activeTags.splice(idx, 1);
+    } else {
+        libraryLogState.activeTags.push(actionType);
+    }
+    // Update button active states
+    document.querySelectorAll('#library-log-tags .log-filter-tag').forEach(btn => {
+        const type = btn.className.match(/action-(\S+)/)?.[1];
+        if (type) btn.classList.toggle('active', libraryLogState.activeTags.includes(type));
+    });
+    renderLibraryLogEntries();
+}
+
 function clearLibraryLogFilters() {
     libraryLogState.dateFrom = '';
     libraryLogState.dateTo = '';
+    libraryLogState.activeTags = [];
+    libraryLogState.searchQuery = '';
     const fromEl = document.getElementById('library-log-from');
     const toEl = document.getElementById('library-log-to');
+    const searchEl = document.getElementById('library-log-search');
     if (fromEl) fromEl.value = '';
     if (toEl) toEl.value = '';
+    if (searchEl) searchEl.value = '';
+    document.querySelectorAll('#library-log-tags .log-filter-tag').forEach(btn => btn.classList.remove('active'));
     loadLibraryLog();
 }
 

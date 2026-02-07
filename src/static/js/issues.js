@@ -3,7 +3,7 @@
  * Lists files in the configured Issues folder with Year > Month > Day hierarchy.
  */
 
-let issuesState = { files: [], total: 0, issuesFolder: '' };
+let issuesState = { files: [], total: 0, issuesFolder: '', searchQuery: '' };
 
 // ── Rendering ────────────────────────────────────────────────────
 
@@ -20,6 +20,11 @@ async function renderIssuesTab() {
                     <button class="card-control-btn" onclick="issuesExpandAll()" title="Expand all"><img src="/static/images/show-collapse.png" alt="Expand all"></button>
                     <button class="btn btn-sm btn-danger" onclick="confirmClearAllIssues()" style="margin-left: 8px;">Clear All</button>
                 </div>
+            </div>
+            <div class="watcher-log-controls">
+                <label>Search:</label>
+                <input type="text" id="issues-search" placeholder="Search..." value="${issuesState.searchQuery}" oninput="onIssuesSearchChange()">
+                <button class="btn btn-sm btn-secondary" onclick="clearIssuesSearch()">Clear</button>
             </div>
             <div id="issues-content">
                 <div class="loading"><div class="spinner"></div></div>
@@ -45,15 +50,33 @@ async function loadIssuesFiles() {
     }
 }
 
+function onIssuesSearchChange() {
+    issuesState.searchQuery = document.getElementById('issues-search')?.value || '';
+    renderIssuesEntries();
+}
+
+function clearIssuesSearch() {
+    issuesState.searchQuery = '';
+    const searchEl = document.getElementById('issues-search');
+    if (searchEl) searchEl.value = '';
+    renderIssuesEntries();
+}
+
 function renderIssuesEntries() {
     const content = document.getElementById('issues-content');
     if (!content) return;
 
-    const files = issuesState.files;
+    let files = issuesState.files;
+
+    if (issuesState.searchQuery) {
+        const q = issuesState.searchQuery.toLowerCase();
+        files = files.filter(f => f.name.toLowerCase().includes(q));
+    }
+
     if (!files.length) {
         content.innerHTML = `
             <div class="watcher-log-empty">
-                <p>${issuesState.issuesFolder ? 'No files in the issues folder.' : 'Issues folder not configured.'}</p>
+                <p>${!issuesState.issuesFolder ? 'Issues folder not configured.' : issuesState.searchQuery ? 'No files matching the search.' : 'No files in the issues folder.'}</p>
             </div>
         `;
         return;

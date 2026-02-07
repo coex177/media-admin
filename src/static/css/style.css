@@ -3840,6 +3840,98 @@ a.metadata-source-tag:hover {
     color: #95a5a6;
 }
 
+.log-entry-badge.action-rename_failed,
+.log-entry-badge.action-import_failed {
+    background-color: rgba(231, 76, 60, 0.15);
+    color: var(--danger-color);
+}
+
+/* Search input in log controls */
+.watcher-log-controls input[type="text"] {
+    padding: 6px 10px;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    width: 160px;
+}
+
+/* Tag filter row */
+.log-tag-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+/* Tag filter pill button */
+.log-filter-tag {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 2px solid transparent;
+    opacity: 0.5;
+    transition: opacity 0.15s, border-color 0.15s;
+    background: none;
+}
+
+.log-filter-tag:hover {
+    opacity: 0.75;
+}
+
+.log-filter-tag.active {
+    opacity: 1;
+    border-color: currentColor;
+}
+
+/* Tag filter color variants — match badge colors */
+.log-filter-tag.action-file_detected {
+    background-color: rgba(52, 152, 219, 0.15);
+    color: #3498db;
+}
+.log-filter-tag.action-match_found {
+    background-color: rgba(155, 89, 182, 0.15);
+    color: #9b59b6;
+}
+.log-filter-tag.action-moved_to_library {
+    background-color: rgba(39, 174, 96, 0.15);
+    color: var(--success-color);
+}
+.log-filter-tag.action-moved_to_issues {
+    background-color: rgba(243, 156, 18, 0.15);
+    color: var(--warning-color);
+}
+.log-filter-tag.action-error {
+    background-color: rgba(231, 76, 60, 0.15);
+    color: var(--danger-color);
+}
+.log-filter-tag.action-auto_import {
+    background-color: rgba(26, 188, 156, 0.15);
+    color: #1abc9c;
+}
+.log-filter-tag.action-watcher_started,
+.log-filter-tag.action-watcher_stopped {
+    background-color: rgba(149, 165, 166, 0.15);
+    color: #95a5a6;
+}
+.log-filter-tag.action-rename {
+    background-color: rgba(52, 152, 219, 0.15);
+    color: #3498db;
+}
+.log-filter-tag.action-import {
+    background-color: rgba(39, 174, 96, 0.15);
+    color: var(--success-color);
+}
+.log-filter-tag.action-rename_failed,
+.log-filter-tag.action-import_failed {
+    background-color: rgba(231, 76, 60, 0.15);
+    color: var(--danger-color);
+}
+
 .log-entry-summary {
     flex: 1;
     min-width: 0;

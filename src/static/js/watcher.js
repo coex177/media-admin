@@ -3,7 +3,7 @@
  */
 
 // ── Watcher Log state ─────────────────────────────────────────
-let watcherLogState = { entries: [], total: 0, dateFrom: '', dateTo: '' };
+let watcherLogState = { entries: [], total: 0, dateFrom: '', dateTo: '', activeTags: [], searchQuery: '' };
 
 // ── Media Watcher state ─────────────────────────────────────────
 let watcherSettings = null;
@@ -373,8 +373,22 @@ async function renderWatcherLogTab() {
                 <input type="date" id="watcher-log-from" value="${watcherLogState.dateFrom}" onchange="onWatcherLogDateChange()">
                 <label>To:</label>
                 <input type="date" id="watcher-log-to" value="${watcherLogState.dateTo}" onchange="onWatcherLogDateChange()">
+                <label>Search:</label>
+                <input type="text" id="watcher-log-search" placeholder="Search..." value="${watcherLogState.searchQuery}" oninput="onWatcherLogSearchChange()">
                 <button class="btn btn-sm btn-secondary" onclick="clearWatcherLogFilters()">Clear Filters</button>
                 <button class="btn btn-sm btn-danger" onclick="confirmClearAllLogs()" style="margin-left: auto;">Clear All Logs</button>
+            </div>
+            <div class="log-tag-filters" id="watcher-log-tags">
+                ${[
+                    { type: 'file_detected', label: 'Detected' },
+                    { type: 'match_found', label: 'Matched' },
+                    { type: 'moved_to_library', label: 'Library' },
+                    { type: 'moved_to_issues', label: 'Issues' },
+                    { type: 'error', label: 'Error' },
+                    { type: 'auto_import', label: 'Imported' },
+                    { type: 'watcher_started', label: 'Started' },
+                    { type: 'watcher_stopped', label: 'Stopped' },
+                ].map(t => `<button class="log-filter-tag action-${t.type}${watcherLogState.activeTags.includes(t.type) ? ' active' : ''}" onclick="toggleWatcherLogTag('${t.type}')">${t.label}</button>`).join('')}
             </div>
             <div id="watcher-log-content">
                 <div class="loading"><div class="spinner"></div></div>
@@ -574,11 +588,22 @@ function renderWatcherLogEntries() {
     const content = document.getElementById('watcher-log-content');
     if (!content) return;
 
-    const entries = watcherLogState.entries;
+    // Apply client-side filters (tags + search) on top of server-side date filtering
+    let entries = watcherLogState.entries;
+    const hasFilters = watcherLogState.activeTags.length > 0 || watcherLogState.searchQuery;
+
+    if (watcherLogState.activeTags.length > 0) {
+        entries = entries.filter(e => watcherLogState.activeTags.includes(e.action_type));
+    }
+    if (watcherLogState.searchQuery) {
+        const q = watcherLogState.searchQuery.toLowerCase();
+        entries = entries.filter(e => buildLogSummary(e).toLowerCase().includes(q));
+    }
+
     if (!entries.length) {
         content.innerHTML = `
             <div class="watcher-log-empty">
-                <p>No log entries${watcherLogState.dateFrom || watcherLogState.dateTo ? ' for the selected date range' : ' yet'}.</p>
+                <p>No log entries${hasFilters || watcherLogState.dateFrom || watcherLogState.dateTo ? ' matching the current filters' : ' yet'}.</p>
             </div>
         `;
         return;
@@ -831,14 +856,39 @@ function onWatcherLogDateChange() {
     loadWatcherLog();
 }
 
+function onWatcherLogSearchChange() {
+    watcherLogState.searchQuery = document.getElementById('watcher-log-search')?.value || '';
+    renderWatcherLogEntries();
+}
+
+function toggleWatcherLogTag(actionType) {
+    const idx = watcherLogState.activeTags.indexOf(actionType);
+    if (idx >= 0) {
+        watcherLogState.activeTags.splice(idx, 1);
+    } else {
+        watcherLogState.activeTags.push(actionType);
+    }
+    // Update button active states
+    document.querySelectorAll('#watcher-log-tags .log-filter-tag').forEach(btn => {
+        const type = btn.className.match(/action-(\S+)/)?.[1];
+        if (type) btn.classList.toggle('active', watcherLogState.activeTags.includes(type));
+    });
+    renderWatcherLogEntries();
+}
+
 function clearWatcherLogFilters() {
     watcherLogState.dateFrom = '';
     watcherLogState.dateTo = '';
+    watcherLogState.activeTags = [];
+    watcherLogState.searchQuery = '';
     watcherLogState.offset = 0;
     const fromEl = document.getElementById('watcher-log-from');
     const toEl = document.getElementById('watcher-log-to');
+    const searchEl = document.getElementById('watcher-log-search');
     if (fromEl) fromEl.value = '';
     if (toEl) toEl.value = '';
+    if (searchEl) searchEl.value = '';
+    document.querySelectorAll('#watcher-log-tags .log-filter-tag').forEach(btn => btn.classList.remove('active'));
     loadWatcherLog();
 }
 
