@@ -1,54 +1,79 @@
 # Media Admin
 
-A Linux-native TV show organization tool with a web UI. Manages metadata, tracks missing episodes, organizes files, and monitors download folders for automatic processing. Written in Python with a FastAPI backend and vanilla JavaScript frontend.
+A Linux-native media library manager for TV shows and movies with a web UI. Manages metadata from TMDB and TVDB, tracks missing episodes, organizes and renames files, and monitors download folders for automatic processing. Written in Python with a FastAPI backend and vanilla JavaScript frontend.
 
 ## Features
 
-### Metadata & Library Management
-- Search and add shows from **TMDB** and **TVDB** with automatic cross-referencing
-- Intelligent source selection — compares episode counts and picks the more complete provider
+### TV Show Management
+- Search and add shows from **TMDB** and **TVDB** with automatic cross-referencing of TMDB, TVDB, and IMDB IDs
 - Switch metadata source per show at any time (episodes re-imported and files rescanned)
 - TVDB episode order selection — choose between aired, DVD, absolute, or alternate orderings
-- Bulk metadata refresh for all shows with progress tracking
+- Single-show and bulk metadata refresh with progress tracking
 - Track show status, genres, networks, air dates, and episode counts
-- Cross-reference TMDB, TVDB, and IMDB IDs automatically
+- Folder year correction — metadata refresh renames show folders when the year doesn't match (e.g. `Show (2021)` → `Show (2018)`)
 
-### Episode Tracking
+### Movie Management
+- Search and add movies from **TMDB** with automatic metadata
+- Collection grouping (movies grouped by TMDB collection)
+- Edition support (Director's Cut, Extended, etc.)
+- Single-movie and bulk metadata refresh
+- Genre and studio distribution tracking
+
+### Episode & File Tracking
 - Track episodes with season/episode numbers, titles, overviews, air dates, and runtime
 - Detect missing, found, not-yet-aired, ignored, and special episodes
-- Mark episodes as ignored or special (excluded from missing counts)
+- Mark episodes as ignored (excluded from missing counts), with bulk ignore/unignore per show or season
 - Per-show and library-wide missing episode reports
+- Multi-episode file support (e.g., S01E01-E03)
 
 ### File Organization
-- Scan library folders to match existing files to episodes
-- Customizable naming formats for season folders and episode files
+- Scan library folders to match existing files to episodes/movies
+- Customizable naming formats for season folders, episode files, and movie files
 - Automatic renaming based on metadata (with companion file handling for subtitles, images, etc.)
-- Preview and approve rename/move operations before execution
-- Multi-episode file support (e.g., S01E01-E03)
+- Preview rename operations before execution
+- Show folder auto-discovery across library folders
 
 ### Download Monitoring (Watcher)
 - Watch download folders for new video files with stability checking
-- Automatic show/episode matching using filename parsing
+- Automatic TV and movie matching using filename parsing
+- Decision tree: parse as TV → match show/episode → import; else parse as movie → match/auto-import; else move to Issues
+- Auto-import unmatched files from TMDB/TVDB when a confident match is found
 - Auto-rename, copy to library, and update database
 - Quality-based duplicate resolution using ffprobe (resolution, bitrate, codecs, audio channels)
 - Issues folder for unmatched or duplicate files with configurable organization
-- Activity logging with full history
+- Safe file operations (copy to temp, rename to final, verify, clean up)
+- Move accompanying files (subtitles, metadata sidecar files)
 
 ### Managed Import
-- Bulk-import shows by scanning a folder of show folders
-- Auto-match folder names to TMDB/TVDB metadata
-- Progress tracking with per-show results
+- Bulk-import shows by scanning a library folder of show folders
+- Auto-match folder names to TMDB/TVDB metadata with title similarity + year scoring
+- Secondary provider fallback — if a show has unmatched files with the default provider, automatically tries the other provider and switches if it produces a clean match
+- Progress tracking with per-show results and live console log
 
 ### Dashboard
-- Drag-and-drop card layout with collapsible sections
-- Cards: Recently Aired, Upcoming, Recently Added, Recently Ended, Most Incomplete, Recently Matched, Returning Soon, Last Scan, Storage Stats, Genre Distribution, Network Distribution, Extra Files on Disk
-- Persistent card ordering and collapse state
+- 9 stat cards: Total Shows, Episodes Found, Episodes Missing, Ignored, Pending Actions, Collection Progress, Total Movies, Movies Found, Movies Missing
+- 15 content cards: Recently Aired, Upcoming, Recently Added Shows, Recently Ended, Most Incomplete, Recently Matched Episodes, Returning Soon, Last Scan, Storage Stats, Genre Distribution, Network Distribution, Extra Files on Disk, Recently Added Movies, Recently Matched Movies
+- Drag-and-drop card reordering with persistent layout
+- Hide/restore cards, expand/collapse all, reset to defaults
+- Lazy-loading — only visible cards fetch data
+
+### Search
+- Global search across library and providers (TMDB/TVDB)
+- Numeric ID lookup — type a TMDB or TVDB ID (4+ digits) to fetch directly
+- Year extraction from queries (e.g. "Black 2017" filters by year)
+- Add Show modal supports both text and ID search with source selection
 
 ### UI
-- Three view modes for the show library: cards, compact tiles, and expandable list
-- Library-style alphabetical pagination (article-stripped sorting)
+- Three view modes for shows and movies: cards, compact tiles, and expandable list
+- Library-style alphabetical pagination with article-stripped sorting
 - Show detail view with season/episode accordion and episode preview images
-- Responsive web interface with configurable theme
+- Configurable themes (Midnight, Light, Sunset)
+
+### Logs & Filtering
+- **Watcher Log** — file detection events with 8 tag filters (Detected, Matched, Library, Issues, Error, Imported, Started, Stopped)
+- **Library Log** — rename/import history with 4 tag filters (Rename, Import, Rename Failed, Import Failed)
+- All logs support text search, date range filtering, and year-based grouping
+- Tag filters use OR logic, combined with AND for search and date range
 
 ## Requirements
 
@@ -114,8 +139,9 @@ sudo systemctl start media-admin
 1. Open http://localhost:8095
 2. Go to Settings and enter your TMDB API key (and optionally TVDB API key)
 3. Add at least one library folder (where your TV shows are stored)
-4. Optionally add download folders to monitor for new files
-5. Optionally configure the watcher for automatic download processing
+4. Optionally add a movie library folder
+5. Optionally add download folders to monitor for new files
+6. Optionally configure the watcher for automatic download processing
 
 ## API Documentation
 
@@ -125,7 +151,7 @@ Once running, interactive API documentation is available at:
 
 ## Configuration
 
-Settings are stored in the SQLite database (`data/media-admin.db`) and managed through the web UI Settings page.
+Settings are stored in the SQLite database (`data/media-admin.db`) and managed through the web UI Settings page across five tabs: General, Dashboard, Library, Folders, and Watcher.
 
 ### Naming Formats
 
@@ -137,9 +163,14 @@ Episode format variables:
 Season folder variables:
 - `{season}` - Season number
 
+Movie format variables:
+- `{title}` - Movie title
+- `{year}` - Release year
+
 Default formats:
 - Episode: `{season}x{episode:02d} - {title}`
 - Season folder: `Season {season}`
+- Movie: `{title} ({year})`
 
 ## Project Structure
 
@@ -149,9 +180,26 @@ media-admin/
 │   ├── main.py              # FastAPI application entry point
 │   ├── config.py            # Configuration
 │   ├── database.py          # SQLite database setup
-│   ├── models/              # SQLAlchemy models (Show, Episode, etc.)
-│   ├── services/            # Business logic (TMDB, TVDB, scanner, renamer, watcher)
-│   ├── routers/             # API endpoints (shows, scan, actions, settings, watcher)
+│   ├── models/              # SQLAlchemy models (Show, Episode, Movie, etc.)
+│   ├── services/            # Business logic
+│   │   ├── tmdb.py          # TMDB API client
+│   │   ├── tvdb.py          # TVDB API client
+│   │   ├── scanner.py       # Library and download folder scanner
+│   │   ├── movie_scanner.py # Movie library scanner
+│   │   ├── renamer.py       # TV episode file renamer
+│   │   ├── movie_renamer.py # Movie file renamer
+│   │   ├── matcher.py       # TV filename parser
+│   │   ├── movie_matcher.py # Movie filename parser
+│   │   ├── watcher.py       # Filesystem watcher (inotify)
+│   │   ├── watcher_pipeline.py # File processing pipeline
+│   │   └── quality.py       # Quality comparison logic
+│   ├── routers/             # API endpoints
+│   │   ├── shows.py         # TV show CRUD, search, refresh, rename
+│   │   ├── movies.py        # Movie CRUD, search, refresh
+│   │   ├── scan.py          # Scanning, managed import, logs
+│   │   ├── actions.py       # Pending action management
+│   │   ├── settings.py      # App settings
+│   │   └── watcher.py       # Watcher controls
 │   └── static/              # Web UI (HTML, CSS, JavaScript)
 ├── data/
 │   └── media-admin.db       # SQLite database (created on first run)
