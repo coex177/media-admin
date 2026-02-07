@@ -131,8 +131,8 @@ function renderDashboardContent() {
     const recentlyAiredDays = settings?.recently_aired_days || 14;
     const displayEpFormat = settings?.display_episode_format || '{season}x{episode:02d}';
 
-    // Calculate collection progress (ignored count as collected)
-    const collectedEpisodes = (stats?.found_episodes || 0) + (stats?.ignored_episodes || 0);
+    // Calculate collection progress (ignored excluded from both numerator and denominator)
+    const collectedEpisodes = stats?.found_episodes || 0;
     const totalAired = collectedEpisodes + (stats?.missing_episodes || 0);
     const collectionPercent = totalAired > 0 ? ((collectedEpisodes / totalAired) * 100).toFixed(1) : 0;
 

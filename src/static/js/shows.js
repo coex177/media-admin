@@ -541,7 +541,7 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null,
 
             ${Object.keys(seasons).sort((a, b) => a - b).map(seasonNum => {
                 const seasonEps = seasons[seasonNum];
-                const foundCount = seasonEps.filter(e => e.file_status === 'found' || e.file_status === 'renamed' || e.is_ignored).length;
+                const foundCount = seasonEps.filter(e => e.file_status === 'found' || e.file_status === 'renamed').length;
                 const airedCount = seasonEps.filter(e => e.file_status !== 'not_aired').length;
                 return `
                 <div class="card season-card">

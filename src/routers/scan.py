@@ -1397,6 +1397,10 @@ async def ignore_episodes(
         if not episode:
             continue
 
+        # Skip episodes that are already found/collected
+        if episode.file_status != "missing":
+            continue
+
         # Check if already ignored
         existing = db.query(IgnoredEpisode).filter(IgnoredEpisode.episode_id == episode_id).first()
         if existing:
@@ -1442,7 +1446,7 @@ async def unignore_episode(
 async def get_ignored_episodes(
     db: Session = Depends(get_db),
 ):
-    """Get all ignored episodes."""
+    """Get all ignored episodes (only those still missing)."""
     from ..models import IgnoredEpisode, Episode, Show
 
     ignored = (
@@ -1451,6 +1455,13 @@ async def get_ignored_episodes(
         .join(Show, Episode.show_id == Show.id)
         .all()
     )
+
+    # Clean up any ignored entries for episodes that have since been found
+    found_entries = [ig for ig, ep, show in ignored if ep.file_status != "missing"]
+    if found_entries:
+        for ig in found_entries:
+            db.delete(ig)
+        db.commit()
 
     return [
         {
@@ -1465,6 +1476,7 @@ async def get_ignored_episodes(
             "title": ep.title,
         }
         for ig, ep, show in ignored
+        if ep.file_status == "missing"
     ]
 
 

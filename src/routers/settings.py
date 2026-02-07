@@ -536,7 +536,7 @@ async def get_recently_ended(
     for show in shows:
         # Count episodes (season 0 specials never count as missing)
         episodes = db.query(Episode).filter(Episode.show_id == show.id).all()
-        found_count = sum(1 for ep in episodes if ep.file_status != "missing" or ep.season == 0 or ep.id in ignored_ids)
+        found_count = sum(1 for ep in episodes if ep.file_status != "missing" or ep.season == 0)
 
         result.append({
             "id": show.id,
@@ -587,7 +587,7 @@ async def get_recently_added(
             elif not ep.has_aired:
                 not_aired_count += 1
             elif ep.id in ignored_ids:
-                found_count += 1  # Count as collected
+                pass  # Ignored - excluded from found and missing
             else:
                 missing_count += 1
 
@@ -634,7 +634,7 @@ async def get_most_incomplete(
             elif not ep.has_aired:
                 pass  # not aired, skip
             elif ep.id in ignored_ids:
-                found_count += 1  # Count as collected
+                pass  # Ignored - excluded from found and missing
             else:
                 missing_count += 1
 

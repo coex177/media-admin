@@ -361,7 +361,7 @@ async def list_shows(
             elif not ep.has_aired:
                 not_aired_count += 1
             elif ep.id in ignored_ids:
-                found_count += 1  # Count as collected
+                pass  # Ignored - excluded from found and missing
             else:
                 missing_count += 1
 
