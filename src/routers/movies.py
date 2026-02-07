@@ -92,14 +92,56 @@ async def get_movie_stats(db: Session = Depends(get_db)):
 
 @router.get("/recently-added")
 async def get_recently_added_movies(
-    count: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
     """Get recently added movies."""
+    limit = int(_get_setting(db, "movie_recently_added_count", "5"))
     movies = (
         db.query(Movie)
         .order_by(Movie.created_at.desc())
-        .limit(count)
+        .limit(limit)
+        .all()
+    )
+    return [m.to_dict() for m in movies]
+
+
+@router.get("/recently-released")
+async def get_recently_released_movies(db: Session = Depends(get_db)):
+    """Get movies sorted by release date (newest first)."""
+    limit = int(_get_setting(db, "movie_recently_released_count", "5"))
+    movies = (
+        db.query(Movie)
+        .filter(Movie.release_date.isnot(None))
+        .order_by(Movie.release_date.desc())
+        .limit(limit)
+        .all()
+    )
+    return [m.to_dict() for m in movies]
+
+
+@router.get("/top-rated")
+async def get_top_rated_movies(db: Session = Depends(get_db)):
+    """Get movies sorted by vote_average (highest first)."""
+    limit = int(_get_setting(db, "movie_top_rated_count", "5"))
+    movies = (
+        db.query(Movie)
+        .filter(Movie.vote_average.isnot(None))
+        .order_by(Movie.vote_average.desc())
+        .limit(limit)
+        .all()
+    )
+    return [m.to_dict() for m in movies]
+
+
+@router.get("/lowest-rated")
+async def get_lowest_rated_movies(db: Session = Depends(get_db)):
+    """Get movies sorted by vote_average (lowest first, excluding 0)."""
+    limit = int(_get_setting(db, "movie_lowest_rated_count", "5"))
+    movies = (
+        db.query(Movie)
+        .filter(Movie.vote_average.isnot(None), Movie.vote_average > 0)
+        .order_by(Movie.vote_average.asc())
+        .limit(limit)
         .all()
     )
     return [m.to_dict() for m in movies]
@@ -109,35 +151,39 @@ async def get_recently_added_movies(
 @router.get("/genre-distribution")
 async def get_genre_distribution(db: Session = Depends(get_db)):
     """Get genre breakdown across all movies."""
-    movies = db.query(Movie.genres).filter(Movie.genres.isnot(None)).all()
-    genre_counts = {}
-    for (genres_json,) in movies:
+    movies = db.query(Movie).filter(Movie.genres.isnot(None)).all()
+    genre_movies = {}
+    for movie in movies:
         try:
-            genres = json.loads(genres_json)
+            genres = json.loads(movie.genres)
             for genre in genres:
-                genre_counts[genre] = genre_counts.get(genre, 0) + 1
+                if genre not in genre_movies:
+                    genre_movies[genre] = []
+                genre_movies[genre].append({"id": movie.id, "title": movie.title})
         except (json.JSONDecodeError, TypeError):
             pass
 
-    sorted_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)
-    return [{"genre": g, "count": c} for g, c in sorted_genres]
+    sorted_genres = sorted(genre_movies.items(), key=lambda x: len(x[1]), reverse=True)
+    return [{"genre": g, "count": len(m), "movies": sorted(m, key=lambda x: x["title"])} for g, m in sorted_genres]
 
 
 @router.get("/studio-distribution")
 async def get_studio_distribution(db: Session = Depends(get_db)):
     """Get studio breakdown across all movies."""
-    movies = db.query(Movie.studio).filter(Movie.studio.isnot(None)).all()
-    studio_counts = {}
-    for (studio_json,) in movies:
+    movies = db.query(Movie).filter(Movie.studio.isnot(None)).all()
+    studio_movies = {}
+    for movie in movies:
         try:
-            studios = json.loads(studio_json)
+            studios = json.loads(movie.studio)
             for studio in studios:
-                studio_counts[studio] = studio_counts.get(studio, 0) + 1
+                if studio not in studio_movies:
+                    studio_movies[studio] = []
+                studio_movies[studio].append({"id": movie.id, "title": movie.title})
         except (json.JSONDecodeError, TypeError):
             pass
 
-    sorted_studios = sorted(studio_counts.items(), key=lambda x: x[1], reverse=True)
-    return [{"studio": s, "count": c} for s, c in sorted_studios[:30]]
+    sorted_studios = sorted(studio_movies.items(), key=lambda x: len(x[1]), reverse=True)
+    return [{"studio": s, "count": len(m), "movies": sorted(m, key=lambda x: x["title"])} for s, m in sorted_studios]
 
 
 @router.get("/collections")

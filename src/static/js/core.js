@@ -904,7 +904,7 @@ function generateSelectOptions(max, selected, template) {
         let label = template.replace('{n}', i);
         // Handle singular: "Days" -> "Day", "Shows" -> "Show", "Episodes" -> "Episode"
         if (i === 1) {
-            label = label.replace('Days', 'Day').replace('Shows', 'Show').replace('Episodes', 'Episode');
+            label = label.replace('Days', 'Day').replace('Shows', 'Show').replace('Episodes', 'Episode').replace('Movies', 'Movie');
         }
         html += `<option value="${i}" ${i === selected ? 'selected' : ''}>${label}</option>`;
     }

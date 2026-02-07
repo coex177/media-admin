@@ -38,6 +38,11 @@ class SettingsUpdate(BaseModel):
     timezone: Optional[str] = None
     movie_format: Optional[str] = None
     movies_per_page: Optional[int] = None
+    movie_recently_released_count: Optional[int] = None
+    movie_recently_added_count: Optional[int] = None
+    movie_top_rated_count: Optional[int] = None
+    movie_lowest_rated_count: Optional[int] = None
+    movies_per_page_options: Optional[list] = None
 
 
 class FolderCreate(BaseModel):
@@ -167,6 +172,11 @@ async def get_settings(db: Session = Depends(get_db)):
         "timezone": get_setting(db, "timezone", ""),
         "movie_format": _get_migrated_movie_format(db),
         "movies_per_page": int(get_setting(db, "movies_per_page", "0")),
+        "movie_recently_released_count": int(get_setting(db, "movie_recently_released_count", "5")),
+        "movie_recently_added_count": int(get_setting(db, "movie_recently_added_count", "5")),
+        "movie_top_rated_count": int(get_setting(db, "movie_top_rated_count", "5")),
+        "movie_lowest_rated_count": int(get_setting(db, "movie_lowest_rated_count", "5")),
+        "movies_per_page_options": json.loads(get_setting(db, "movies_per_page_options", "[100,300,500,1000,1500]")),
     }
 
 
@@ -237,6 +247,22 @@ async def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 
     if data.movies_per_page is not None:
         set_setting(db, "movies_per_page", str(data.movies_per_page))
+
+    if data.movie_recently_released_count is not None:
+        set_setting(db, "movie_recently_released_count", str(data.movie_recently_released_count))
+
+    if data.movie_recently_added_count is not None:
+        set_setting(db, "movie_recently_added_count", str(data.movie_recently_added_count))
+
+    if data.movie_top_rated_count is not None:
+        set_setting(db, "movie_top_rated_count", str(data.movie_top_rated_count))
+
+    if data.movie_lowest_rated_count is not None:
+        set_setting(db, "movie_lowest_rated_count", str(data.movie_lowest_rated_count))
+
+    if data.movies_per_page_options is not None:
+        opts = sorted([int(v) for v in data.movies_per_page_options if int(v) > 0])[:5]
+        set_setting(db, "movies_per_page_options", json.dumps(opts))
 
     # Mark setup as completed if API key is set
     if data.tmdb_api_key:

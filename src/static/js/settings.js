@@ -227,6 +227,46 @@ function renderSettingsMetadata(settings) {
                 <small class="text-muted">Five values for the shows-per-page dropdown (All is always included)</small>
             </div>
         </div>
+
+        <div class="card">
+            <h2 class="card-title mb-20">Movie Dashboard</h2>
+            <div class="dashboard-settings-grid">
+                <div class="dashboard-setting-item">
+                    <label>Recently Released</label>
+                    <select id="settings-movie-recently-released-count" class="form-control" onchange="autoSaveMovieDashboardSettings()">
+                        ${generateSelectOptions(30, settings.movie_recently_released_count, '{n} Movies')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Recently Added</label>
+                    <select id="settings-movie-recently-added-count" class="form-control" onchange="autoSaveMovieDashboardSettings()">
+                        ${generateSelectOptions(30, settings.movie_recently_added_count, '{n} Movies')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Top Rated</label>
+                    <select id="settings-movie-top-rated-count" class="form-control" onchange="autoSaveMovieDashboardSettings()">
+                        ${generateSelectOptions(30, settings.movie_top_rated_count, '{n} Movies')}
+                    </select>
+                </div>
+                <div class="dashboard-setting-item">
+                    <label>Lowest Rated</label>
+                    <select id="settings-movie-lowest-rated-count" class="form-control" onchange="autoSaveMovieDashboardSettings()">
+                        ${generateSelectOptions(30, settings.movie_lowest_rated_count, '{n} Movies')}
+                    </select>
+                </div>
+            </div>
+            <div class="dashboard-settings-divider"></div>
+            <div class="form-group">
+                <label class="dashboard-setting-label">Movies Per Page Options</label>
+                <div class="shows-per-page-options-grid">
+                    ${(settings.movies_per_page_options || [100,300,500,1000,1500]).map((v, i) =>
+                        `<input type="number" id="settings-mpp-opt-${i}" class="form-control form-control-sm" value="${v}" min="1" onchange="autoSaveMoviesPerPageOptions()">`
+                    ).join('')}
+                </div>
+                <small class="text-muted">Five values for the movies-per-page dropdown (All is always included)</small>
+            </div>
+        </div>
     `;
 }
 
@@ -637,6 +677,43 @@ async function autoSaveShowsPerPageOptions() {
             body: JSON.stringify({ shows_per_page_options: opts })
         });
         if (state.settings) state.settings.shows_per_page_options = opts.slice().sort((a, b) => a - b);
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+async function autoSaveMovieDashboardSettings() {
+    const data = {};
+    const el = (id) => document.getElementById(id);
+
+    if (el('settings-movie-recently-released-count')) data.movie_recently_released_count = parseInt(el('settings-movie-recently-released-count').value);
+    if (el('settings-movie-recently-added-count')) data.movie_recently_added_count = parseInt(el('settings-movie-recently-added-count').value);
+    if (el('settings-movie-top-rated-count')) data.movie_top_rated_count = parseInt(el('settings-movie-top-rated-count').value);
+    if (el('settings-movie-lowest-rated-count')) data.movie_lowest_rated_count = parseInt(el('settings-movie-lowest-rated-count').value);
+
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+        Object.assign(state.settings, data);
+    } catch (error) {
+        // Error already shown
+    }
+}
+
+async function autoSaveMoviesPerPageOptions() {
+    const opts = [];
+    for (let i = 0; i < 5; i++) {
+        const el = document.getElementById(`settings-mpp-opt-${i}`);
+        if (el) opts.push(parseInt(el.value) || 1);
+    }
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ movies_per_page_options: opts })
+        });
+        if (state.settings) state.settings.movies_per_page_options = opts.slice().sort((a, b) => a - b);
     } catch (error) {
         // Error already shown
     }

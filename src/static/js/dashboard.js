@@ -17,7 +17,9 @@ const defaultCardOrder = [
     'most-incomplete', 'recently-matched', 'returning-soon',
     'last-scan', 'storage-stats', 'genre-distribution', 'network-distribution',
     'extra-files',
-    'recently-added-movies'
+    'recently-added-movies', 'recently-released-movies',
+    'movie-genre-distribution', 'movie-studio-distribution',
+    'top-rated-movies', 'lowest-rated-movies'
 ];
 let dashboardCardOrder = [...defaultCardOrder];
 let dashboardCardStates = {};
@@ -30,7 +32,9 @@ const _arrayDataKeys = new Set([
     'recentlyAired', 'recentlyAdded', 'upcoming', 'recentlyEnded',
     'mostIncomplete', 'recentlyMatched', 'returningSoon',
     'genreDistribution', 'networkDistribution', 'extraFiles',
-    'recentlyAddedMovies'
+    'recentlyAddedMovies', 'recentlyReleasedMovies',
+    'movieGenreDistribution', 'movieStudioDistribution',
+    'topRatedMovies', 'lowestRatedMovies'
 ]);
 
 // Map dashboard card IDs to their API endpoint and dashboardData key
@@ -47,7 +51,12 @@ const cardDataEndpoints = {
     'genre-distribution':   { key: 'genreDistribution',   endpoint: '/genre-distribution' },
     'network-distribution': { key: 'networkDistribution', endpoint: '/network-distribution' },
     'extra-files':          { key: 'extraFiles',          endpoint: '/extra-files' },
-    'recently-added-movies':    { key: 'recentlyAddedMovies',    endpoint: '/movies/recently-added' }
+    'recently-added-movies':        { key: 'recentlyAddedMovies',        endpoint: '/movies/recently-added' },
+    'recently-released-movies':     { key: 'recentlyReleasedMovies',     endpoint: '/movies/recently-released' },
+    'movie-genre-distribution':     { key: 'movieGenreDistribution',     endpoint: '/movies/genre-distribution' },
+    'movie-studio-distribution':    { key: 'movieStudioDistribution',    endpoint: '/movies/studio-distribution' },
+    'top-rated-movies':             { key: 'topRatedMovies',             endpoint: '/movies/top-rated' },
+    'lowest-rated-movies':          { key: 'lowestRatedMovies',          endpoint: '/movies/lowest-rated' }
 };
 
 // Dashboard
@@ -121,7 +130,9 @@ function renderDashboardContent() {
         mostIncomplete, recentlyMatched, returningSoon, lastScan,
         storageStats, genreDistribution, networkDistribution, settings,
         extraFiles, movieStats,
-        recentlyAddedMovies
+        recentlyAddedMovies, recentlyReleasedMovies,
+        movieGenreDistribution, movieStudioDistribution,
+        topRatedMovies, lowestRatedMovies
     } = dashboardData;
     const upcomingDays = settings?.upcoming_days || 14;
     const recentlyAiredDays = settings?.recently_aired_days || 14;
@@ -805,6 +816,228 @@ function renderDashboardContent() {
                 </div>
             `;
         },
+        'recently-released-movies': () => {
+            if (recentlyReleasedMovies === undefined) return _cardLoading('recently-released-movies', 'Recently Released Movies');
+            const isOpen = dashboardCardStates['recently-released-movies'];
+            return `
+                <div class="card dashboard-card draggable-card" draggable="true" data-card-id="recently-released-movies"
+                     ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                     ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('recently-released-movies')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-recently-released-movies" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Recently Released Movies
+                        </h2>
+                        <span class="text-muted">${recentlyReleasedMovies.length} movies</span>
+                        <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('recently-released-movies')">&times;</button>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-recently-released-movies">
+                        ${recentlyReleasedMovies.length === 0 ? `
+                            <p class="text-muted text-center" style="padding: 20px;">No movies with release dates</p>
+                        ` : `
+                            <div class="recent-shows-list">
+                                ${recentlyReleasedMovies.map(movie => {
+                                    const posterUrl = movie.poster_path ? getImageUrl(movie.poster_path) : null;
+                                    return `
+                                        <div class="recent-show-item" onclick="showMovieDetail(${movie.id})">
+                                            <div class="recent-show-poster">
+                                                ${posterUrl
+                                                    ? `<img src="${posterUrl}" alt="${escapeHtml(movie.title)}">`
+                                                    : `<div class="poster-placeholder"></div>`}
+                                            </div>
+                                            <div class="recent-show-info">
+                                                <div class="recent-show-name">${escapeHtml(movie.title)}</div>
+                                                <div class="recent-show-meta">
+                                                    <span>${movie.release_date || 'Unknown'}</span>
+                                                    ${movie.runtime ? `<span class="text-muted">|</span><span>${movie.runtime} min</span>` : ''}
+                                                </div>
+                                                <div class="recent-show-status">
+                                                    ${movie.file_status === 'found' || movie.file_status === 'renamed'
+                                                        ? `<span class="badge badge-success badge-sm">Found</span>`
+                                                        : `<span class="badge badge-danger badge-sm">Missing</span>`}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
+        'movie-genre-distribution': () => {
+            if (movieGenreDistribution === undefined) return _cardLoading('movie-genre-distribution', 'Movie Genres');
+            const isOpen = dashboardCardStates['movie-genre-distribution'];
+            return `
+                <div class="card dashboard-card draggable-card" draggable="true" data-card-id="movie-genre-distribution"
+                     ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                     ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('movie-genre-distribution')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-movie-genre-distribution" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Movie Genres
+                        </h2>
+                        <span class="text-muted">${movieGenreDistribution.length} genres</span>
+                        <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('movie-genre-distribution')">&times;</button>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-movie-genre-distribution">
+                        ${movieGenreDistribution.length === 0 ? `
+                            <p class="text-muted text-center" style="padding: 20px;">No genre data available. Refresh movies to fetch genres.</p>
+                        ` : `
+                            <div class="distribution-list distribution-scrollable">
+                                ${movieGenreDistribution.map(g => `
+                                    <div class="distribution-item clickable" onclick="toggleDistributionShows('movie-genre', '${escapeHtml(g.genre).replace(/'/g, "\\'")}')">
+                                        <span class="distribution-name">${escapeHtml(g.genre)}</span>
+                                        <span class="distribution-count">${g.count} movie${g.count !== 1 ? 's' : ''}</span>
+                                    </div>
+                                    <div class="distribution-shows" id="distribution-movie-genre-${escapeHtml(g.genre)}" style="display: ${isDistributionExpanded('movie-genre', g.genre) ? 'block' : 'none'};">
+                                        ${g.movies.map(m => `
+                                            <a class="distribution-show-link" onclick="event.stopPropagation(); showMovieDetail(${m.id})">${escapeHtml(m.title)}</a>
+                                        `).join('')}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
+        'movie-studio-distribution': () => {
+            if (movieStudioDistribution === undefined) return _cardLoading('movie-studio-distribution', 'Movie Studios');
+            const isOpen = dashboardCardStates['movie-studio-distribution'];
+            return `
+                <div class="card dashboard-card draggable-card" draggable="true" data-card-id="movie-studio-distribution"
+                     ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                     ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('movie-studio-distribution')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-movie-studio-distribution" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Movie Studios
+                        </h2>
+                        <span class="text-muted">${movieStudioDistribution.length} studios</span>
+                        <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('movie-studio-distribution')">&times;</button>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-movie-studio-distribution">
+                        ${movieStudioDistribution.length === 0 ? `
+                            <p class="text-muted text-center" style="padding: 20px;">No studio data available. Refresh movies to fetch studios.</p>
+                        ` : `
+                            <div class="distribution-list distribution-scrollable">
+                                ${movieStudioDistribution.map(s => `
+                                    <div class="distribution-item clickable" onclick="toggleDistributionShows('movie-studio', '${escapeHtml(s.studio).replace(/'/g, "\\'")}')">
+                                        <span class="distribution-name">${escapeHtml(s.studio)}</span>
+                                        <span class="distribution-count">${s.count} movie${s.count !== 1 ? 's' : ''}</span>
+                                    </div>
+                                    <div class="distribution-shows" id="distribution-movie-studio-${escapeHtml(s.studio)}" style="display: ${isDistributionExpanded('movie-studio', s.studio) ? 'block' : 'none'};">
+                                        ${s.movies.map(m => `
+                                            <a class="distribution-show-link" onclick="event.stopPropagation(); showMovieDetail(${m.id})">${escapeHtml(m.title)}</a>
+                                        `).join('')}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
+        'top-rated-movies': () => {
+            if (topRatedMovies === undefined) return _cardLoading('top-rated-movies', 'Top Rated Movies');
+            const isOpen = dashboardCardStates['top-rated-movies'];
+            return `
+                <div class="card dashboard-card draggable-card" draggable="true" data-card-id="top-rated-movies"
+                     ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                     ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('top-rated-movies')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-top-rated-movies" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Top Rated Movies
+                        </h2>
+                        <span class="text-muted">${topRatedMovies.length} movies</span>
+                        <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('top-rated-movies')">&times;</button>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-top-rated-movies">
+                        ${topRatedMovies.length === 0 ? `
+                            <p class="text-muted text-center" style="padding: 20px;">No rated movies</p>
+                        ` : `
+                            <div class="recent-shows-list">
+                                ${topRatedMovies.map(movie => {
+                                    const posterUrl = movie.poster_path ? getImageUrl(movie.poster_path) : null;
+                                    const rating = movie.vote_average != null ? movie.vote_average.toFixed(1) : '—';
+                                    return `
+                                        <div class="recent-show-item" onclick="showMovieDetail(${movie.id})">
+                                            <div class="recent-show-poster">
+                                                ${posterUrl
+                                                    ? `<img src="${posterUrl}" alt="${escapeHtml(movie.title)}">`
+                                                    : `<div class="poster-placeholder"></div>`}
+                                            </div>
+                                            <div class="recent-show-info">
+                                                <div class="recent-show-name">${escapeHtml(movie.title)}</div>
+                                                <div class="recent-show-meta">
+                                                    <span>${movie.year || 'Unknown'}</span>
+                                                    ${movie.runtime ? `<span class="text-muted">|</span><span>${movie.runtime} min</span>` : ''}
+                                                </div>
+                                                <div class="recent-show-status">
+                                                    <span class="badge badge-success badge-sm">${rating}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
+        'lowest-rated-movies': () => {
+            if (lowestRatedMovies === undefined) return _cardLoading('lowest-rated-movies', 'Lowest Rated Movies');
+            const isOpen = dashboardCardStates['lowest-rated-movies'];
+            return `
+                <div class="card dashboard-card draggable-card" draggable="true" data-card-id="lowest-rated-movies"
+                     ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                     ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('lowest-rated-movies')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-lowest-rated-movies" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Lowest Rated Movies
+                        </h2>
+                        <span class="text-muted">${lowestRatedMovies.length} movies</span>
+                        <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('lowest-rated-movies')">&times;</button>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-lowest-rated-movies">
+                        ${lowestRatedMovies.length === 0 ? `
+                            <p class="text-muted text-center" style="padding: 20px;">No rated movies</p>
+                        ` : `
+                            <div class="recent-shows-list">
+                                ${lowestRatedMovies.map(movie => {
+                                    const posterUrl = movie.poster_path ? getImageUrl(movie.poster_path) : null;
+                                    const rating = movie.vote_average != null ? movie.vote_average.toFixed(1) : '—';
+                                    return `
+                                        <div class="recent-show-item" onclick="showMovieDetail(${movie.id})">
+                                            <div class="recent-show-poster">
+                                                ${posterUrl
+                                                    ? `<img src="${posterUrl}" alt="${escapeHtml(movie.title)}">`
+                                                    : `<div class="poster-placeholder"></div>`}
+                                            </div>
+                                            <div class="recent-show-info">
+                                                <div class="recent-show-name">${escapeHtml(movie.title)}</div>
+                                                <div class="recent-show-meta">
+                                                    <span>${movie.year || 'Unknown'}</span>
+                                                    ${movie.runtime ? `<span class="text-muted">|</span><span>${movie.runtime} min</span>` : ''}
+                                                </div>
+                                                <div class="recent-show-status">
+                                                    <span class="badge badge-danger badge-sm">${rating}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
     };
 
     appContent.innerHTML = `
@@ -1042,11 +1275,18 @@ const cardNameMap = {
     'network-distribution': 'Networks',
     'extra-files': 'Extra Files',
     'total-movies': 'Total Movies',
-    'recently-added-movies': 'Recently Added Movies'
+    'recently-added-movies': 'Recently Added Movies',
+    'recently-released-movies': 'Recently Released Movies',
+    'movie-genre-distribution': 'Movie Genres',
+    'movie-studio-distribution': 'Movie Studios',
+    'top-rated-movies': 'Top Rated Movies',
+    'lowest-rated-movies': 'Lowest Rated Movies'
 };
 
 const movieCardIds = new Set([
     'total-movies', 'collection-progress', 'recently-added-movies',
+    'recently-released-movies', 'movie-genre-distribution',
+    'movie-studio-distribution', 'top-rated-movies', 'lowest-rated-movies',
 ]);
 
 function showRestoreCardsModal() {
