@@ -1175,6 +1175,108 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     )
                     total_eps = aired_eps
                     extra = total_files - matched
+
+                    # --- Secondary provider fallback ---
+                    # If there are unmatched files, try the other metadata provider
+                    # to see if its episode numbering matches the files better.
+                    if extra > 0:
+                        try:
+                            secondary_source = None
+                            secondary_show_data = None
+
+                            if not use_tvdb and tvdb is not None and show_data.get("tvdb_id"):
+                                # Default is TMDB → try TVDB
+                                secondary_source = "tvdb"
+                                log(f"Trying TVDB fallback for '{show.name}' ({extra} extra files with TMDB)", "info")
+                                secondary_show_data = loop.run_until_complete(
+                                    tvdb.get_show_with_episodes(show_data["tvdb_id"])
+                                )
+                            elif use_tvdb:
+                                # Default is TVDB → try TMDB (search by name)
+                                secondary_source = "tmdb"
+                                log(f"Trying TMDB fallback for '{show.name}' ({extra} extra files with TVDB)", "info")
+                                tmdb_search = loop.run_until_complete(
+                                    tmdb.search_shows(show.name)
+                                )
+                                tmdb_results = tmdb_search.get("results", [])
+                                if tmdb_results:
+                                    secondary_show_data = loop.run_until_complete(
+                                        tmdb.get_show_with_episodes(tmdb_results[0]["id"])
+                                    )
+
+                            if secondary_source and secondary_show_data:
+                                sec_files = scanner.scan_folder(str(show_dir))
+                                sec_matched = _count_file_matches(
+                                    scanner, sec_files,
+                                    secondary_show_data.get("episodes", []),
+                                    show_dir
+                                )
+                                sec_extra = len(sec_files) - sec_matched
+
+                                if sec_extra <= 0:
+                                    # Secondary provider matches all files — switch to it
+                                    sec_label = "TVDB" if secondary_source == "tvdb" else "TMDB"
+                                    log(f"Switching '{show.name}' to {sec_label} (all {len(sec_files)} files matched)", "success")
+
+                                    # Delete existing episodes
+                                    db.query(Episode).filter(Episode.show_id == show.id).delete()
+                                    db.flush()
+
+                                    # Update show metadata
+                                    show.name = secondary_show_data["name"]
+                                    show.overview = secondary_show_data.get("overview")
+                                    show.poster_path = secondary_show_data.get("poster_path")
+                                    show.backdrop_path = secondary_show_data.get("backdrop_path")
+                                    show.status = secondary_show_data.get("status", "Unknown")
+                                    show.first_air_date = secondary_show_data.get("first_air_date")
+                                    show.number_of_seasons = secondary_show_data.get("number_of_seasons", 0)
+                                    show.number_of_episodes = secondary_show_data.get("number_of_episodes", 0)
+                                    show.genres = secondary_show_data.get("genres")
+                                    show.networks = secondary_show_data.get("networks")
+                                    show.next_episode_air_date = secondary_show_data.get("next_episode_air_date")
+                                    show.metadata_source = secondary_source
+                                    show.tmdb_id = secondary_show_data.get("tmdb_id") or show.tmdb_id
+                                    show.tvdb_id = secondary_show_data.get("tvdb_id") or show.tvdb_id
+                                    show.imdb_id = secondary_show_data.get("imdb_id") or show.imdb_id
+
+                                    # Recreate episodes from secondary provider
+                                    for ep_data in secondary_show_data.get("episodes", []):
+                                        episode = Episode(
+                                            show_id=show.id,
+                                            season=ep_data["season"],
+                                            episode=ep_data["episode"],
+                                            title=ep_data["title"],
+                                            overview=ep_data.get("overview"),
+                                            air_date=ep_data.get("air_date"),
+                                            tmdb_id=ep_data.get("tmdb_id"),
+                                            still_path=ep_data.get("still_path"),
+                                            runtime=ep_data.get("runtime"),
+                                        )
+                                        db.add(episode)
+                                    db.commit()
+
+                                    # Re-scan folder to set file_path/file_status
+                                    matched, total_files = _scan_show_folder(scanner, show, show_dir)
+
+                                    # Recalculate aired episodes
+                                    aired_eps = (
+                                        db.query(Episode)
+                                        .filter(
+                                            Episode.show_id == show.id,
+                                            Episode.season != 0,
+                                            Episode.air_date.isnot(None),
+                                            Episode.air_date <= datetime.utcnow().strftime("%Y-%m-%d"),
+                                        )
+                                        .count()
+                                    )
+                                    total_eps = aired_eps
+                                    extra = total_files - matched
+                                else:
+                                    sec_label = "TVDB" if secondary_source == "tvdb" else "TMDB"
+                                    log(f"{sec_label} also has {sec_extra} extra file{'s' if sec_extra != 1 else ''}, keeping default provider", "info")
+                        except Exception as sec_e:
+                            log(f"Secondary provider check failed: {str(sec_e)}", "warning")
+
                     detail = f"{matched}/{total_eps} episodes matched"
                     if extra > 0:
                         detail += f", {extra} extra file{'s' if extra != 1 else ''} in folder"
@@ -1220,6 +1322,54 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
         loop.close()
         db.close()
         watcher_service.release_scan_lock()
+
+
+def _count_file_matches(scanner: ScannerService, files: list, episode_list: list, show_dir: Path) -> int:
+    """Count how many scanned files match an episode list without touching the DB.
+
+    Used to evaluate a secondary metadata provider before committing to it.
+    Returns matched_count.
+    """
+    from pathlib import Path as _Path
+
+    # Build a set of (season, episode) tuples for quick lookup
+    ep_set = set()
+    for ep_data in episode_list:
+        ep_set.add((ep_data["season"], ep_data["episode"]))
+
+    matched = 0
+    for file_info in files:
+        if not (file_info.parsed and file_info.parsed.episode):
+            continue
+
+        season = file_info.parsed.season
+
+        # If file is in a Specials folder, treat as Season 0
+        in_specials_folder = False
+        file_path = _Path(file_info.path)
+        for parent in file_path.parents:
+            if parent.name.lower() in ("specials", "season 0", "season 00"):
+                season = 0
+                in_specials_folder = True
+                break
+            if str(parent) == str(show_dir):
+                break
+
+        if season is None:
+            continue
+
+        start_ep = file_info.parsed.episode
+        end_ep = file_info.parsed.episode_end or file_info.parsed.episode
+
+        for ep_num in range(start_ep, end_ep + 1):
+            if (season, ep_num) in ep_set:
+                matched += 1
+            elif in_specials_folder:
+                # Specials folder files always count as matched
+                # (they'd be created as new Season 0 episodes)
+                matched += 1
+
+    return matched
 
 
 def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> tuple[int, int]:
