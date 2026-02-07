@@ -4083,6 +4083,11 @@ a.metadata-source-tag:hover {
     transform: scale(1.2);
 }
 
+/* Push actions to the right in show headers */
+.missing-show-header .wlog-header-actions {
+    margin-left: auto;
+}
+
 /* Show titlebar goto arrows (Missing Episodes + Metadata Updates) */
 .rename-show-goto,
 .missing-show-header .missing-show-goto {
@@ -4091,8 +4096,12 @@ a.metadata-source-tag:hover {
     cursor: pointer;
     opacity: 0.7;
     transition: opacity 0.2s, transform 0.15s;
-    margin-left: auto;
     flex-shrink: 0;
+}
+
+.rename-show-goto,
+.missing-show-header > .missing-show-goto {
+    margin-left: auto;
 }
 .rename-show-goto:hover,
 .missing-show-header .missing-show-goto:hover {

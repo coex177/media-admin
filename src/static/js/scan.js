@@ -400,11 +400,11 @@ function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, setting
                                             const seasonCollapsed = getMissingSeasonCollapseState(seasonKey);
                                             let rows = '';
                                             rows += '<tr class="missing-season-header" onclick="toggleMissingSeason(\'' + seasonKey + '\', this)">' +
-                                                    '<td colspan="5" class="missing-season-header-cell">' +
+                                                    '<td colspan="5"><div class="missing-season-header-cell">' +
                                                     '<img src="/static/images/' + (seasonCollapsed ? 'show-expand.png' : 'show-collapse.png') + '" class="missing-season-chevron" alt="">' +
                                                     ' Season ' + seasonNum +
                                                     '<span class="missing-season-count">(' + eps.length + ')</span>' +
-                                                    '</td></tr>';
+                                                    '</div></td></tr>';
                                             eps.forEach(ep => {
                                                 const match = downloadMatchByEpId[ep.id];
                                                 const hasMatch = !!match;
@@ -2137,7 +2137,10 @@ function renderIgnoredGrouped(episodes) {
                 <img src="/static/images/${isCollapsed ? 'show-expand' : 'show-collapse'}.png" class="missing-show-chevron" alt="">
                 <span class="missing-show-name">${escapeHtml(show.show_name)}</span>
                 <span class="missing-show-count">(${show.episodes.length} ${show.episodes.length === 1 ? 'episode' : 'episodes'})</span>
-                <img src="/static/images/goto.png" class="missing-show-goto" onclick="event.stopPropagation(); showShowDetail(${show.show_id})" alt="Go to show">
+                <span class="wlog-header-actions" onclick="event.stopPropagation()">
+                    <img src="/static/images/trash.png" class="wlog-delete-btn" onclick="confirmBulkUnignore('${escapeHtml(show.show_name).replace(/'/g, "\\'")}', [${show.episodes.map(e => e.episode_id).join(',')}])" title="Remove all from ignored" alt="Remove all">
+                    <img src="/static/images/goto.png" class="missing-show-goto" onclick="showShowDetail(${show.show_id})" alt="Go to show">
+                </span>
             </div>
         `;
 
@@ -2165,6 +2168,9 @@ function renderIgnoredGrouped(episodes) {
                     <img src="/static/images/${seasonCollapsed ? 'show-expand' : 'show-collapse'}.png" class="wlog-chevron" alt="">
                     <span class="wlog-day-label">Season ${seasonNum}</span>
                     <span class="wlog-node-count">(${eps.length})</span>
+                    <span class="wlog-header-actions" onclick="event.stopPropagation()">
+                        <img src="/static/images/trash.png" class="wlog-delete-btn" onclick="confirmBulkUnignore('${escapeHtml(show.show_name).replace(/'/g, "\\'")} Season ${seasonNum}', [${eps.map(e => e.episode_id).join(',')}])" title="Remove season from ignored" alt="Remove season">
+                    </span>
                 </div>
             `;
 
@@ -2284,6 +2290,34 @@ async function executeUnignoreEpisode(episodeId) {
         await renderIgnoredTab();
     } catch (error) {
         showToast('Failed to remove episode', 'error');
+    }
+}
+
+function confirmBulkUnignore(label, episodeIds) {
+    const count = episodeIds.length;
+    document.getElementById('modal-title').textContent = 'Remove from Ignored';
+    document.getElementById('modal-body').innerHTML = `
+        <p>Remove all <strong>${count}</strong> episode${count === 1 ? '' : 's'} for <strong>${escapeHtml(label)}</strong> from the ignored list?</p>
+        <p style="color: var(--text-secondary); font-size: 0.9em;">These episodes will appear in Missing Episodes again on the next scan.</p>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+            <button class="btn btn-sm" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-danger btn-sm" onclick="executeBulkUnignore([${episodeIds.join(',')}])">Remove ${count} Episode${count === 1 ? '' : 's'}</button>
+        </div>
+    `;
+    document.getElementById('modal').classList.add('active');
+}
+
+async function executeBulkUnignore(episodeIds) {
+    try {
+        const result = await api('/scan/ignore-episodes', {
+            method: 'DELETE',
+            body: JSON.stringify({ episode_ids: episodeIds })
+        });
+        closeModal();
+        showToast(result.message, 'success');
+        await renderIgnoredTab();
+    } catch (error) {
+        showToast('Failed to remove episodes', 'error');
     }
 }
 

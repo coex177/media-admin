@@ -1442,6 +1442,30 @@ async def unignore_episode(
     return {"message": "Episode removed from ignore list"}
 
 
+class BulkUnignoreRequest(BaseModel):
+    """Request model for bulk unignoring episodes."""
+    episode_ids: list[int]
+
+
+@router.delete("/ignore-episodes")
+async def bulk_unignore_episodes(
+    data: BulkUnignoreRequest,
+    db: Session = Depends(get_db),
+):
+    """Remove multiple episodes from the ignore list."""
+    from ..models import IgnoredEpisode
+
+    deleted = 0
+    for ep_id in data.episode_ids:
+        ignored = db.query(IgnoredEpisode).filter(IgnoredEpisode.episode_id == ep_id).first()
+        if ignored:
+            db.delete(ignored)
+            deleted += 1
+
+    db.commit()
+    return {"message": f"{deleted} episode{'s' if deleted != 1 else ''} removed from ignore list", "deleted": deleted}
+
+
 @router.get("/ignored-episodes")
 async def get_ignored_episodes(
     db: Session = Depends(get_db),
