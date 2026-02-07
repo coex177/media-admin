@@ -1161,7 +1161,18 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     if matched > 0:
                         log(f"Matched {matched} episode files ({total_files} files in folder)", "success")
 
-                    total_eps = show_data.get('number_of_episodes', 0)
+                    # Count only aired episodes — not-aired episodes naturally
+                    # won't have files on disk and shouldn't count against the show.
+                    aired_eps = (
+                        db.query(Episode)
+                        .filter(
+                            Episode.show_id == show.id,
+                            Episode.air_date.isnot(None),
+                            Episode.air_date <= datetime.utcnow().strftime("%Y-%m-%d"),
+                        )
+                        .count()
+                    )
+                    total_eps = aired_eps
                     extra = total_files - matched
                     detail = f"{matched}/{total_eps} episodes matched"
                     if extra > 0:
