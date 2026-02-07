@@ -352,7 +352,7 @@ async def toggle_folder(folder_id: int, db: Session = Depends(get_db)):
 @router.get("/stats")
 async def get_stats(db: Session = Depends(get_db)):
     """Get library statistics."""
-    from ..models import Show, Episode, PendingAction, IgnoredEpisode, SpecialEpisode
+    from ..models import Show, Episode, PendingAction, IgnoredEpisode
     from datetime import datetime
     from sqlalchemy import or_, select
 
@@ -362,11 +362,10 @@ async def get_stats(db: Session = Depends(get_db)):
     total_episodes = db.query(Episode).count()
     found_episodes = db.query(Episode).filter(Episode.file_status != "missing").count()
 
-    # Get ignored and special episode IDs
+    # Get ignored episode IDs
     ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
-    special_ids = set(r[0] for r in db.query(SpecialEpisode.episode_id).all())
 
-    # Count ignored and special episodes (only those that are still missing and aired)
+    # Count ignored episodes (only those that are still missing and aired)
     ignored_count = (
         db.query(Episode)
         .filter(
@@ -377,25 +376,14 @@ async def get_stats(db: Session = Depends(get_db)):
         .count()
     ) if ignored_ids else 0
 
-    special_count = (
-        db.query(Episode)
-        .filter(
-            Episode.id.in_(special_ids),
-            Episode.file_status == "missing",
-            Episode.air_date <= today,
-        )
-        .count()
-    ) if special_ids else 0
-
-    # Missing episodes that have aired (excluding ignored, specials, and season 0)
-    excluded_ids = ignored_ids | special_ids
+    # Missing episodes that have aired (excluding ignored and season 0)
     missing_query = db.query(Episode).filter(
         Episode.file_status == "missing",
         Episode.air_date <= today,
         Episode.season != 0,
     )
-    if excluded_ids:
-        missing_query = missing_query.filter(~Episode.id.in_(excluded_ids))
+    if ignored_ids:
+        missing_query = missing_query.filter(~Episode.id.in_(ignored_ids))
     missing_episodes = missing_query.count()
 
     # Episodes that haven't aired yet (no air date or future air date), exclude season 0
@@ -422,7 +410,6 @@ async def get_stats(db: Session = Depends(get_db)):
         "found_episodes": found_episodes,
         "missing_episodes": missing_episodes,
         "ignored_episodes": ignored_count,
-        "special_episodes": special_count,
         "not_aired_episodes": not_aired_episodes,
         "pending_actions": pending_actions,
     }
@@ -531,10 +518,9 @@ async def get_recently_ended(
 ):
     """Get shows that have recently ended or been canceled."""
     limit = int(get_setting(db, "recently_ended_count", "5"))
-    from ..models import Show, Episode, IgnoredEpisode, SpecialEpisode
+    from ..models import Show, Episode, IgnoredEpisode
 
     ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
-    special_ids = set(r[0] for r in db.query(SpecialEpisode.episode_id).all())
 
     # Get ended/canceled shows, ordered by last_updated (most recent first)
     ended_statuses = ["Ended", "Canceled"]
@@ -550,7 +536,7 @@ async def get_recently_ended(
     for show in shows:
         # Count episodes (season 0 specials never count as missing)
         episodes = db.query(Episode).filter(Episode.show_id == show.id).all()
-        found_count = sum(1 for ep in episodes if ep.file_status != "missing" or ep.season == 0 or ep.id in ignored_ids or ep.id in special_ids)
+        found_count = sum(1 for ep in episodes if ep.file_status != "missing" or ep.season == 0 or ep.id in ignored_ids)
 
         result.append({
             "id": show.id,
@@ -572,10 +558,9 @@ async def get_recently_added(
 ):
     """Get shows that were recently added."""
     limit = int(get_setting(db, "recently_added_count", "5"))
-    from ..models import Show, Episode, IgnoredEpisode, SpecialEpisode
+    from ..models import Show, Episode, IgnoredEpisode
 
     ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
-    special_ids = set(r[0] for r in db.query(SpecialEpisode.episode_id).all())
 
     # Get recently added shows
     shows = (
@@ -601,7 +586,7 @@ async def get_recently_added(
                 pass  # Season 0 specials never count as missing
             elif not ep.has_aired:
                 not_aired_count += 1
-            elif ep.id in ignored_ids or ep.id in special_ids:
+            elif ep.id in ignored_ids:
                 found_count += 1  # Count as collected
             else:
                 missing_count += 1
@@ -628,10 +613,9 @@ async def get_most_incomplete(
     limit: int = 5
 ):
     """Get shows with the most missing episodes."""
-    from ..models import Show, Episode, IgnoredEpisode, SpecialEpisode
+    from ..models import Show, Episode, IgnoredEpisode
 
     ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
-    special_ids = set(r[0] for r in db.query(SpecialEpisode.episode_id).all())
 
     shows = db.query(Show).all()
 
@@ -649,7 +633,7 @@ async def get_most_incomplete(
                 pass  # Season 0 specials never count as missing
             elif not ep.has_aired:
                 pass  # not aired, skip
-            elif ep.id in ignored_ids or ep.id in special_ids:
+            elif ep.id in ignored_ids:
                 found_count += 1  # Count as collected
             else:
                 missing_count += 1

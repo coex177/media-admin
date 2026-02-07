@@ -27,7 +27,8 @@ async function renderScan() {
             <div class="scan-tabs">
                 <button class="scan-tab ${activeScanTab === 'operations' ? 'active' : ''}" data-tab="operations" onclick="switchScanTab('operations')"><img src="/static/images/operations.png" class="tab-icon-img" alt="">Operations</button>
                 <button class="scan-tab ${activeScanTab === 'watcher-log' ? 'active' : ''}" data-tab="watcher-log" onclick="switchScanTab('watcher-log')"><img src="/static/images/watcher-log.png" class="tab-icon-img" alt="">Watcher Log</button>
-                <button class="scan-tab ${activeScanTab === 'library-log' ? 'active' : ''}" data-tab="library-log" onclick="switchScanTab('library-log')"><img src="/static/images/metadata-log.png" class="tab-icon-img" alt="">Library Log</button>
+                <button class="scan-tab ${activeScanTab === 'library-log' ? 'active' : ''}" data-tab="library-log" onclick="switchScanTab('library-log')"><img src="/static/images/nav-lists.png" class="tab-icon-img" alt="">Library Log</button>
+                <button class="scan-tab ${activeScanTab === 'ignored' ? 'active' : ''}" data-tab="ignored" onclick="switchScanTab('ignored')"><img src="/static/images/list-ignore.png" class="tab-icon-img" alt="">Ignored</button>
                 <button class="scan-tab ${activeScanTab === 'issues' ? 'active' : ''}" data-tab="issues" onclick="switchScanTab('issues')"><img src="/static/images/issues.png" class="tab-icon-img" alt="">Issues</button>
             </div>
 
@@ -36,6 +37,8 @@ async function renderScan() {
 
         if (activeScanTab === 'operations') {
             renderScanOperationsTab(actions, scanStatus, missingEpisodes, metadataUpdates, downloadMatches, settings);
+        } else if (activeScanTab === 'ignored') {
+            renderIgnoredTab();
         } else if (activeScanTab === 'issues') {
             renderIssuesTab();
         } else if (activeScanTab === 'library-log') {
@@ -65,6 +68,8 @@ function switchScanTab(tab) {
     if (tab === 'operations') {
         // Re-render full scan page to get fresh data
         renderScan();
+    } else if (tab === 'ignored') {
+        renderIgnoredTab();
     } else if (tab === 'issues') {
         renderIssuesTab();
     } else if (tab === 'library-log') {
@@ -342,7 +347,6 @@ function renderMissingEpisodesCard(missingEpisodes, downloadMatchByEpId, setting
                     ${hasDownloadMatches ? `<button class="btn btn-success btn-sm" onclick="importCheckedDownloads()" id="btn-import-downloads">Import Episodes</button>` : ''}
                     <button class="btn btn-primary btn-sm" onclick="showFixMatchModal()" id="btn-fix-match" disabled>Fix Match</button>
                     <button class="btn btn-warning btn-sm" onclick="ignoreSelectedEpisodes()" id="btn-ignore" disabled>Ignore</button>
-                    <button class="btn btn-sm" onclick="markSelectedAsSpecials()" id="btn-specials" disabled>Specials</button>
                     <button class="card-control-btn" onclick="toggleAllMissingGroups(false)" title="Collapse all"><img src="/static/images/show-expand.png" alt="Collapse all"></button>
                     <button class="card-control-btn" onclick="toggleAllMissingGroups(true)" title="Expand all"><img src="/static/images/show-collapse.png" alt="Expand all"></button>
                 </div>
@@ -912,7 +916,6 @@ function updateMissingSelectionCount() {
     const countEl = document.getElementById('missing-selected-count');
     const fixMatchBtn = document.getElementById('btn-fix-match');
     const ignoreBtn = document.getElementById('btn-ignore');
-    const specialsBtn = document.getElementById('btn-specials');
     const importBtn = document.getElementById('btn-import-downloads');
 
     // Sync show-level select-all checkboxes
@@ -934,7 +937,6 @@ function updateMissingSelectionCount() {
     }
     if (fixMatchBtn) fixMatchBtn.disabled = selected.length === 0;
     if (ignoreBtn) ignoreBtn.disabled = selected.length === 0;
-    if (specialsBtn) specialsBtn.disabled = selected.length === 0;
     if (importBtn) importBtn.disabled = importable.length === 0;
     saveEpisodeCheckboxState();
 }
@@ -1138,65 +1140,6 @@ async function confirmIgnoreEpisodes() {
             body: JSON.stringify({
                 episode_ids: selected.map(s => s.episodeId),
                 reason: reason
-            })
-        });
-
-        showToast(result.message, 'success');
-        renderScan();
-    } catch (error) {
-        // Error already shown
-    }
-}
-
-// Mark as Specials
-async function markSelectedAsSpecials() {
-    const selected = getSelectedMissingEpisodes();
-    if (selected.length === 0) {
-        showToast('No episodes selected', 'warning');
-        return;
-    }
-
-    const modal = document.getElementById('modal');
-    const modalBody = document.getElementById('modal-body');
-    const modalTitle = document.getElementById('modal-title');
-
-    modalTitle.textContent = 'Mark as Specials';
-    modalBody.innerHTML = `
-        <p>Mark <strong>${selected.length}</strong> episode${selected.length > 1 ? 's' : ''} as specials?</p>
-        <p class="text-muted">These episodes will be moved to a separate specials list for handling later.</p>
-        <div class="form-group" style="margin-top: 15px;">
-            <label>Quick Select</label>
-            <select class="form-control" onchange="if(this.value) document.getElementById('specials-notes').value = this.value; this.value = '';">
-                <option value="">Choose a reason...</option>
-                <option value="Holiday Special">Holiday Special</option>
-                <option value="Behind the scenes">Behind the scenes</option>
-                <option value="Web Episode">Web Episode</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Notes (optional)</label>
-            <input type="text" id="specials-notes" class="form-control" placeholder="e.g., Behind the scenes, Holiday special">
-        </div>
-        <div class="modal-buttons" style="margin-top: 20px;">
-            <button class="btn btn-primary" onclick="confirmMarkAsSpecials()">Mark as Specials</button>
-            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        </div>
-    `;
-    modal.classList.add('active');
-}
-
-async function confirmMarkAsSpecials() {
-    const selected = getSelectedMissingEpisodes();
-    const notes = document.getElementById('specials-notes')?.value.trim() || null;
-
-    closeModal();
-
-    try {
-        const result = await api('/scan/special-episodes', {
-            method: 'POST',
-            body: JSON.stringify({
-                episode_ids: selected.map(s => s.episodeId),
-                notes: notes
             })
         });
 
@@ -2083,4 +2026,229 @@ async function applySelectedMovieRenames() {
     } catch (error) {
         // Error already shown
     }
+}
+
+// ── Ignored Episodes Tab ─────────────────────────────────────────
+
+let _ignoredEpisodeData = {};
+
+async function renderIgnoredTab() {
+    const container = document.getElementById('scan-tab-content');
+    if (!container) return;
+    container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+    try {
+        const episodes = await api('/scan/ignored-episodes');
+        if (!episodes || episodes.length === 0) {
+            container.innerHTML = `
+                <div class="card mb-20">
+                    <div class="card-body" style="text-align: center; padding: 40px; color: var(--text-secondary);">
+                        No ignored episodes
+                    </div>
+                </div>
+            `;
+            return;
+        }
+        container.innerHTML = renderIgnoredGrouped(episodes);
+    } catch (error) {
+        container.innerHTML = `<div class="alert alert-danger">Failed to load ignored episodes.</div>`;
+    }
+}
+
+function renderIgnoredGrouped(episodes) {
+    _ignoredEpisodeData = {};
+
+    // Group by show
+    const showGroups = {};
+    episodes.forEach(ep => {
+        if (!showGroups[ep.show_id]) {
+            showGroups[ep.show_id] = {
+                show_id: ep.show_id,
+                show_name: ep.show_name,
+                episodes: []
+            };
+        }
+        showGroups[ep.show_id].episodes.push(ep);
+    });
+
+    const shows = Object.values(showGroups).sort((a, b) => a.show_name.localeCompare(b.show_name));
+    const showPrefKey = 'ignoredTabCollapseStates';
+    const seasonPrefKey = 'ignoredTabSeasonStates';
+
+    let html = '<div class="missing-episodes-grouped">';
+
+    shows.forEach(show => {
+        const collapseStates = getUiPref(showPrefKey, {});
+        const isCollapsed = collapseStates[show.show_id] === true;
+
+        html += `<div class="missing-show-group" data-show-id="${show.show_id}">`;
+
+        // Show header
+        html += `
+            <div class="missing-show-header" onclick="toggleIgnoredShowGroup(this, ${show.show_id})">
+                <img src="/static/images/${isCollapsed ? 'show-expand' : 'show-collapse'}.png" class="missing-show-chevron" alt="">
+                <span class="missing-show-name">${escapeHtml(show.show_name)}</span>
+                <span class="missing-show-count">(${show.episodes.length} ${show.episodes.length === 1 ? 'episode' : 'episodes'})</span>
+                <img src="/static/images/goto.png" class="missing-show-goto" onclick="event.stopPropagation(); showShowDetail(${show.show_id})" alt="Go to show">
+            </div>
+        `;
+
+        // Show content wrapper
+        html += `<div class="missing-episodes-table-wrapper ${isCollapsed ? '' : 'open'}">`;
+
+        // Group by season
+        const seasonGroups = {};
+        show.episodes.forEach(ep => {
+            const s = ep.season;
+            if (!seasonGroups[s]) seasonGroups[s] = [];
+            seasonGroups[s].push(ep);
+        });
+        const seasonKeys = Object.keys(seasonGroups).sort((a, b) => a - b);
+
+        seasonKeys.forEach(seasonNum => {
+            const eps = seasonGroups[seasonNum];
+            const seasonKey = `ignored-${show.show_id}-${seasonNum}`;
+            const seasonStates = getUiPref(seasonPrefKey, {});
+            const seasonCollapsed = seasonStates[seasonKey] === true;
+
+            // Season header
+            html += `
+                <div class="wlog-day-header" onclick="toggleIgnoredSeasonNode('${seasonKey}', this)">
+                    <img src="/static/images/${seasonCollapsed ? 'show-expand' : 'show-collapse'}.png" class="wlog-chevron" alt="">
+                    <span class="wlog-day-label">Season ${seasonNum}</span>
+                    <span class="wlog-node-count">(${eps.length})</span>
+                </div>
+            `;
+
+            // Season content
+            html += `<div class="wlog-day-content ${seasonCollapsed ? '' : 'open'}">`;
+
+            eps.sort((a, b) => a.episode - b.episode);
+            eps.forEach(ep => {
+                const detailId = `ignored-detail-${ep.episode_id}`;
+                const dateShort = ep.created_at ? ignoredFormatShortDate(ep.created_at) : '';
+
+                // Store episode data for remove confirmation
+                _ignoredEpisodeData[ep.episode_id] = {
+                    show_name: show.show_name,
+                    season: ep.season,
+                    episode: ep.episode
+                };
+
+                // Episode entry row
+                html += `
+                    <div class="watcher-log-entry" onclick="toggleLogDetail('${detailId}')">
+                        <span class="log-entry-time">${dateShort}</span>
+                        <span class="log-entry-summary">E${String(ep.episode).padStart(2, '0')} \u2014 ${escapeHtml(ep.title) || 'Untitled'}</span>
+                        <img src="/static/images/trash.png" class="wlog-delete-btn wlog-entry-delete"
+                             onclick="event.stopPropagation(); confirmUnignoreEpisode(${ep.episode_id})"
+                             title="Remove from ignored" alt="Remove">
+                    </div>
+                `;
+
+                // Expandable detail panel
+                html += `<div class="log-entry-details" id="${detailId}">`;
+                if (ep.reason) {
+                    html += `<div class="detail-row"><span class="detail-label">Reason</span><span class="detail-value">${escapeHtml(ep.reason)}</span></div>`;
+                }
+                if (ep.created_at) {
+                    html += `<div class="detail-row"><span class="detail-label">Added</span><span class="detail-value">${ignoredFormatFullDate(ep.created_at)}</span></div>`;
+                }
+                html += `</div>`;
+            });
+
+            html += `</div>`; // close wlog-day-content
+        });
+
+        html += `</div></div>`; // close table-wrapper and show-group
+    });
+
+    html += '</div>';
+    return html;
+}
+
+// Ignored tab collapse/expand
+
+function toggleIgnoredShowGroup(header, showId) {
+    const wrapper = header.nextElementSibling;
+    const chevron = header.querySelector('.missing-show-chevron');
+    const prefKey = 'ignoredTabCollapseStates';
+
+    if (wrapper.classList.contains('open')) {
+        wrapper.classList.remove('open');
+        if (chevron) chevron.src = '/static/images/show-expand.png';
+        setIgnoredCollapseState(prefKey, showId, true);
+    } else {
+        wrapper.classList.add('open');
+        if (chevron) chevron.src = '/static/images/show-collapse.png';
+        setIgnoredCollapseState(prefKey, showId, false);
+    }
+}
+
+function setIgnoredCollapseState(prefKey, key, collapsed) {
+    const states = getUiPref(prefKey, {});
+    if (collapsed) {
+        states[key] = true;
+    } else {
+        delete states[key];
+    }
+    setUiPref(prefKey, states);
+}
+
+function toggleIgnoredSeasonNode(key, headerEl) {
+    const content = headerEl.nextElementSibling;
+    const chevron = headerEl.querySelector('.wlog-chevron');
+    const wasOpen = content.classList.contains('open');
+
+    content.classList.toggle('open', !wasOpen);
+    if (chevron) {
+        chevron.src = wasOpen ? '/static/images/show-expand.png' : '/static/images/show-collapse.png';
+    }
+
+    setIgnoredCollapseState('ignoredTabSeasonStates', key, wasOpen);
+}
+
+// Ignored tab remove actions
+
+function confirmUnignoreEpisode(episodeId) {
+    const info = _ignoredEpisodeData[episodeId];
+    const showName = info ? info.show_name : 'Unknown';
+    const season = info ? info.season : 0;
+    const episode = info ? info.episode : 0;
+
+    document.getElementById('modal-title').textContent = 'Remove from Ignored';
+    document.getElementById('modal-body').innerHTML = `
+        <p>Remove <strong>${escapeHtml(showName)}</strong> S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')} from the ignored list?</p>
+        <p style="color: var(--text-secondary); font-size: 0.9em;">This episode will appear in Missing Episodes again on the next scan.</p>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+            <button class="btn btn-sm" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-danger btn-sm" onclick="executeUnignoreEpisode(${episodeId})">Remove</button>
+        </div>
+    `;
+    document.getElementById('modal').classList.add('active');
+}
+
+async function executeUnignoreEpisode(episodeId) {
+    try {
+        await api(`/scan/ignore-episodes/${episodeId}`, { method: 'DELETE' });
+        closeModal();
+        showToast('Episode removed from ignored list', 'success');
+        await renderIgnoredTab();
+    } catch (error) {
+        showToast('Failed to remove episode', 'error');
+    }
+}
+
+// Ignored tab date helpers
+
+function ignoredFormatShortDate(isoString) {
+    const d = new Date(isoString);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[d.getMonth()]} ${d.getDate()}`;
+}
+
+function ignoredFormatFullDate(isoString) {
+    const d = new Date(isoString);
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) +
+        ' at ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }

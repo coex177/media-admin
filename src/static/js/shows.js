@@ -533,7 +533,7 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null,
                         <p><strong>Status:</strong> ${show.status}</p>
                         <p><strong>First Aired:</strong> ${show.first_air_date || 'Unknown'}</p>
                         <p><strong>Seasons:</strong> ${show.number_of_seasons}</p>
-                        <p><strong>Episodes:</strong> ${show.episodes_found} found${show.episodes_missing > 0 ? `, ${show.episodes_missing} missing` : ''}${(show.episodes_special || 0) > 0 ? `, ${show.episodes_special} specials` : ''}${(show.episodes_ignored || 0) > 0 ? `, ${show.episodes_ignored} ignored` : ''}${show.episodes_not_aired > 0 ? `, ${show.episodes_not_aired} not aired` : ''}</p>
+                        <p><strong>Episodes:</strong> ${show.episodes_found} found${show.episodes_missing > 0 ? `, ${show.episodes_missing} missing` : ''}${(show.episodes_ignored || 0) > 0 ? `, ${show.episodes_ignored} ignored` : ''}${show.episodes_not_aired > 0 ? `, ${show.episodes_not_aired} not aired` : ''}</p>
                         ${show.folder_path ? `<p><strong>Folder:</strong> <code style="font-size: 0.85rem;">${escapeHtml(show.folder_path)}</code></p>` : '<p class="text-muted"><em>No folder configured</em></p>'}
                     </div>
                 </div>
@@ -541,7 +541,7 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null,
 
             ${Object.keys(seasons).sort((a, b) => a - b).map(seasonNum => {
                 const seasonEps = seasons[seasonNum];
-                const foundCount = seasonEps.filter(e => e.file_status === 'found' || e.file_status === 'renamed' || e.is_ignored || e.is_special).length;
+                const foundCount = seasonEps.filter(e => e.file_status === 'found' || e.file_status === 'renamed' || e.is_ignored).length;
                 const airedCount = seasonEps.filter(e => e.file_status !== 'not_aired').length;
                 return `
                 <div class="card season-card">
@@ -555,10 +555,7 @@ async function showShowDetail(showId, targetSeason = null, targetEpisode = null,
                     <div class="episodes-list collapsed" id="season-${seasonNum}-episodes">
                         ${seasonEps.map(ep => {
                             let statusClass, statusLabel;
-                            if (ep.is_special) {
-                                statusClass = 'special';
-                                statusLabel = 'Special';
-                            } else if (ep.is_ignored) {
+                            if (ep.is_ignored) {
                                 statusClass = 'ignored';
                                 statusLabel = 'Ignored';
                             } else if (ep.file_status === 'not_aired') {

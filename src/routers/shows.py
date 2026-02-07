@@ -292,7 +292,7 @@ async def list_shows(
     per_page=0 returns all shows on one page.
     Pages break at letter boundaries (article-stripped sort).
     """
-    from ..models import IgnoredEpisode, SpecialEpisode
+    from ..models import IgnoredEpisode
 
     # Lightweight query: just id + name
     rows = db.query(Show.id, Show.name).all()
@@ -337,9 +337,8 @@ async def list_shows(
     else:
         shows = []
 
-    # Get all ignored and special episode IDs in one query
+    # Get all ignored episode IDs in one query
     ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
-    special_ids = set(r[0] for r in db.query(SpecialEpisode.episode_id).all())
 
     result = []
     for show in shows:
@@ -348,7 +347,7 @@ async def list_shows(
         # Get all episodes for this show
         episodes = db.query(Episode).filter(Episode.show_id == show.id).all()
 
-        # Count episodes by status (considering air date, ignored, specials)
+        # Count episodes by status (considering air date, ignored)
         # Season 0 (specials) are never counted as missing
         found_count = 0
         missing_count = 0
@@ -361,7 +360,7 @@ async def list_shows(
                 pass  # Season 0 specials never count as missing
             elif not ep.has_aired:
                 not_aired_count += 1
-            elif ep.id in ignored_ids or ep.id in special_ids:
+            elif ep.id in ignored_ids:
                 found_count += 1  # Count as collected
             else:
                 missing_count += 1
@@ -383,7 +382,7 @@ async def list_shows(
 @router.get("/{show_id}")
 async def get_show(show_id: int, db: Session = Depends(get_db)):
     """Get a show by ID with episodes."""
-    from ..models import IgnoredEpisode, SpecialEpisode
+    from ..models import IgnoredEpisode
 
     show = db.query(Show).filter(Show.id == show_id).first()
     if not show:
@@ -396,15 +395,11 @@ async def get_show(show_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    # Get ignored and special episode IDs for this show
+    # Get ignored episode IDs for this show
     ep_ids = [ep.id for ep in episodes]
     ignored_ids = set(
         r[0] for r in db.query(IgnoredEpisode.episode_id)
         .filter(IgnoredEpisode.episode_id.in_(ep_ids)).all()
-    ) if ep_ids else set()
-    special_ids = set(
-        r[0] for r in db.query(SpecialEpisode.episode_id)
-        .filter(SpecialEpisode.episode_id.in_(ep_ids)).all()
     ) if ep_ids else set()
 
     show_dict = show.to_dict()
@@ -412,16 +407,14 @@ async def get_show(show_id: int, db: Session = Depends(get_db)):
     for ep in episodes:
         ep_dict = ep.to_dict()
         ep_dict["is_ignored"] = ep.id in ignored_ids
-        ep_dict["is_special"] = ep.id in special_ids
         ep_list.append(ep_dict)
     show_dict["episodes"] = ep_list
 
-    # Count episodes by status (considering air date, ignored, specials)
+    # Count episodes by status (considering air date, ignored)
     found_count = 0
     missing_count = 0
     not_aired_count = 0
     ignored_count = 0
-    special_count = 0
 
     for ep in episodes:
         if ep.file_status != "missing":
@@ -432,8 +425,6 @@ async def get_show(show_id: int, db: Session = Depends(get_db)):
             not_aired_count += 1
         elif ep.id in ignored_ids:
             ignored_count += 1
-        elif ep.id in special_ids:
-            special_count += 1
         else:
             missing_count += 1
 
@@ -441,7 +432,6 @@ async def get_show(show_id: int, db: Session = Depends(get_db)):
     show_dict["episodes_missing"] = missing_count
     show_dict["episodes_not_aired"] = not_aired_count
     show_dict["episodes_ignored"] = ignored_count
-    show_dict["episodes_special"] = special_count
 
     # Find extra files on disk not matched to any episode
     extra_files = []

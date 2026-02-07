@@ -7,7 +7,7 @@ let currentShowsView = 'cards';
 
 // Stat card order (loaded from DB in checkSetup)
 const defaultStatCardOrder = [
-    'total-shows', 'episodes-found', 'episodes-missing', 'specials',
+    'total-shows', 'episodes-found', 'episodes-missing',
     'ignored', 'pending-actions', 'collection-progress',
     'total-movies', 'movies-found', 'movies-missing'
 ];
@@ -131,8 +131,8 @@ function renderDashboardContent() {
     const recentlyAiredDays = settings?.recently_aired_days || 14;
     const displayEpFormat = settings?.display_episode_format || '{season}x{episode:02d}';
 
-    // Calculate collection progress (ignored + specials count as collected)
-    const collectedEpisodes = (stats?.found_episodes || 0) + (stats?.ignored_episodes || 0) + (stats?.special_episodes || 0);
+    // Calculate collection progress (ignored count as collected)
+    const collectedEpisodes = (stats?.found_episodes || 0) + (stats?.ignored_episodes || 0);
     const totalAired = collectedEpisodes + (stats?.missing_episodes || 0);
     const collectionPercent = totalAired > 0 ? ((collectedEpisodes / totalAired) * 100).toFixed(1) : 0;
 
@@ -178,14 +178,6 @@ function renderDashboardContent() {
                 <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('episodes-missing')">&times;</button>
                 <div class="stat-value">${stats.missing_episodes}</div>
                 <div class="stat-label">Episodes Missing</div>
-            </div>`,
-        'specials': () => `
-            <div class="stat-card special draggable-card" draggable="true" data-card-id="specials"
-                 ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
-                 ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
-                <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('specials')">&times;</button>
-                <div class="stat-value">${stats.special_episodes || 0}</div>
-                <div class="stat-label">Specials</div>
             </div>`,
         'ignored': () => `
             <div class="stat-card ignored draggable-card" draggable="true" data-card-id="ignored"
@@ -1104,7 +1096,6 @@ const cardNameMap = {
     'total-shows': 'Total Shows',
     'episodes-found': 'Episodes Found',
     'episodes-missing': 'Episodes Missing',
-    'specials': 'Specials',
     'ignored': 'Ignored',
     'pending-actions': 'Pending Actions',
     'collection-progress': 'Collection Progress',

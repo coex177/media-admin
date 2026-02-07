@@ -497,15 +497,14 @@ async def get_all_missing_episodes(
     from datetime import datetime
     from pathlib import Path
     from sqlalchemy import not_, exists, select
-    from ..models import Show, Episode, IgnoredEpisode, SpecialEpisode
+    from ..models import Show, Episode, IgnoredEpisode
 
     today = datetime.utcnow().strftime("%Y-%m-%d")
 
-    # Subqueries to find ignored and special episode IDs
+    # Subquery to find ignored episode IDs
     ignored_subquery = select(IgnoredEpisode.episode_id)
-    specials_subquery = select(SpecialEpisode.episode_id)
 
-    # Get missing episodes that have aired, excluding ignored, specials, and season 0
+    # Get missing episodes that have aired, excluding ignored and season 0
     missing_episodes = (
         db.query(Episode, Show)
         .join(Show, Episode.show_id == Show.id)
@@ -515,7 +514,6 @@ async def get_all_missing_episodes(
             Episode.air_date != None,
             Episode.season != 0,
             ~Episode.id.in_(ignored_subquery),
-            ~Episode.id.in_(specials_subquery),
         )
         .order_by(Show.name, Episode.season, Episode.episode)
         .limit(limit)
@@ -1467,102 +1465,6 @@ async def get_ignored_episodes(
             "title": ep.title,
         }
         for ig, ep, show in ignored
-    ]
-
-
-class MarkSpecialsRequest(BaseModel):
-    """Request model for marking episodes as specials."""
-
-    episode_ids: list[int]
-    notes: Optional[str] = None
-
-
-@router.post("/special-episodes")
-async def mark_special_episodes(
-    data: MarkSpecialsRequest,
-    db: Session = Depends(get_db),
-):
-    """Mark episodes as specials for separate handling."""
-    from ..models import SpecialEpisode, Episode
-
-    added = 0
-    already_marked = 0
-
-    for episode_id in data.episode_ids:
-        # Check if episode exists
-        episode = db.query(Episode).filter(Episode.id == episode_id).first()
-        if not episode:
-            continue
-
-        # Check if already marked as special
-        existing = db.query(SpecialEpisode).filter(SpecialEpisode.episode_id == episode_id).first()
-        if existing:
-            already_marked += 1
-            continue
-
-        # Add to specials list
-        special = SpecialEpisode(
-            episode_id=episode_id,
-            notes=data.notes
-        )
-        db.add(special)
-        added += 1
-
-    db.commit()
-
-    return {
-        "message": f"Marked {added} episodes as specials",
-        "added": added,
-        "already_marked": already_marked
-    }
-
-
-@router.delete("/special-episodes/{episode_id}")
-async def unmark_special_episode(
-    episode_id: int,
-    db: Session = Depends(get_db),
-):
-    """Remove an episode from the specials list."""
-    from ..models import SpecialEpisode
-
-    special = db.query(SpecialEpisode).filter(SpecialEpisode.episode_id == episode_id).first()
-    if not special:
-        raise HTTPException(status_code=404, detail="Episode not in specials list")
-
-    db.delete(special)
-    db.commit()
-
-    return {"message": "Episode removed from specials list"}
-
-
-@router.get("/special-episodes")
-async def get_special_episodes(
-    db: Session = Depends(get_db),
-):
-    """Get all episodes marked as specials."""
-    from ..models import SpecialEpisode, Episode, Show
-
-    specials = (
-        db.query(SpecialEpisode, Episode, Show)
-        .join(Episode, SpecialEpisode.episode_id == Episode.id)
-        .join(Show, Episode.show_id == Show.id)
-        .order_by(Show.name, Episode.season, Episode.episode)
-        .all()
-    )
-
-    return [
-        {
-            "id": sp.id,
-            "episode_id": sp.episode_id,
-            "notes": sp.notes,
-            "created_at": sp.created_at.isoformat() if sp.created_at else None,
-            "show_id": show.id,
-            "show_name": show.name,
-            "season": ep.season,
-            "episode": ep.episode,
-            "title": ep.title,
-        }
-        for sp, ep, show in specials
     ]
 
 
