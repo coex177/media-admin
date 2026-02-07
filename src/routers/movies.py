@@ -105,21 +105,6 @@ async def get_recently_added_movies(
     return [m.to_dict() for m in movies]
 
 
-@router.get("/recently-matched")
-async def get_recently_matched_movies(
-    count: int = Query(10, ge=1, le=50),
-    db: Session = Depends(get_db),
-):
-    """Get recently matched movie files."""
-    movies = (
-        db.query(Movie)
-        .filter(Movie.matched_at.isnot(None))
-        .order_by(Movie.matched_at.desc())
-        .limit(count)
-        .all()
-    )
-    return [m.to_dict() for m in movies]
-
 
 @router.get("/genre-distribution")
 async def get_genre_distribution(db: Session = Depends(get_db)):

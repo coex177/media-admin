@@ -70,6 +70,8 @@ src/
     movie_renamer.py   - Movie file renamer
     movie_scanner.py   - Movie library scanner
     quality.py         - Quality comparison logic
+    pagination.py      - Shared alphabetical pagination helpers
+    file_utils.py      - Shared filename sanitization, companion file moves, patterns
   static/
     js/
       core.js          - Global search, navigation, API helper, setup wizard
@@ -100,6 +102,21 @@ src/
 ## Recent Changes
 
 ### Session: Feb 7, 2026
+
+#### 4. Code review: consolidate duplicates, remove dead code, clean up imports (commit `7aafff3`)
+- **New shared modules:**
+  - `services/pagination.py` — `compute_sort_name()`, `sort_key_char()`, `sort_key_prefix()`, `compute_page_boundaries()` extracted from shows.py and movies.py
+  - `services/file_utils.py` — `sanitize_filename()`, `move_accompanying_files()`, `QUALITY_PATTERNS`, `SOURCE_PATTERNS`, `LANGUAGE_CODES` extracted from 6+ files
+- **Dead code removed:**
+  - `quality.py` unused `quality_service` global instance
+  - `core.js` unused `showShowDetailByTmdbId()` and `showShowDetailByTvdbId()`
+  - `actions.py` unused `/actions/preview/{action_id}` endpoint
+  - `dashboard.js` duplicate `currentShowsView` variable
+  - `shows.py` unused `func` import, dead variable assignment in pagination
+  - `watcher_pipeline.py` buggy `_sanitize()` method (colon replace after colon removal was dead code)
+- **Inline imports moved to top level** in shows.py (~10 imports), scan.py (~23 imports), tmdb.py (2 imports)
+- Cross-module imports (scanner/watcher/scan) kept inline to avoid circular dependencies
+- Net result: -249 lines across 16 files
 
 #### 1. Secondary metadata provider fallback for Managed Import
 - During `run_library_folder_discovery()` in `scan.py`, if a newly added show has extra (unmatched) files with the default provider, the system now automatically tries the secondary provider.

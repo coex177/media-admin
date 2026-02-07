@@ -1043,6 +1043,17 @@ tr:hover {
     border: 1px solid var(--border-color);
     border-radius: 6px;
 }
+.restore-section-label {
+    font-size: 0.85em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    padding: 6px 4px 2px;
+}
+.restore-section-label:not(:first-child) {
+    margin-top: 8px;
+}
 
 /* Recently Aired Episodes */
 .recent-episodes-list {
