@@ -1161,12 +1161,13 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
                     if matched > 0:
                         log(f"Matched {matched} episode files ({total_files} files in folder)", "success")
 
-                    # Count only aired episodes — not-aired episodes naturally
-                    # won't have files on disk and shouldn't count against the show.
+                    # Count only aired, non-special episodes — not-aired and
+                    # Season 0 (Specials) episodes shouldn't count against the show.
                     aired_eps = (
                         db.query(Episode)
                         .filter(
                             Episode.show_id == show.id,
+                            Episode.season != 0,
                             Episode.air_date.isnot(None),
                             Episode.air_date <= datetime.utcnow().strftime("%Y-%m-%d"),
                         )
