@@ -170,9 +170,10 @@ class MatcherService:
 
         # Check if one contains the other as a significant substring
         # Require the shorter string to be at least 4 chars and at least 50% of the longer
+        # Must match at word boundaries to avoid e.g. "Cross" matching "Crossbones"
         shorter = norm_filename if len(norm_filename) <= len(norm_show) else norm_show
         longer = norm_show if len(norm_filename) <= len(norm_show) else norm_filename
-        if len(shorter) >= 4 and shorter in longer:
+        if len(shorter) >= 4 and re.search(r'\b' + re.escape(shorter) + r'\b', longer):
             # Ensure it's a significant match (at least 50% of the longer string)
             if len(shorter) / len(longer) >= 0.5:
                 return 0.9
