@@ -109,6 +109,9 @@ class MatcherService:
         title = re.sub(r"[._]", " ", title_part)
         title = re.sub(r"\s+", " ", title)
 
+        # Strip AKA (also known as) and everything after it
+        title = re.sub(r"\s*\bA\s*K\s*A\b.*$", "", title, flags=re.IGNORECASE)
+
         # Remove year if present at the end of title
         title = re.sub(r"\s*\(?(19|20)\d{2}\)?\s*$", "", title)
 
