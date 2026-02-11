@@ -33,6 +33,15 @@ class RenamerService:
         self.image_extensions = set(settings.image_extensions)
         self.metadata_extensions = set(settings.metadata_extensions)
 
+    def _move_accompanying_files(self, source: Path, dest: Path):
+        """Move accompanying subtitle, metadata, and image files."""
+        move_accompanying_files(
+            source, dest,
+            self.subtitle_extensions,
+            self.metadata_extensions,
+            self.image_extensions,
+        )
+
     def generate_episode_filename(
         self, show: Show, episode: Episode, extension: str
     ) -> str:
