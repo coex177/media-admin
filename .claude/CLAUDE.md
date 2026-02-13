@@ -115,6 +115,21 @@ docs/                  - Full project documentation (see links above)
 
 ## Recent Changes
 
+### Session: Feb 10, 2026
+
+#### 3. Strip AKA alternate titles from filename parsing (commit `4142c75`)
+- Both TV (`matcher.py`) and movie (`movie_matcher.py`) parsers now strip "A.K.A."/"AKA" and everything after it from extracted titles
+- Pattern: `\s*\bA\s*K\s*A\b.*$` — handles dotted and plain forms
+- Example: `The.Secret.Agent.A.K.A.O.Agente.Secreto.2025...` → title `"The Secret Agent"`, year `2025`
+
+#### 2. Fix show matching word boundary logic (commit `f2ecf45`)
+- Substring matching in `match_show_name()` now requires word boundaries (`\b` regex anchors)
+- Prevents e.g. "Cross" matching "Crossbones" — both previously scored 0.9
+
+#### 1. Fix missing `_move_accompanying_files` method (commit `92fd585`)
+- Restored `_move_accompanying_files()` on `RenamerService` — removed during code cleanup in `7aafff3`
+- Bug: `shutil.move` succeeded (file moved on disk) but `AttributeError` on the next line skipped the DB path update, causing all renamed files to appear as "Extra Files"
+
 ### Session: Feb 7, 2026
 
 #### 5. Add comprehensive /docs documentation (commit `1f3ff78`)

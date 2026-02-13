@@ -88,6 +88,7 @@ Parse the filename for season/episode patterns (S01E01, 1x01, etc.). See [Filena
 If TV patterns are found, match the extracted show name against the library:
 
 - Fuzzy match against all shows (threshold 0.7).
+- Substring matches require word boundaries — e.g., "Cross" matches "Cross (2024)" but not "Crossbones".
 - Checks both show names and aliases.
 - If no match found, attempts **auto-import** from TMDB/TVDB.
 

@@ -44,8 +44,9 @@ The.Good.Place.S01E01.720p.WEB-DL.mkv
 
 Title cleanup:
 1. Replace dots, underscores, and dashes with spaces.
-2. Remove trailing year (e.g., `Show Name 2019` → `Show Name`).
-3. Collapse multiple spaces.
+2. Strip AKA alternate titles — everything from "A.K.A." or "AKA" onward is removed (e.g., `Show A.K.A. Other Name` → `Show`).
+3. Remove trailing year (e.g., `Show Name 2019` → `Show Name`).
+4. Collapse multiple spaces.
 
 ### Quality and Source Extraction
 
@@ -118,6 +119,13 @@ The.Thing.1982.1080p.BluRay.mkv
 Inception.1080p.BluRay.mkv
 ^^^^^^^^^
   title (everything before first quality/source indicator)
+```
+
+**AKA stripping:** Alternate titles are removed before further processing. Everything from "A.K.A." or "AKA" onward is stripped, preserving the primary title. Example:
+```
+The.Secret.Agent.A.K.A.O.Agente.Secreto.2025.720p.mkv
+^^^^^^^^^^^^^^^^^^                        ^^^^
+     title                                year (extracted from full filename)
 ```
 
 ### Edition Detection
