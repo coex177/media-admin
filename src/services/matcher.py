@@ -194,9 +194,15 @@ class MatcherService:
         return len(common_words) / len(total_words)
 
     def find_best_show_match(
-        self, filename_title: str, shows: list[dict]
+        self, filename_title: str, shows: list[dict], filename_year: Optional[int] = None
     ) -> Optional[tuple[dict, float]]:
-        """Find the best matching show from a list."""
+        """Find the best matching show from a list.
+
+        Shows can include a 'year' key for year-aware scoring.
+        When filename_year is provided and the show has a year:
+        - Matching years: +0.1 bonus
+        - Different years: -0.3 penalty
+        """
         best_match = None
         best_score = 0.0
 
@@ -206,6 +212,14 @@ class MatcherService:
                 alias_score = self.match_show_name(filename_title, alias)
                 if alias_score > score:
                     score = alias_score
+
+            # Apply year bonus/penalty when both years are available
+            if filename_year and show.get("year"):
+                if filename_year == show["year"]:
+                    score = min(score + 0.1, 1.0)
+                else:
+                    score = max(score - 0.3, 0.0)
+
             if score > best_score:
                 best_score = score
                 best_match = show

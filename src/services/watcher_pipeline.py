@@ -561,10 +561,11 @@ class WatcherPipeline:
         # 2. Match show in DB
         shows = self.db.query(Show).all()
         show_dicts = [
-            {"id": s.id, "name": s.name, "aliases": json.loads(s.aliases) if s.aliases else []}
+            {"id": s.id, "name": s.name, "aliases": json.loads(s.aliases) if s.aliases else [],
+             "year": int(s.first_air_date[:4]) if s.first_air_date and s.first_air_date[:4].isdigit() else None}
             for s in shows
         ]
-        match_result = self.matcher.find_best_show_match(filename_show_name, show_dicts)
+        match_result = self.matcher.find_best_show_match(filename_show_name, show_dicts, filename_year=parsed.year)
 
         if not match_result:
             # Show not found in DB → try auto-import from providers

@@ -779,6 +779,7 @@ class ScannerService:
                 "id": s.id,
                 "name": s.name,
                 "aliases": json.loads(s.aliases) if s.aliases else [],
+                "year": int(s.first_air_date[:4]) if s.first_air_date and s.first_air_date[:4].isdigit() else None,
             }
             for s in shows if s.id in missing_by_show
         ]
@@ -792,7 +793,7 @@ class ScannerService:
 
                 # Try to match to a show
                 match = self.matcher.find_best_show_match(
-                    file_info.parsed.title, show_list
+                    file_info.parsed.title, show_list, filename_year=file_info.parsed.year
                 )
                 if not match:
                     continue
@@ -862,7 +863,9 @@ class ScannerService:
                     # Try to match to a show
                     match = self.matcher.find_best_show_match(
                         file_info.parsed.title,
-                        [{"id": s.id, "name": s.name, "aliases": json.loads(s.aliases) if s.aliases else []} for s in shows],
+                        [{"id": s.id, "name": s.name, "aliases": json.loads(s.aliases) if s.aliases else [],
+                          "year": int(s.first_air_date[:4]) if s.first_air_date and s.first_air_date[:4].isdigit() else None} for s in shows],
+                        filename_year=file_info.parsed.year,
                     )
 
                     if match:
