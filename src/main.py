@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_database
-from .routers import shows_router, scan_router, actions_router, settings_router, watcher_router, movies_router
+from .routers import shows_router, scan_router, actions_router, settings_router, watcher_router, movies_router, feeds_router
 
 # Configure logging
 logging.basicConfig(
@@ -223,6 +223,7 @@ app.include_router(actions_router)
 app.include_router(settings_router)
 app.include_router(watcher_router)
 app.include_router(movies_router)
+app.include_router(feeds_router)
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"

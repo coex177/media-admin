@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Get page from URL hash
 function getPageFromHash() {
     const hash = window.location.hash.slice(1); // Remove the #
-    const validPages = ['dashboard', 'shows', 'movies', 'scan', 'settings'];
+    const validPages = ['dashboard', 'shows', 'movies', 'scan', 'feeds', 'settings'];
     return validPages.includes(hash) ? hash : 'dashboard';
 }
 
@@ -155,6 +155,9 @@ function navigateTo(page, skipUnsavedCheck = false, skipHashUpdate = false, push
             break;
         case 'scan':
             renderScan();
+            break;
+        case 'feeds':
+            renderFeeds();
             break;
         case 'settings':
             renderSettings();

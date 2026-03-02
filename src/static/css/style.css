@@ -4614,3 +4614,124 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     }
 }
 
+/* ── Feeds ────────────────────────────────────────── */
+
+.feed-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.feed-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.feed-url {
+    font-size: 0.8rem;
+    word-break: break-all;
+}
+
+.feed-entry-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.feed-entry-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.feed-entry-row:last-child {
+    border-bottom: none;
+}
+
+.feed-entry-top {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.feed-entry-checkbox {
+    flex-shrink: 0;
+    cursor: pointer;
+    accent-color: var(--primary-color);
+    margin-top: 2px;
+}
+
+.feed-entry-main {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.feed-entry-title {
+    color: var(--link-color);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.feed-entry-title:hover {
+    color: var(--link-hover);
+    text-decoration: underline;
+}
+
+.feed-entry-date {
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.feed-entry-categories {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding-left: 24px;
+}
+
+.feed-entry-categories .badge {
+    font-size: 0.7rem;
+}
+
+.feed-entry-read .feed-entry-title {
+    text-decoration: line-through;
+    opacity: 0.5;
+}
+
+.feed-entry-read .feed-entry-date,
+.feed-entry-read .feed-entry-categories {
+    opacity: 0.5;
+}
+
+/* Feed tab drag-and-drop */
+.feed-tab-dragging {
+    opacity: 0.4;
+}
+
+.feed-tab-dragover {
+    box-shadow: inset 2px 0 0 var(--primary-color);
+}
+
+/* Feed tab inline rename */
+.feed-tab-renaming {
+    padding: 0;
+}
+
+.feed-tab-rename-input {
+    background: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--primary-color);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: inherit;
+    font-family: inherit;
+    width: 140px;
+    outline: none;
+}
+

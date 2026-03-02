@@ -6,5 +6,6 @@ from .movie import Movie
 from .settings import ScanFolder, PendingAction, AppSettings, IgnoredEpisode
 from .watcher_log import WatcherLog
 from .library_log import LibraryLog
+from .rss_feed import RssFeed
 
-__all__ = ["Show", "Episode", "Movie", "ScanFolder", "PendingAction", "AppSettings", "IgnoredEpisode", "WatcherLog", "LibraryLog"]
+__all__ = ["Show", "Episode", "Movie", "ScanFolder", "PendingAction", "AppSettings", "IgnoredEpisode", "WatcherLog", "LibraryLog", "RssFeed"]
