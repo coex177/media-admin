@@ -52,7 +52,7 @@ class MovieRenamerService:
         # Append edition if present
         if movie.edition:
             safe_edition = _sanitize_filename(movie.edition, replace_colon=True)
-            filename += f" {{{safe_edition}}}"
+            filename += f" {{edition-{safe_edition}}}"
 
         return filename + extension
 
@@ -81,7 +81,7 @@ class MovieRenamerService:
 
         # Handle {edition} in the format
         if "{edition}" in formatted:
-            edition_str = _sanitize_filename(movie.edition, replace_colon=True) if movie.edition else ""
+            edition_str = "{edition-" + _sanitize_filename(movie.edition, replace_colon=True) + "}" if movie.edition else ""
             formatted = formatted.replace("{edition}", edition_str)
             # Clean up double spaces if edition was empty
             formatted = " ".join(formatted.split())
@@ -99,7 +99,7 @@ class MovieRenamerService:
         # Auto-append edition to filename if {edition} was NOT in the original format
         if "{edition}" not in (movie_format or "") and movie.edition:
             safe_edition = _sanitize_filename(movie.edition, replace_colon=True)
-            filename += f" {{{safe_edition}}}"
+            filename += f" {{edition-{safe_edition}}}"
 
         filename += extension
 

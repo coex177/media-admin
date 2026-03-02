@@ -44,6 +44,7 @@ class MovieMatcherService:
         r"(?:Remastered)",
         r"(?:IMAX(?:\s*Edition)?)",
         r"(?:Criterion(?:\s*Collection)?)",
+        r"(?:Uncut)",
     ]
 
     # SxE patterns that indicate TV content (used to reject non-movies)
@@ -173,7 +174,7 @@ class MovieMatcherService:
         for pattern in self.EDITION_PATTERNS[1:]:  # Skip the Plex pattern
             match = re.search(pattern, filename, re.IGNORECASE)
             if match:
-                return match.group(0).strip()
+                return match.group(0).strip().title()
 
         return None
 
