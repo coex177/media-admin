@@ -56,6 +56,26 @@ class MovieMatcherService:
 
     def __init__(self):
         self._tv_patterns = [re.compile(p) for p in self.TV_EPISODE_PATTERNS]
+        self._custom_editions = None  # set via set_custom_editions()
+
+    def set_custom_editions(self, editions_pipe_string: str):
+        """Set custom edition names from a pipe-separated string (e.g. "Director's Cut|Extended|IMAX").
+        These are matched as literal text in filenames (case-insensitive), in addition to the Plex {edition-...} tag."""
+        if not editions_pipe_string or not editions_pipe_string.strip():
+            self._custom_editions = None
+            return
+        names = [n.strip() for n in editions_pipe_string.split("|") if n.strip()]
+        if names:
+            # Build a single regex that matches any of the custom edition names
+            escaped = [re.escape(n) for n in names]
+            # Sort longest first so "Special Edition" matches before "Special"
+            escaped.sort(key=len, reverse=True)
+            self._custom_editions = re.compile(
+                r"(?<![a-zA-Z])(" + "|".join(escaped) + r")(?![a-zA-Z])",
+                re.IGNORECASE,
+            )
+        else:
+            self._custom_editions = None
 
     def is_likely_tv(self, filename: str) -> bool:
         """Check if a filename looks like a TV episode (has SxE pattern)."""
@@ -170,7 +190,14 @@ class MovieMatcherService:
         if plex_match:
             return plex_match.group(1).strip()
 
-        # Check other edition patterns
+        # Use custom editions list if configured
+        if self._custom_editions:
+            match = self._custom_editions.search(filename)
+            if match:
+                return match.group(1).strip().title()
+            return None
+
+        # Fallback to hardcoded edition patterns
         for pattern in self.EDITION_PATTERNS[1:]:  # Skip the Plex pattern
             match = re.search(pattern, filename, re.IGNORECASE)
             if match:

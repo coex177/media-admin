@@ -538,6 +538,10 @@ class WatcherPipeline:
         parsed = self.matcher.parse_filename(path.name)
         if not parsed or not parsed.title:
             # No SxE pattern found — try movie detection
+            # Load custom edition list if configured
+            custom_editions = self._get_setting("plex_versions_list", "")
+            if custom_editions:
+                self.movie_matcher.set_custom_editions(custom_editions)
             movie_parsed = self.movie_matcher.parse_filename(path.name)
             if movie_parsed and movie_parsed.title:
                 logger.info(f"Pipeline: no SxE pattern, trying movie pipeline for '{movie_parsed.title}'")
@@ -1236,8 +1240,15 @@ class WatcherPipeline:
 
         # 3. Check if movie already has a file
         if movie.file_path and Path(movie.file_path).exists():
-            # Quality comparison
-            self._handle_movie_quality_comparison(file_path, movie, path.suffix)
+            incoming_edition = parsed_movie.edition
+            plex_versions = self._get_setting("plex_versions_enabled", "false") == "true"
+            # Check if this is a different edition and Plex Versions is enabled
+            if plex_versions and incoming_edition and (not movie.edition or movie.edition.lower() != incoming_edition.lower()):
+                # Different edition — import as a new Movie record
+                self._import_edition_movie(file_path, movie, path.suffix, incoming_edition)
+                return
+            # Same edition, Plex Versions disabled, or no edition — quality comparison
+            self._handle_movie_quality_comparison(file_path, movie, path.suffix, incoming_edition)
             return
 
         # 4. Move to movie library
@@ -1344,6 +1355,98 @@ class WatcherPipeline:
                 pass
             loop.close()
 
+    def _import_edition_movie(self, file_path: str, existing_movie: Movie, extension: str, incoming_edition: str):
+        """Import a different edition of a movie that already exists in the library."""
+        from .movie_renamer import MovieRenamerService
+
+        logger.info(
+            f"Pipeline: edition import — '{existing_movie.title}' incoming='{incoming_edition}' "
+            f"existing='{existing_movie.edition or '(none)'}'"
+        )
+
+        # If the existing movie has no edition label and rename-release is enabled,
+        # mark it with the configured release name and rename its file
+        rename_release = self._get_setting("plex_versions_rename_release", "true") == "true"
+        release_name = self._get_setting("plex_versions_release_name", "Release") or "Release"
+        if not existing_movie.edition and rename_release:
+            existing_movie.edition = release_name
+            try:
+                renamer = MovieRenamerService(self.db)
+                movie_format = self._get_setting("movie_format", "{title} ({year})/{title} ({year})")
+                new_path_str = renamer.generate_movie_path(
+                    existing_movie, existing_movie.folder_path, Path(existing_movie.file_path).suffix, movie_format
+                )
+                old_path = Path(existing_movie.file_path)
+                new_path = Path(new_path_str)
+                if old_path != new_path:
+                    new_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(old_path), str(new_path))
+                    existing_movie.file_path = str(new_path)
+                    logger.info(f"Pipeline: renamed existing movie to include edition: {new_path.name}")
+            except Exception as e:
+                logger.error(f"Pipeline: failed to rename existing movie for edition label: {e}", exc_info=True)
+            self.db.commit()
+
+        # Create a new Movie record for the incoming edition
+        new_movie = self._create_edition_movie(existing_movie, incoming_edition)
+        if not new_movie:
+            self._move_to_issues(
+                file_path,
+                "edition_import_failed",
+                f"Failed to create edition record for '{existing_movie.title}' ({incoming_edition})",
+            )
+            return
+
+        # Move the incoming file to the library under the new record
+        self._move_movie_to_library(file_path, new_movie, extension, incoming_edition)
+
+        self._log(
+            "edition_imported",
+            result="success",
+            file_path=file_path,
+            movie_title=new_movie.title,
+            movie_id=new_movie.id,
+            media_type="movie",
+            details=f"Edition '{incoming_edition}' imported for '{new_movie.title}' (existing edition: '{existing_movie.edition}')",
+        )
+
+    def _create_edition_movie(self, source: Movie, edition: str) -> Movie:
+        """Clone a Movie record with a new edition. Returns the new Movie or None on failure."""
+        try:
+            new_movie = Movie(
+                tmdb_id=None,  # avoid unique constraint (original keeps the tmdb_id)
+                imdb_id=source.imdb_id,
+                title=source.title,
+                original_title=source.original_title,
+                overview=source.overview,
+                tagline=source.tagline,
+                year=source.year,
+                release_date=source.release_date,
+                runtime=source.runtime,
+                poster_path=source.poster_path,
+                backdrop_path=source.backdrop_path,
+                genres=source.genres,
+                studio=source.studio,
+                vote_average=source.vote_average,
+                popularity=source.popularity,
+                status=source.status,
+                folder_path=source.folder_path,
+                file_status="missing",
+                edition=edition,
+                collection_id=source.collection_id,
+                collection_name=source.collection_name,
+                do_rename=source.do_rename,
+            )
+            self.db.add(new_movie)
+            self.db.commit()
+            self.db.refresh(new_movie)
+            logger.info(f"Pipeline: created edition movie record id={new_movie.id} edition='{edition}' for '{source.title}'")
+            return new_movie
+        except Exception as e:
+            logger.error(f"Pipeline: failed to create edition movie record: {e}", exc_info=True)
+            self.db.rollback()
+            return None
+
     def _move_movie_to_library(self, file_path: str, movie: Movie, extension: str, edition: str = None):
         """Move a movie file to the library folder."""
         if not movie.folder_path:
@@ -1407,12 +1510,12 @@ class WatcherPipeline:
                 f"Failed to move movie to library: {e}",
             )
 
-    def _handle_movie_quality_comparison(self, new_file_path: str, movie: Movie, extension: str):
+    def _handle_movie_quality_comparison(self, new_file_path: str, movie: Movie, extension: str, edition: str = None):
         """Compare quality of incoming movie file vs existing."""
         existing_path = movie.file_path
 
         if not existing_path or not Path(existing_path).exists():
-            self._move_movie_to_library(new_file_path, movie, extension)
+            self._move_movie_to_library(new_file_path, movie, extension, edition)
             return
 
         if not QualityService.is_available():
@@ -1465,7 +1568,7 @@ class WatcherPipeline:
                 )
                 return
 
-            self._move_movie_to_library(new_file_path, movie, extension)
+            self._move_movie_to_library(new_file_path, movie, extension, edition)
         else:
             reason_label = "equal quality" if verdict == "equal" else "lower quality"
             self._move_to_issues(

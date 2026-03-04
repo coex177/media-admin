@@ -43,6 +43,10 @@ class SettingsUpdate(BaseModel):
     movie_top_rated_count: Optional[int] = None
     movie_lowest_rated_count: Optional[int] = None
     movies_per_page_options: Optional[list] = None
+    plex_versions_enabled: Optional[bool] = None
+    plex_versions_rename_release: Optional[bool] = None
+    plex_versions_list: Optional[str] = None
+    plex_versions_release_name: Optional[str] = None
 
 
 class FolderCreate(BaseModel):
@@ -177,6 +181,10 @@ async def get_settings(db: Session = Depends(get_db)):
         "movie_top_rated_count": int(get_setting(db, "movie_top_rated_count", "5")),
         "movie_lowest_rated_count": int(get_setting(db, "movie_lowest_rated_count", "5")),
         "movies_per_page_options": json.loads(get_setting(db, "movies_per_page_options", "[100,300,500,1000,1500]")),
+        "plex_versions_enabled": get_setting(db, "plex_versions_enabled", "false") == "true",
+        "plex_versions_rename_release": get_setting(db, "plex_versions_rename_release", "true") == "true",
+        "plex_versions_list": get_setting(db, "plex_versions_list", "Director's Cut|Extended|Unrated|Theatrical|Ultimate|Special Edition|Remastered|IMAX|Criterion|Uncut"),
+        "plex_versions_release_name": get_setting(db, "plex_versions_release_name", "Release"),
     }
 
 
@@ -263,6 +271,18 @@ async def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     if data.movies_per_page_options is not None:
         opts = sorted([int(v) for v in data.movies_per_page_options if int(v) > 0])[:5]
         set_setting(db, "movies_per_page_options", json.dumps(opts))
+
+    if data.plex_versions_enabled is not None:
+        set_setting(db, "plex_versions_enabled", "true" if data.plex_versions_enabled else "false")
+
+    if data.plex_versions_rename_release is not None:
+        set_setting(db, "plex_versions_rename_release", "true" if data.plex_versions_rename_release else "false")
+
+    if data.plex_versions_list is not None:
+        set_setting(db, "plex_versions_list", data.plex_versions_list)
+
+    if data.plex_versions_release_name is not None:
+        set_setting(db, "plex_versions_release_name", data.plex_versions_release_name.strip())
 
     # Mark setup as completed if API key is set
     if data.tmdb_api_key:

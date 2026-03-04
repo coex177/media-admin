@@ -28,6 +28,7 @@ async function renderSettings() {
                 <button class="settings-tab ${activeTab === 'general' ? 'active' : ''}" onclick="switchSettingsTab('general')"><img src="/static/images/settings-general.png" class="tab-icon-img" alt="">General</button>
                 <button class="settings-tab ${activeTab === 'metadata' ? 'active' : ''}" onclick="switchSettingsTab('metadata')"><img src="/static/images/settings-dashboard.png" class="tab-icon-img" alt="">Dashboard</button>
                 <button class="settings-tab ${activeTab === 'library' ? 'active' : ''}" onclick="switchSettingsTab('library')"><img src="/static/images/settings-library.png" class="tab-icon-img" alt="">Library</button>
+                <button class="settings-tab ${activeTab === 'nameformat' ? 'active' : ''}" onclick="switchSettingsTab('nameformat')"><img src="/static/images/settings-nameformat.png" class="tab-icon-img" alt="">Name Format</button>
                 <button class="settings-tab ${activeTab === 'folders' ? 'active' : ''}" onclick="switchSettingsTab('folders')"><img src="/static/images/settings-folders.png" class="tab-icon-img" alt="">Folders</button>
                 <button class="settings-tab ${activeTab === 'watcher' ? 'active' : ''}" onclick="switchSettingsTab('watcher')"><img src="/static/images/settings-media-watcher.png" class="tab-icon-img" alt="">Watcher</button>
             </div>
@@ -46,7 +47,7 @@ function switchSettingsTab(tabName) {
 }
 
 function applySettingsTab(tabName) {
-    if (tabName === 'movies') tabName = 'library';
+    if (tabName === 'movies') tabName = 'nameformat';
     state.activeSettingsTab = tabName;
     setUiPref('settingsActiveTab', tabName);
 
@@ -71,7 +72,10 @@ function renderSettingsTabContent(tabName) {
             container.innerHTML = renderSettingsMetadata(state.settings);
             break;
         case 'library':
-            container.innerHTML = renderSettingsLibrary(state.settings, state.folders);
+            container.innerHTML = renderSettingsLibraryOptions(state.settings);
+            break;
+        case 'nameformat':
+            container.innerHTML = renderSettingsNameFormat(state.settings, state.folders);
             break;
         case 'folders':
             container.innerHTML = renderSettingsFolders(state.settings, state.folders);
@@ -270,7 +274,65 @@ function renderSettingsMetadata(settings) {
     `;
 }
 
-function renderSettingsLibrary(settings, folders) {
+function renderSettingsLibraryOptions(settings) {
+    const plexVersions = settings.plex_versions_enabled || false;
+    const renameRelease = settings.plex_versions_rename_release || false;
+    const defaultVersions = "Director's Cut|Extended|Unrated|Theatrical|Ultimate|Special Edition|Remastered|IMAX|Criterion|Uncut";
+    const versionsList = settings.plex_versions_list || defaultVersions;
+    const releaseName = settings.plex_versions_release_name || 'Release';
+    const disabledStyle = plexVersions ? '' : 'opacity: 0.4; pointer-events: none;';
+    return `
+        <div class="card watcher-section">
+            <h2 class="card-title mb-20">Plex Versions</h2>
+
+            <div class="watcher-setting-row">
+                <div class="watcher-setting-info">
+                    <div class="watcher-setting-label">Enable Plex Versions</div>
+                    <div class="watcher-setting-desc">Use Plex's file versioning when importing movies with different editions (e.g., Director's Cut, Extended). When disabled, edition files are treated as duplicates and compared by quality.</div>
+                </div>
+                <div class="watcher-setting-control">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="settings-plex-versions" ${plexVersions ? 'checked' : ''} onchange="autoSaveLibrarySettings()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div id="plex-versions-options" style="${disabledStyle}">
+                <div class="watcher-setting-row" id="rename-release-row">
+                    <div class="watcher-setting-info">
+                        <div class="watcher-setting-label">Rename Originals as "${escapeHtml(releaseName)}"</div>
+                        <div class="watcher-setting-desc">When a special version is imported and the original file has no edition label, rename it to include {edition-${escapeHtml(releaseName)}} so Plex shows both versions correctly.</div>
+                    </div>
+                    <div class="watcher-setting-control">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="settings-rename-release" ${renameRelease ? 'checked' : ''} onchange="autoSaveLibrarySettings()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="watcher-setting-row">
+                    <div class="watcher-setting-info" style="width: 100%;">
+                        <div class="watcher-setting-label">Original Version Label</div>
+                        <div class="watcher-setting-desc" style="margin-bottom: 8px;">The edition name assigned to the existing file when a special version is imported.</div>
+                        <input type="text" id="settings-release-name" class="form-control" value="${escapeHtml(releaseName)}" onchange="autoSaveLibrarySettings()" style="max-width: 250px;">
+                    </div>
+                </div>
+
+                <div class="watcher-setting-row" style="border-bottom: none;">
+                    <div class="watcher-setting-info" style="width: 100%;">
+                        <div class="watcher-setting-label">Recognized Versions</div>
+                        <div class="watcher-setting-desc" style="margin-bottom: 8px;">Editions the watcher will recognize in filenames. Separate with <code>|</code></div>
+                        <input type="text" id="settings-versions-list" class="form-control" value="${escapeHtml(versionsList)}" onchange="autoSaveLibrarySettings()">
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingsNameFormat(settings, folders) {
     return `
         <div class="card">
             <h2 class="card-title mb-20">Show Formats</h2>
@@ -326,6 +388,40 @@ function renderSettingsLibrary(settings, folders) {
     `;
 }
 
+
+async function autoSaveLibrarySettings() {
+    const plexVersions = document.getElementById('settings-plex-versions')?.checked || false;
+    const renameRelease = document.getElementById('settings-rename-release')?.checked || false;
+    const releaseName = document.getElementById('settings-release-name')?.value.trim() || 'Release';
+    const versionsList = document.getElementById('settings-versions-list')?.value.trim() || '';
+
+    // Update sub-options visibility
+    const optionsBlock = document.getElementById('plex-versions-options');
+    if (optionsBlock) {
+        optionsBlock.style.opacity = plexVersions ? '' : '0.4';
+        optionsBlock.style.pointerEvents = plexVersions ? '' : 'none';
+    }
+
+    const payload = {
+        plex_versions_enabled: plexVersions,
+        plex_versions_rename_release: renameRelease,
+        plex_versions_release_name: releaseName,
+    };
+    if (versionsList) payload.plex_versions_list = versionsList;
+
+    try {
+        await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+        state.settings.plex_versions_enabled = plexVersions;
+        state.settings.plex_versions_rename_release = renameRelease;
+        state.settings.plex_versions_release_name = releaseName;
+        state.settings.plex_versions_list = versionsList;
+    } catch (error) {
+        // Error already shown
+    }
+}
 
 async function autoSaveMovieFormat() {
     const movieFormat = document.getElementById('settings-movie-format')?.value.trim();
