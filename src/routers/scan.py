@@ -373,7 +373,7 @@ async def trigger_quick_scan(
 
     # Get recently_aired_days setting
     setting = db.query(AppSettings).filter(AppSettings.key == "recently_aired_days").first()
-    recent_days = int(setting.value) if setting else 5
+    recent_days = int(setting.value) if setting else 8
 
     from ..database import get_session_maker
 
