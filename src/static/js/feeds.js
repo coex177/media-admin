@@ -6,42 +6,48 @@ let activeFeedId = null;
 let feedsCache = [];
 
 // ── Read-entry tracking (persisted via UI prefs) ──
+// Key format: "link::date" so reused URLs with new dates appear unread.
 
 function getFeedReadEntries() {
     return getUiPref('feedReadEntries', {});
 }
 
-function isEntryRead(feedId, link) {
-    const read = getFeedReadEntries();
-    return (read[feedId] || []).includes(link);
+function entryKey(link, date) {
+    return date ? link + '::' + date : link;
 }
 
-function markEntryRead(feedId, link, checked) {
+function isEntryRead(feedId, link, date) {
+    const read = getFeedReadEntries();
+    return (read[feedId] || []).includes(entryKey(link, date));
+}
+
+function markEntryRead(feedId, link, date, checked) {
     const read = getFeedReadEntries();
     const list = read[feedId] || [];
-    if (checked && !list.includes(link)) {
-        list.push(link);
+    const key = entryKey(link, date);
+    if (checked && !list.includes(key)) {
+        list.push(key);
     } else if (!checked) {
-        const idx = list.indexOf(link);
+        const idx = list.indexOf(key);
         if (idx !== -1) list.splice(idx, 1);
     }
     read[feedId] = list;
     setUiPref('feedReadEntries', read);
 }
 
-function toggleEntryRead(feedId, link, checkbox) {
+function toggleEntryRead(feedId, link, date, checkbox) {
     const row = checkbox.closest('.feed-entry-row');
-    markEntryRead(feedId, link, checkbox.checked);
+    markEntryRead(feedId, link, date, checkbox.checked);
     if (row) row.classList.toggle('feed-entry-read', checkbox.checked);
 }
 
-function onEntryLinkClick(feedId, link, anchor) {
+function onEntryLinkClick(feedId, link, date, anchor) {
     const row = anchor.closest('.feed-entry-row');
     if (!row) return;
     const cb = row.querySelector('.feed-entry-checkbox');
     if (cb && !cb.checked) {
         cb.checked = true;
-        toggleEntryRead(feedId, link, cb);
+        toggleEntryRead(feedId, link, date, cb);
     }
 }
 
@@ -318,16 +324,17 @@ async function loadFeedEntries(feedId) {
                     const date = entry.date ? formatFeedDate(entry.date) : '';
                     const linkEscaped = escapeHtml(entry.link);
                     const linkJs = entry.link.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                    const read = isEntryRead(feedId, entry.link);
+                    const dateJs = (entry.date || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                    const read = isEntryRead(feedId, entry.link, entry.date);
 
                     return `
                         <div class="feed-entry-row${read ? ' feed-entry-read' : ''}">
                             <div class="feed-entry-top">
                                 <input type="checkbox" class="feed-entry-checkbox" ${read ? 'checked' : ''}
-                                       onchange="toggleEntryRead(${feedId}, '${linkJs}', this)">
+                                       onchange="toggleEntryRead(${feedId}, '${linkJs}', '${dateJs}', this)">
                                 <div class="feed-entry-main">
                                     <a href="${linkEscaped}" target="_blank" rel="noopener" class="feed-entry-title"
-                                       onclick="onEntryLinkClick(${feedId}, '${linkJs}', this)">${escapeHtml(entry.title)}</a>
+                                       onclick="onEntryLinkClick(${feedId}, '${linkJs}', '${dateJs}', this)">${escapeHtml(entry.title)}</a>
                                     ${date ? `<span class="feed-entry-date text-muted">${date}</span>` : ''}
                                 </div>
                             </div>
