@@ -144,6 +144,7 @@ Editions are detected from the filename using these patterns:
 | `Remastered` | Remastered |
 | `IMAX`, `IMAX Edition` | IMAX |
 | `Criterion`, `Criterion Collection` | Criterion |
+| `Uncut` | Uncut |
 
 ### Parsed Output
 

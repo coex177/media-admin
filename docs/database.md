@@ -60,7 +60,7 @@ Individual TV episodes.
 | `tmdb_id` | INTEGER | Yes | - | TMDB episode ID |
 | `still_path` | VARCHAR(255) | Yes | - | TMDB still image path |
 | `file_path` | VARCHAR(1024) | Yes | - | Absolute path to file on disk |
-| `file_status` | VARCHAR(50) | No | `"missing"` | File status: `missing`, `found`, `renamed`, `skipped` |
+| `file_status` | VARCHAR(50) | No | `"missing"` | File status: `missing`, `found`, `renamed` |
 | `matched_at` | DATETIME | Yes | - | When file was matched to this episode |
 | `runtime` | INTEGER | Yes | - | Episode runtime in minutes |
 | `created_at` | DATETIME | No | Now | Record creation time |
@@ -231,6 +231,24 @@ Log entries for library file operations.
 | `details` | TEXT | Yes | - | Error details or additional info |
 
 **Action types:** `rename`, `import`, `rename_failed`, `import_failed`.
+
+---
+
+### RssFeed
+
+RSS feed subscriptions.
+
+**Table:** `rss_feeds`
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `id` | INTEGER | No | Auto | Primary key |
+| `title` | VARCHAR(500) | Yes | - | Feed display title |
+| `url` | TEXT | No | - | Feed URL (unique) |
+| `enabled` | BOOLEAN | No | `true` | Whether feed is active |
+| `created_at` | DATETIME | No | Now | Record creation time |
+
+**No relationships.** Read-entry tracking is handled client-side via UI preferences.
 
 ## Relationships
 

@@ -15,6 +15,7 @@ Media Admin exposes a REST API on port 8095. Interactive documentation is availa
 | Actions | `/api/actions` | Pending action management |
 | Settings | `/api` | App settings, folders, dashboard data |
 | Watcher | `/api` | Watcher controls, settings, log, issues |
+| Feeds | `/api/feeds` | RSS feed management |
 
 ## Shows (`/api/shows`)
 
@@ -66,19 +67,59 @@ Media Admin exposes a REST API on port 8095. Interactive documentation is availa
 
 ## Scan (`/api/scan`)
 
+### TV Scanning
+
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/scan/scan` | Run library scan (background) |
-| GET | `/api/scan/scan/status` | Get scan progress |
-| GET | `/api/scan/scan/results` | Get last scan results |
-| GET | `/api/scan/scan/downloads` | Get download folder matches |
-| POST | `/api/scan/run-discovery` | Run Managed Import (background) |
-| GET | `/api/scan/discovery/status` | Get Managed Import progress |
-| POST | `/api/scan/folder/{folder_id}` | Scan a specific folder |
-| GET | `/api/scan/log` | Get library log entries |
-| DELETE | `/api/scan/log` | Clear all library log entries |
-| DELETE | `/api/scan/log/{entry_id}` | Delete a single log entry |
-| GET | `/api/scan/ignore-episodes` | Get ignored episodes |
+| POST | `/api/scan` | Run full library scan (background) |
+| POST | `/api/scan/quick` | Quick scan — recently aired shows only |
+| POST | `/api/scan/ongoing` | Scan ongoing shows only (not canceled/ended) |
+| POST | `/api/scan/show/{show_id}` | Scan a single show |
+| POST | `/api/scan/folder` | Scan a specific folder by path |
+| POST | `/api/scan/downloads` | Scan download folders for new files |
+| POST | `/api/scan/selected-episodes` | Scan selected episodes |
+| GET | `/api/scan/status` | Get current scan progress |
+| GET | `/api/scan/missing` | Get all missing episodes grouped by show |
+| GET | `/api/scan/metadata-updates` | Get rename previews from last scan |
+| GET | `/api/scan/download-matches` | Get download matches from last scan |
+| POST | `/api/scan/match` | Match a filename to show/episode |
+| POST | `/api/scan/apply-renames` | Execute selected file renames |
+| POST | `/api/scan/import-downloads` | Import matched download files |
+
+### Movie Scanning
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/scan/movies` | Run movie library scan (background) |
+| POST | `/api/scan/movie/{movie_id}` | Scan a single movie |
+| GET | `/api/scan/movies/status` | Get movie scan progress |
+| GET | `/api/scan/movie-rename-previews` | Get movie rename previews |
+| POST | `/api/scan/apply-movie-renames` | Execute selected movie renames |
+
+### Library Folder Discovery (Managed Import)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/scan/library-folder` | Run Managed Import on a folder (background) |
+| GET | `/api/scan/library-folder/status` | Get Managed Import progress |
+| POST | `/api/scan/movie-library-folder` | Run movie Managed Import on a folder (background) |
+| GET | `/api/scan/movie-library-folder/status` | Get movie Managed Import progress |
+| POST | `/api/scan/fix-match` | Execute fix-match file transfer |
+
+### Library Log
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/scan/library-log` | Get library log entries |
+| DELETE | `/api/scan/library-log` | Clear all library log entries |
+| DELETE | `/api/scan/library-log/range/{start}/{end}` | Delete log entries in a time range |
+| DELETE | `/api/scan/library-log/{entry_id}` | Delete a single log entry |
+
+### Ignored Episodes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/scan/ignored-episodes` | Get ignored episodes |
 | POST | `/api/scan/ignore-episodes` | Ignore episodes |
 | DELETE | `/api/scan/ignore-episodes` | Bulk unignore episodes |
 | DELETE | `/api/scan/ignore-episodes/{episode_id}` | Unignore single episode |
@@ -144,6 +185,16 @@ Media Admin exposes a REST API on port 8095. Interactive documentation is availa
 | GET | `/api/watcher/issues` | List files in Issues folder |
 | DELETE | `/api/watcher/issues` | Delete a specific Issues file |
 | DELETE | `/api/watcher/issues/all` | Delete all Issues files |
+
+## Feeds (`/api/feeds`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/feeds` | List all feeds |
+| POST | `/api/feeds` | Add a new feed by URL |
+| PATCH | `/api/feeds/{feed_id}` | Update feed title |
+| DELETE | `/api/feeds/{feed_id}` | Delete a feed |
+| GET | `/api/feeds/{feed_id}/entries` | Get parsed feed entries |
 
 ## Utility Endpoints
 

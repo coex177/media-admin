@@ -17,7 +17,11 @@ A full TV library scan runs through 6 phases:
 
 ### Quick Scan
 
-A quick scan skips the metadata refresh phase, only matching files to episodes.
+A quick scan only scans shows with recently aired episodes (within the configured `recently_aired_days` window, default 8 days).
+
+### Ongoing Scan
+
+An ongoing scan only scans shows that are not canceled or ended.
 
 ### Single Show Scan
 

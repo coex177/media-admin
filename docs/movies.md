@@ -62,9 +62,12 @@ Movies can have an edition tag that appears in the filename:
 - Extended Edition
 - Unrated
 - Theatrical
-- IMAX
+- Ultimate
+- Special Edition
 - Remastered
+- IMAX
 - Criterion Collection
+- Uncut
 - Custom text
 
 Editions are detected from filenames during scanning (via Plex-style `{edition-Name}` tags or common keywords) and can be set manually. When renaming, the edition is appended to the filename.

@@ -90,7 +90,6 @@ Each episode has one of these statuses:
 | `missing` | No file found and episode has aired |
 | `not_aired` | No file found but episode hasn't aired yet |
 | `renamed` | File has been renamed to the expected format |
-| `skipped` | File exists but was skipped during processing |
 
 ### Missing Episodes
 

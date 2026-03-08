@@ -24,7 +24,7 @@ The Settings page is organized into five tabs:
 | `episode_format` | string | `"{season}x{episode:02d} - {title}"` | Default episode filename format |
 | `season_format` | string | `"Season {season}"` | Default season folder format |
 | `movie_format` | string | `"{title} ({year})/{title} ({year})"` | Movie filename format (use `/` for folder nesting) |
-| `theme` | string | `"midnight"` | UI theme: `midnight`, `light`, or `sunset` |
+| `theme` | string | `"midnight"` | UI theme: `midnight`, `dark`, or `light` |
 | `setup_completed` | boolean | `false` | Set to `true` automatically when TMDB key is provided |
 
 ## Dashboard Settings
@@ -53,6 +53,10 @@ The Settings page is organized into five tabs:
 | `display_episode_format` | string | `"{season}x{episode:02d}"` | Episode code format in UI display |
 | `timezone` | string | `""` | User timezone (optional) |
 | `slow_import_count` | integer | `10` | Batch size for slow import processing |
+| `plex_versions_enabled` | boolean | `false` | Enable Plex Versions for movie editions |
+| `plex_versions_rename_release` | boolean | `true` | Rename non-edition movies to the release version name |
+| `plex_versions_list` | string | `"Director's Cut\|Extended\|..."` | Pipe-separated list of recognized edition names |
+| `plex_versions_release_name` | string | `"Release"` | Version name for the standard (non-edition) release |
 
 ## Folder Configuration
 
@@ -74,7 +78,7 @@ Add, remove, and toggle (enable/disable) folders from the Settings page.
 | `watcher_enabled` | boolean | `false` | Auto-start watcher on app startup |
 | `watcher_monitor_subfolders` | boolean | `true` | Watch subdirectories recursively |
 | `watcher_min_file_size_mb` | integer | `50` | Minimum file size in MB (smaller files ignored) |
-| `watcher_issues_organization` | string | `"date"` | Issues folder structure: `date` or `reason` |
+| `watcher_issues_organization` | string | `"date"` | Issues folder structure: `date`, `reason`, or `flat` |
 | `watcher_auto_purge_days` | integer | `0` | Delete Issues files older than N days (0 = disabled) |
 | `watcher_delete_empty_folders` | boolean | `false` | Remove empty folders after moving files |
 | `watcher_companion_types` | JSON array | See below | File extensions moved alongside video files |
@@ -151,7 +155,7 @@ Three built-in themes selectable from Settings:
 | Theme | Description |
 |-------|-------------|
 | `midnight` | Dark theme (default) |
+| `dark` | OLED dark theme |
 | `light` | Light theme |
-| `sunset` | Warm dark theme |
 
 Themes are implemented with CSS custom properties. The selected theme class is applied to the document body.

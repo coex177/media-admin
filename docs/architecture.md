@@ -29,7 +29,8 @@ media-admin/
 │   │   ├── movie.py             # Movie model
 │   │   ├── settings.py          # ScanFolder, PendingAction, AppSettings, IgnoredEpisode
 │   │   ├── watcher_log.py       # WatcherLog model
-│   │   └── library_log.py       # LibraryLog model
+│   │   ├── library_log.py       # LibraryLog model
+│   │   └── rss_feed.py          # RssFeed model (RSS feed subscriptions)
 │   ├── routers/
 │   │   ├── __init__.py          # Router instances with prefixes
 │   │   ├── shows.py             # /api/shows — TV show CRUD, search, refresh, rename
@@ -37,7 +38,8 @@ media-admin/
 │   │   ├── scan.py              # /api/scan — Scanning, managed import, logs
 │   │   ├── actions.py           # /api/actions — Pending action management
 │   │   ├── settings.py          # /api — Settings, folders, dashboard data endpoints
-│   │   └── watcher.py           # /api — Watcher controls, settings, log, issues
+│   │   ├── watcher.py           # /api — Watcher controls, settings, log, issues
+│   │   └── feeds.py             # /api/feeds — RSS feed management
 │   ├── services/
 │   │   ├── tmdb.py              # TMDB API client (search, get show/movie, episodes)
 │   │   ├── tvdb.py              # TVDB API client (search, get show, episodes)
@@ -54,7 +56,8 @@ media-admin/
 │   │   └── file_utils.py        # Shared: sanitize_filename, companion files, patterns
 │   └── static/
 │       ├── index.html           # Single-page app shell
-│       ├── style.css            # All styles with CSS custom property theming
+│       ├── css/
+│       │   └── style.css        # All styles with CSS custom property theming
 │       ├── js/
 │       │   ├── core.js          # Global search, navigation, API helpers, setup wizard
 │       │   ├── shows.js         # Shows list, show detail, Add Show modal
@@ -63,7 +66,8 @@ media-admin/
 │       │   ├── scan.js          # Scan UI, library folder discovery
 │       │   ├── settings.js      # Settings page
 │       │   ├── watcher.js       # Watcher log and controls
-│       │   └── issues.js        # Issues folder display
+│       │   ├── issues.js        # Issues folder display
+│       │   └── feeds.js         # RSS feed viewer
 │       └── images/              # Static images (icons, placeholders)
 ├── data/
 │   └── media-admin.db           # SQLite database (created on first run)
@@ -99,7 +103,7 @@ HTTP Request
 The frontend is a single-page application with no build step:
 
 - **`index.html`** loads all JS files and defines the page shell.
-- **Hash routing** (`window.onhashchange`) switches between pages (`#shows`, `#movies`, `#scan`, `#settings`, `#watcher`).
+- **Hash routing** (`window.onhashchange`) switches between pages (`#dashboard`, `#shows`, `#movies`, `#scan`, `#feeds`, `#settings`).
 - **`core.js`** provides the global search bar, navigation, API helper (`apiGet`, `apiPost`, etc.), and setup wizard.
 - Each page module (`shows.js`, `movies.js`, etc.) registers an `init` function called when its hash is active.
 - UI preferences (card order, hidden cards, view modes, expand states) are stored both in `localStorage` and synced to the database via `/api/ui-prefs`.

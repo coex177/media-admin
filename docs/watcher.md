@@ -193,6 +193,7 @@ Files that can't be processed automatically are moved to the Issues folder.
 |------|-----------|---------|
 | `date` | `Issues/YYYY-MM-DD/file.mkv` | `Issues/2026-02-07/Unknown.File.mkv` |
 | `reason` | `Issues/reason/file.mkv` | `Issues/parse_failed/Unknown.File.mkv` |
+| `flat` | `Issues/file.mkv` | `Issues/Unknown.File.mkv` |
 
 ### Issue Reasons
 
@@ -241,7 +242,7 @@ The watcher uses safe patterns for file operations:
 | `watcher_enabled` | `false` | Auto-start watcher on application startup |
 | `watcher_monitor_subfolders` | `true` | Watch subdirectories recursively |
 | `watcher_min_file_size_mb` | `50` | Ignore files smaller than this (MB) |
-| `watcher_issues_organization` | `date` | Issues folder structure: `date` or `reason` |
+| `watcher_issues_organization` | `date` | Issues folder structure: `date`, `reason`, or `flat` |
 | `watcher_auto_purge_days` | `0` | Delete Issues files older than N days (0 = disabled) |
 | `watcher_delete_empty_folders` | `false` | Remove empty folders after moving files |
 | `watcher_companion_types` | `.srt .sub .ass .ssa .vtt .idx .sup .nfo` | File extensions to move alongside video files |

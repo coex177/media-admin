@@ -14,6 +14,7 @@ Built with Python (FastAPI) and vanilla JavaScript.
 - **Dashboard** — 7 stat cards and 18 content cards with drag-and-drop customization
 - **Search** — global search, year filtering, direct TMDB/TVDB ID lookup
 - **Logs** — watcher and library logs with tag filters, text search, and date ranges
+- **RSS feeds** — subscribe to RSS feeds, track read entries, drag-and-drop tab ordering
 
 For full documentation, see the **[docs/](docs/)** directory.
 
