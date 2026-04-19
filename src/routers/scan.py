@@ -6,7 +6,7 @@ import shutil
 import time
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
@@ -487,19 +487,21 @@ async def get_all_missing_episodes(
     """Get all missing episodes across all shows, grouped by show."""
     from sqlalchemy import not_, exists, select
     from ..models import IgnoredEpisode
+    from .settings import get_setting
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    delay_days = int(get_setting(db, "missing_episode_delay_days", "0"))
+    cutoff = (datetime.utcnow() - timedelta(days=delay_days)).strftime("%Y-%m-%d")
 
     # Subquery to find ignored episode IDs
     ignored_subquery = select(IgnoredEpisode.episode_id)
 
-    # Get missing episodes that have aired, excluding ignored and season 0
+    # Get missing episodes that have aired (with delay), excluding ignored and season 0
     missing_episodes = (
         db.query(Episode, Show)
         .join(Show, Episode.show_id == Show.id)
         .filter(
             Episode.file_status == "missing",
-            Episode.air_date <= today,
+            Episode.air_date <= cutoff,
             Episode.air_date != None,
             Episode.season != 0,
             ~Episode.id.in_(ignored_subquery),

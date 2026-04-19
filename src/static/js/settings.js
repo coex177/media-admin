@@ -219,6 +219,19 @@ function renderSettingsMetadata(settings) {
                         ${generateSelectOptions(30, settings.recently_ended_count, '{n} Shows')}
                     </select>
                 </div>
+                <div class="dashboard-setting-item">
+                    <label>Missing Episode Delay</label>
+                    <select id="settings-missing-episode-delay" class="form-control" onchange="autoSaveDashboardSettings()">
+                        ${(() => {
+                            const val = settings.missing_episode_delay_days || 0;
+                            let opts = '<option value="0"' + (val === 0 ? ' selected' : '') + '>Same Day</option>';
+                            for (let i = 1; i <= 7; i++) {
+                                opts += '<option value="' + i + '"' + (i === val ? ' selected' : '') + '>' + i + ' Day' + (i > 1 ? 's' : '') + '</option>';
+                            }
+                            return opts;
+                        })()}
+                    </select>
+                </div>
             </div>
             <div class="dashboard-settings-divider"></div>
             <div class="form-group">
@@ -708,6 +721,7 @@ async function autoSaveDashboardSettings() {
     if (el('settings-recently-matched-count')) data.recently_matched_count = parseInt(el('settings-recently-matched-count').value);
     if (el('settings-returning-soon-count')) data.returning_soon_count = parseInt(el('settings-returning-soon-count').value);
     if (el('settings-recently-ended-count')) data.recently_ended_count = parseInt(el('settings-recently-ended-count').value);
+    if (el('settings-missing-episode-delay')) data.missing_episode_delay_days = parseInt(el('settings-missing-episode-delay').value);
 
     try {
         await api('/settings', {

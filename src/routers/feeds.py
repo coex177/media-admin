@@ -42,6 +42,10 @@ class FeedEntry(BaseModel):
 
 def _parse_rss(xml_bytes: bytes) -> tuple[Optional[str], list[dict]]:
     """Parse RSS/Atom XML and return (feed_title, entries)."""
+    # Detect HTML responses (e.g. maintenance pages) before parsing
+    stripped = xml_bytes.lstrip()
+    if stripped[:15].lower().startswith((b"<!doctype html", b"<html")):
+        raise ValueError("Feed returned HTML instead of RSS/Atom XML (site may be down)")
     root = ElementTree.fromstring(xml_bytes)
 
     # Namespace map for Atom feeds

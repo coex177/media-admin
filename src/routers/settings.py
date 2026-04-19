@@ -47,6 +47,7 @@ class SettingsUpdate(BaseModel):
     plex_versions_rename_release: Optional[bool] = None
     plex_versions_list: Optional[str] = None
     plex_versions_release_name: Optional[str] = None
+    missing_episode_delay_days: Optional[int] = None
 
 
 class FolderCreate(BaseModel):
@@ -185,6 +186,7 @@ async def get_settings(db: Session = Depends(get_db)):
         "plex_versions_rename_release": get_setting(db, "plex_versions_rename_release", "true") == "true",
         "plex_versions_list": get_setting(db, "plex_versions_list", "Director's Cut|Extended|Unrated|Theatrical|Ultimate|Special Edition|Remastered|IMAX|Criterion|Uncut"),
         "plex_versions_release_name": get_setting(db, "plex_versions_release_name", "Release"),
+        "missing_episode_delay_days": int(get_setting(db, "missing_episode_delay_days", "0")),
     }
 
 
@@ -283,6 +285,10 @@ async def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 
     if data.plex_versions_release_name is not None:
         set_setting(db, "plex_versions_release_name", data.plex_versions_release_name.strip())
+
+    if data.missing_episode_delay_days is not None:
+        clamped = max(0, min(7, data.missing_episode_delay_days))
+        set_setting(db, "missing_episode_delay_days", str(clamped))
 
     # Mark setup as completed if API key is set
     if data.tmdb_api_key:
