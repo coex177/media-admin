@@ -100,14 +100,38 @@ def _parse_rss(xml_bytes: bytes) -> tuple[Optional[str], list[dict]]:
 
 
 async def _fetch_feed_xml(url: str) -> bytes:
-    """Fetch feed XML from URL."""
+    """Fetch feed XML from URL.
+
+    Uses FlareSolverr for Cloudflare-protected sites (403 responses),
+    with fallback to direct requests for normal feeds.
+    """
+    flaresolverr_url = "http://127.0.0.1:8191/v1"
     headers = {"User-Agent": "MediaAdmin/1.0 (+RSS reader)"}
+
+    # Try direct request first (faster, works for most feeds)
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
         resp = await client.get(url)
         if resp.status_code == 403:
-            # Some sites block non-browser UAs, others block browser UAs —
-            # retry with a minimal fallback identity
-            resp = await client.get(url, headers={"User-Agent": "curl/8.5"})
+            # Cloudflare-protected — use FlareSolverr
+            logger.info(f"Feed {url} returned 403, trying FlareSolverr")
+            payload = {
+                "cmd": "request.get",
+                "url": url,
+                "maxTimeout": 30000,
+            }
+            async with httpx.AsyncClient(timeout=60.0) as fs_client:
+                fs_resp = await fs_client.post(flaresolverr_url, json=payload)
+                fs_resp.raise_for_status()
+                fs_data = fs_resp.json()
+                if fs_data.get("status") == "ok":
+                    solution = fs_data.get("solution", {})
+                    return solution.get("response", "").encode()
+                else:
+                    raise httpx.HTTPStatusError(
+                        f"FlareSolverr failed: {fs_data}",
+                        request=None,
+                        response=resp,
+                    )
         resp.raise_for_status()
         return resp.content
 
