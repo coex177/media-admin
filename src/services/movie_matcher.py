@@ -5,7 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .file_utils import QUALITY_PATTERNS, SOURCE_PATTERNS
+from .file_utils import (
+    QUALITY_PATTERNS,
+    SOURCE_PATTERNS,
+    extract_quality,
+    extract_release_group,
+    extract_source,
+)
 
 
 @dataclass
@@ -22,12 +28,6 @@ class ParsedMovie:
 
 class MovieMatcherService:
     """Service for parsing movie information from filenames."""
-
-    QUALITY_PATTERNS = QUALITY_PATTERNS
-    SOURCE_PATTERNS = SOURCE_PATTERNS
-
-    # Release group pattern (usually at the end, after a dash)
-    RELEASE_GROUP_PATTERN = r"-([A-Za-z0-9]+)(?:\.[a-z]{3,4})?$"
 
     # Year pattern
     YEAR_PATTERN = r"(?:^|[.\s_\-\[(])((19|20)\d{2})(?:[.\s_\-\])]|$)"
@@ -105,9 +105,9 @@ class MovieMatcherService:
         return ParsedMovie(
             title=title,
             year=year,
-            quality=self._extract_quality(name),
-            source=self._extract_source(name),
-            release_group=self._extract_release_group(name),
+            quality=extract_quality(name),
+            source=extract_source(name),
+            release_group=extract_release_group(name),
             edition=self._extract_edition(name),
         )
 
@@ -129,7 +129,7 @@ class MovieMatcherService:
             # No year found — try to find title before quality/source indicators
             # Cut at the first quality/source indicator
             cut_point = len(name)
-            for pattern in self.QUALITY_PATTERNS + self.SOURCE_PATTERNS:
+            for pattern in QUALITY_PATTERNS + SOURCE_PATTERNS:
                 m = re.search(pattern, name, re.IGNORECASE)
                 if m and m.start() < cut_point:
                     cut_point = m.start()
@@ -158,29 +158,6 @@ class MovieMatcherService:
             # Sanity check: must be a plausible movie year
             if 1900 <= year <= 2099:
                 return year
-        return None
-
-    def _extract_quality(self, filename: str) -> Optional[str]:
-        """Extract video quality from filename."""
-        for pattern in self.QUALITY_PATTERNS:
-            match = re.search(pattern, filename, re.IGNORECASE)
-            if match:
-                return match.group(1).upper()
-        return None
-
-    def _extract_source(self, filename: str) -> Optional[str]:
-        """Extract video source from filename."""
-        for pattern in self.SOURCE_PATTERNS:
-            match = re.search(pattern, filename, re.IGNORECASE)
-            if match:
-                return match.group(1).upper()
-        return None
-
-    def _extract_release_group(self, filename: str) -> Optional[str]:
-        """Extract release group from filename."""
-        match = re.search(self.RELEASE_GROUP_PATTERN, filename)
-        if match:
-            return match.group(1)
         return None
 
     def _extract_edition(self, filename: str) -> Optional[str]:

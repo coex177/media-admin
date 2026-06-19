@@ -1,7 +1,9 @@
 """Shared file utility functions and constants."""
 
+import re
 import shutil
 from pathlib import Path
+from typing import Optional
 
 # Language codes for subtitle/companion file detection
 LANGUAGE_CODES = [
@@ -23,6 +25,35 @@ SOURCE_PATTERNS = [
     r"(AMZN|ATVP|NF|DSNP|HMAX|PCOK|PMTP)",  # Streaming services
     r"(WEB|HDTV|BluRay|DVD)",
 ]
+
+# Release group pattern (usually at the end, after a dash)
+RELEASE_GROUP_PATTERN = r"-([A-Za-z0-9]+)(?:\.[a-z]{3,4})?$"
+
+
+def extract_quality(filename: str) -> Optional[str]:
+    """Extract video quality from a filename (shared by TV and movie matchers)."""
+    for pattern in QUALITY_PATTERNS:
+        match = re.search(pattern, filename, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def extract_source(filename: str) -> Optional[str]:
+    """Extract video source from a filename (shared by TV and movie matchers)."""
+    for pattern in SOURCE_PATTERNS:
+        match = re.search(pattern, filename, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def extract_release_group(filename: str) -> Optional[str]:
+    """Extract release group from a filename (shared by TV and movie matchers)."""
+    match = re.search(RELEASE_GROUP_PATTERN, filename)
+    if match:
+        return match.group(1)
+    return None
 
 
 def sanitize_filename(name: str, replace_colon: bool = False) -> str:

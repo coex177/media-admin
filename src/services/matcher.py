@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .file_utils import QUALITY_PATTERNS, SOURCE_PATTERNS
+from .file_utils import extract_quality, extract_release_group, extract_source
 
 
 @dataclass
@@ -42,12 +42,6 @@ class MatcherService:
         # 101, 102 (3 digit, first digit is season) - be careful with this one
         r"(?:^|[^0-9])(\d)(\d{2})(?:[^0-9]|$)",
     ]
-
-    QUALITY_PATTERNS = QUALITY_PATTERNS
-    SOURCE_PATTERNS = SOURCE_PATTERNS
-
-    # Release group pattern (usually at the end, after a dash)
-    RELEASE_GROUP_PATTERN = r"-([A-Za-z0-9]+)(?:\.[a-z]{3,4})?$"
 
     # Codec patterns that look like episode numbers (e.g. x264, x265, h264, h265, H.265)
     CODEC_FALSE_POSITIVE = re.compile(r"[xXhH]\.?(\d{3})(?:[^0-9]|$)")
@@ -92,9 +86,9 @@ class MatcherService:
                     episode=episode,
                     episode_end=episode_end,
                     title=self._extract_title(name, match),
-                    quality=self._extract_quality(name),
-                    source=self._extract_source(name),
-                    release_group=self._extract_release_group(name),
+                    quality=extract_quality(name),
+                    source=extract_source(name),
+                    release_group=extract_release_group(name),
                     year=self._extract_year(name),
                 )
 
@@ -116,29 +110,6 @@ class MatcherService:
         title = re.sub(r"\s*\(?(19|20)\d{2}\)?\s*$", "", title)
 
         return title.strip() if title.strip() else None
-
-    def _extract_quality(self, filename: str) -> Optional[str]:
-        """Extract video quality from filename."""
-        for pattern in self.QUALITY_PATTERNS:
-            match = re.search(pattern, filename, re.IGNORECASE)
-            if match:
-                return match.group(1).upper()
-        return None
-
-    def _extract_source(self, filename: str) -> Optional[str]:
-        """Extract video source from filename."""
-        for pattern in self.SOURCE_PATTERNS:
-            match = re.search(pattern, filename, re.IGNORECASE)
-            if match:
-                return match.group(1).upper()
-        return None
-
-    def _extract_release_group(self, filename: str) -> Optional[str]:
-        """Extract release group from filename."""
-        match = re.search(self.RELEASE_GROUP_PATTERN, filename)
-        if match:
-            return match.group(1)
-        return None
 
     def _extract_year(self, filename: str) -> Optional[int]:
         """Extract year from filename."""
