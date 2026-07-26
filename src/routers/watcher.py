@@ -589,6 +589,17 @@ def auto_start_watcher(db: Session):
     for folder in tv_folders:
         watcher_service.add_watch_folder(folder.path)
 
+    # ponytail: add_watch_folder() returns False for a missing folder (e.g. ZFS
+    # pool not imported yet), which used to leave the watcher "running" with zero
+    # watches and no visible error. Fail loudly so Restart=on-failure retries.
+    if tv_folders and not watcher_service.watched_paths:
+        missing = ", ".join(f.path for f in tv_folders)
+        log_watcher_event(
+            db, "watcher_started", result="failure",
+            details=f"No watch folders registered (unreachable: {missing})",
+        )
+        raise RuntimeError(f"Watcher has no watchable folders: {missing}")
+
     watcher_service.start()
     log_watcher_event(db, "watcher_started", details="Auto-started on app launch")
     logger.info("Watcher auto-started successfully")
