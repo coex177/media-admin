@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Show, Episode, PendingAction
-from .file_utils import sanitize_filename, move_accompanying_files
+from .file_utils import sanitize_filename, move_accompanying_files, plex_safe_stem
 
 
 @dataclass
@@ -54,7 +54,12 @@ class RenamerService:
             title=safe_title,
         )
 
-        return filename + extension
+        # Bare episode code ('1x02'), used if the title trips a Plex skip rule
+        code = show.episode_format.format(
+            season=episode.season, episode=episode.episode, title=""
+        ).rstrip(" -–")
+
+        return plex_safe_stem(filename, fallback=code) + extension
 
     def generate_multi_episode_filename(
         self, show: Show, episodes: list[Episode], extension: str
@@ -105,7 +110,7 @@ class RenamerService:
             separator = " - "
 
         filename = episode_code + separator + combined_title
-        return filename + extension
+        return plex_safe_stem(filename, fallback=episode_code) + extension
 
     def generate_episode_path(
         self, show: Show, episode: Episode, extension: str

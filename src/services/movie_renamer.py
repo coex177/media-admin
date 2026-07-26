@@ -10,7 +10,11 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Movie
-from .file_utils import sanitize_filename as _sanitize_filename, move_accompanying_files
+from .file_utils import (
+    sanitize_filename as _sanitize_filename,
+    move_accompanying_files,
+    plex_safe_stem,
+)
 
 
 @dataclass
@@ -54,7 +58,9 @@ class MovieRenamerService:
             safe_edition = _sanitize_filename(movie.edition, replace_colon=True)
             filename += f" {{edition-{safe_edition}}}"
 
-        return filename + extension
+        # No fallback: a movie has no episode code to fall back to, and its title
+        # is the match key. De-hyphenating a trailing extras suffix is enough.
+        return plex_safe_stem(filename) + extension
 
     def generate_movie_path(
         self,
