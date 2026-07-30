@@ -160,6 +160,7 @@ Media Admin exposes a REST API on port 8095. Interactive documentation is availa
 | GET | `/api/recently-added` | Recently added shows |
 | GET | `/api/recently-ended` | Recently ended shows |
 | GET | `/api/most-incomplete` | Most incomplete shows |
+| GET | `/api/episode-gaps` | Seasons missing episodes between held ones |
 | GET | `/api/recently-matched` | Recently matched episodes |
 | GET | `/api/returning-soon` | Shows returning soon |
 | GET | `/api/genre-distribution` | Show genre distribution |

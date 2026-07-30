@@ -29,6 +29,7 @@ The dashboard provides an overview of your library with stat cards and content c
 | **Upcoming** | Episodes airing within N days | Episode code, relative date (today/tomorrow/X days), title |
 | **Recently Ended** | Shows with Ended/Canceled status | Poster, name, seasons, episode counts, status badge |
 | **Most Incomplete** | Shows with the most missing episodes | Poster, name, found/aired episodes, completion percentage |
+| **Episode Gaps** | Seasons with missing episodes *between* episodes already collected (trailing/leading gaps and specials excluded; multi-episode files count for every episode they name) | Poster, name, season, missing episode codes |
 | **Recently Matched** | Episodes recently matched by scanner | Episode code, matched date, title |
 | **Returning Soon** | Shows with upcoming `next_episode_air_date` | Poster, name, days until return |
 

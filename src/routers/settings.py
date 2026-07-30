@@ -710,6 +710,39 @@ async def get_most_incomplete(
     return show_data[:limit]
 
 
+@router.get("/episode-gaps")
+async def get_episode_gaps(
+    db: Session = Depends(get_db),
+    limit: int = 20
+):
+    """Get seasons with missing episodes sandwiched between episodes we already hold."""
+    from ..models import Show, Episode, IgnoredEpisode
+    from ..services.episode_gaps import find_gaps
+
+    ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
+
+    episodes_by_show = {}
+    for ep in db.query(Episode).all():
+        # An unaired episode is a schedule, not a gap
+        if ep.file_status == "missing" and not ep.has_aired:
+            continue
+        episodes_by_show.setdefault(ep.show_id, []).append(ep)
+
+    result = []
+    for show in db.query(Show).all():
+        for season, missing in find_gaps(episodes_by_show.get(show.id, []), ignored_ids):
+            result.append({
+                "id": show.id,
+                "name": show.name,
+                "poster_path": show.poster_path,
+                "season": season,
+                "missing_episodes": missing,
+            })
+
+    result.sort(key=lambda r: (r["name"].lower(), r["season"]))
+    return result[:limit]
+
+
 @router.get("/storage-stats")
 async def get_storage_stats(db: Session = Depends(get_db)):
     """Get storage statistics for the library."""

@@ -14,7 +14,7 @@ let hiddenCards = [];
 // Dashboard card states (loaded from DB in checkSetup)
 const defaultCardOrder = [
     'recently-aired', 'upcoming', 'recently-added', 'recently-ended',
-    'most-incomplete', 'recently-matched', 'returning-soon',
+    'most-incomplete', 'episode-gaps', 'recently-matched', 'returning-soon',
     'last-scan', 'storage-stats', 'genre-distribution', 'network-distribution',
     'extra-files',
     'recently-added-movies', 'recently-released-movies',
@@ -30,7 +30,7 @@ let dashboardData = {};
 // Keys in dashboardData that hold arrays (vs objects like lastScan, storageStats)
 const _arrayDataKeys = new Set([
     'recentlyAired', 'recentlyAdded', 'upcoming', 'recentlyEnded',
-    'mostIncomplete', 'recentlyMatched', 'returningSoon',
+    'mostIncomplete', 'episodeGaps', 'recentlyMatched', 'returningSoon',
     'genreDistribution', 'networkDistribution', 'extraFiles',
     'recentlyAddedMovies', 'recentlyReleasedMovies',
     'movieGenreDistribution', 'movieStudioDistribution',
@@ -44,6 +44,7 @@ const cardDataEndpoints = {
     'upcoming':             { key: 'upcoming',             endpoint: '/upcoming' },
     'recently-ended':       { key: 'recentlyEnded',       endpoint: '/recently-ended' },
     'most-incomplete':      { key: 'mostIncomplete',      endpoint: '/most-incomplete' },
+    'episode-gaps':         { key: 'episodeGaps',          endpoint: '/episode-gaps' },
     'recently-matched':     { key: 'recentlyMatched',     endpoint: '/recently-matched' },
     'returning-soon':       { key: 'returningSoon',       endpoint: '/returning-soon' },
     'last-scan':            { key: 'lastScan',            endpoint: '/last-scan' },
@@ -127,7 +128,7 @@ async function ensureCardData(cardId) {
 function renderDashboardContent() {
     const {
         stats, recentlyAired, recentlyAdded, upcoming, recentlyEnded,
-        mostIncomplete, recentlyMatched, returningSoon, lastScan,
+        mostIncomplete, episodeGaps, recentlyMatched, returningSoon, lastScan,
         storageStats, genreDistribution, networkDistribution, settings,
         extraFiles, movieStats,
         recentlyAddedMovies, recentlyReleasedMovies,
@@ -461,6 +462,56 @@ function renderDashboardContent() {
                                                 </div>
                                                 <div class="recent-show-status">
                                                     <span class="badge badge-danger badge-sm">${show.episodes_missing} missing</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
+        'episode-gaps': () => {
+            if (episodeGaps === undefined) return _cardLoading('episode-gaps', 'Episode Gaps');
+            const isOpen = dashboardCardStates['episode-gaps'];
+            return `
+                <div class="card dashboard-card draggable-card" draggable="true" data-card-id="episode-gaps"
+                     ondragstart="handleUnifiedDragStart(event)" ondragover="handleUnifiedDragOver(event)"
+                     ondragleave="handleUnifiedDragLeave(event)" ondrop="handleUnifiedDrop(event)" ondragend="handleUnifiedDragEnd(event)">
+                    <div class="card-header clickable" onclick="toggleDashboardCard('episode-gaps')">
+                        <h2 class="card-title">
+                            <img class="dashboard-card-chevron" id="chevron-episode-gaps" src="/static/images/${isOpen ? 'show-collapse' : 'show-expand'}.png" alt="">
+                            Episode Gaps
+                        </h2>
+                        <span class="text-muted">${episodeGaps.length} seasons</span>
+                        <button class="card-close-btn" onclick="event.stopPropagation(); hideCard('episode-gaps')">&times;</button>
+                    </div>
+                    <div class="dashboard-card-content ${isOpen ? 'open' : ''}" id="content-episode-gaps">
+                        ${episodeGaps.length === 0 ? `
+                            <p class="text-muted text-center" style="padding: 20px;">No gaps between collected episodes</p>
+                        ` : `
+                            <div class="recent-shows-list">
+                                ${episodeGaps.map(gap => {
+                                    const posterUrl = gap.poster_path ? `${getImageUrl(gap.poster_path)}` : null;
+                                    const codes = gap.missing_episodes
+                                        .map(n => formatEpisodeCode(gap.season, n, displayEpFormat))
+                                        .join(', ');
+                                    return `
+                                        <div class="recent-show-item" onclick="showShowDetail(${gap.id}, ${gap.season}, ${gap.missing_episodes[0]})">
+                                            <div class="recent-show-poster">
+                                                ${posterUrl ? `<img src="${posterUrl}" alt="${escapeHtml(gap.name)}">` : `<div class="poster-placeholder"></div>`}
+                                            </div>
+                                            <div class="recent-show-info">
+                                                <div class="recent-show-name">${escapeHtml(gap.name)}</div>
+                                                <div class="recent-show-meta">
+                                                    <span>Season ${gap.season}</span>
+                                                    <span class="text-muted">|</span>
+                                                    <span>${codes}</span>
+                                                </div>
+                                                <div class="recent-show-status">
+                                                    <span class="badge badge-danger badge-sm">${gap.missing_episodes.length} missing</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -1267,6 +1318,7 @@ const cardNameMap = {
     'upcoming': 'Upcoming',
     'recently-ended': 'Recently Ended',
     'most-incomplete': 'Most Incomplete',
+    'episode-gaps': 'Episode Gaps',
     'recently-matched': 'Recently Matched',
     'returning-soon': 'Returning Soon',
     'last-scan': 'Last Scan',
