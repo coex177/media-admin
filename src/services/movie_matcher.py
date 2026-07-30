@@ -229,12 +229,19 @@ class MovieMatcherService:
                 total_words = filename_words | movie_words
                 score = len(common_words) / len(total_words)
 
-        # Year match bonus/penalty
+        # Year match bonus/penalty. Two known years far apart mean different
+        # movies, however well the titles agree — a remake shares its title with
+        # the original ('Supergirl' 2026 vs 1984), so a -0.3 penalty off an exact
+        # 1.0 title match still cleared the 0.7 threshold and hijacked the wrong
+        # movie. Allow 1 year of slack for release-vs-production year drift.
         if year and movie_year:
-            if year == movie_year:
+            drift = abs(year - movie_year)
+            if drift == 0:
                 score = min(score + 0.1, 1.0)
-            else:
+            elif drift == 1:
                 score = max(score - 0.3, 0.0)
+            else:
+                score = 0.0
 
         return score
 
