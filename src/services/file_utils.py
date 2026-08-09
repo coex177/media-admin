@@ -1,9 +1,12 @@
 """Shared file utility functions and constants."""
 
+import logging
 import re
 import shutil
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Language codes for subtitle/companion file detection
 LANGUAGE_CODES = [
@@ -58,6 +61,24 @@ def plex_safe_stem(stem: str, fallback: Optional[str] = None) -> str:
     if fallback and _PLEX_SAMPLE_RE.search(stem):
         return fallback
     return stem
+
+
+def make_plex_readable(path):
+    """Grant group/other read so Plex — which runs as a different user — can scan the file.
+
+    shutil.move/copy2 preserve the source mode, so a file that arrives in a drop
+    folder as 0600 lands in the library as 0600 and Plex skips it silently: no
+    error, no log, just permanently absent from the library.
+
+    ponytail: OR the bits in, never assign a mode — a 0600 source becomes 0664
+    like the rest of the library and nothing already granted is taken away.
+    """
+    path = Path(path)
+    try:
+        path.chmod(path.stat().st_mode | 0o064)
+    except OSError as e:
+        # Don't fail an otherwise-good import; a warning is what was missing before.
+        logger.warning(f"Could not make {path} readable by Plex: {e}")
 
 
 def extract_quality(filename: str) -> Optional[str]:
@@ -122,21 +143,25 @@ def move_accompanying_files(
         if sub_source.exists():
             sub_dest = dest_dir / f"{dest_stem}{ext}"
             shutil.move(str(sub_source), str(sub_dest))
+            make_plex_readable(sub_dest)
 
         for lang in LANGUAGE_CODES:
             sub_source = source_dir / f"{source_stem}.{lang}{ext}"
             if sub_source.exists():
                 sub_dest = dest_dir / f"{dest_stem}.{lang}{ext}"
                 shutil.move(str(sub_source), str(sub_dest))
+                make_plex_readable(sub_dest)
 
     for ext in metadata_extensions:
         meta_source = source_dir / f"{source_stem}{ext}"
         if meta_source.exists():
             meta_dest = dest_dir / f"{dest_stem}{ext}"
             shutil.move(str(meta_source), str(meta_dest))
+            make_plex_readable(meta_dest)
 
     for ext in image_extensions:
         img_source = source_dir / f"{source_stem}{ext}"
         if img_source.exists():
             img_dest = dest_dir / f"{dest_stem}{ext}"
             shutil.move(str(img_source), str(img_dest))
+            make_plex_readable(img_dest)

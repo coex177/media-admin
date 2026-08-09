@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import AppSettings, Episode, Show
 from ..models.library_log import LibraryLog
+from ..services.file_utils import make_plex_readable
 from ..services.renamer import RenamerService
 from ..services.scanner import ScannerService, ScanResult
 
@@ -605,6 +606,7 @@ async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)
 
             # Move the main file
             shutil.move(str(source), str(dest))
+            make_plex_readable(dest)
 
             # Move accompanying files
             renamer._move_accompanying_files(source, dest)
@@ -698,6 +700,7 @@ async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(g
 
             # Move the file
             shutil.move(str(source), str(dest))
+            make_plex_readable(dest)
 
             # Move accompanying files
             renamer._move_accompanying_files(source, dest)

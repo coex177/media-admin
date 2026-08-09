@@ -14,6 +14,7 @@ from .file_utils import (
     sanitize_filename as _sanitize_filename,
     move_accompanying_files,
     plex_safe_stem,
+    make_plex_readable,
 )
 
 
@@ -136,6 +137,7 @@ class MovieRenamerService:
 
             # Move the main file
             shutil.move(str(source_path), str(dest_path))
+            make_plex_readable(dest_path)
 
             # Move accompanying files
             move_accompanying_files(

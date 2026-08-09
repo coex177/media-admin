@@ -18,7 +18,7 @@ from .movie_matcher import MovieMatcherService
 from .quality import QualityService
 from .tmdb import TMDBService
 from .tvdb import TVDBService
-from .file_utils import sanitize_filename, LANGUAGE_CODES
+from .file_utils import sanitize_filename, make_plex_readable, LANGUAGE_CODES
 
 logger = logging.getLogger(__name__)
 
@@ -1104,9 +1104,10 @@ class WatcherPipeline:
                 raise OSError(f"Disk full — cannot copy to {dest_path.parent}")
             raise
 
-        # Rename temp to final and inherit parent ownership
+        # Rename temp to final, inherit parent ownership, ensure Plex can read it
         temp_path.rename(dest_path)
         self._chown_inherit(dest_path)
+        make_plex_readable(dest_path)
 
     def _safe_delete_source(self, file_path: str):
         """Delete the source file, and optionally clean up empty parent dirs."""
@@ -1381,6 +1382,7 @@ class WatcherPipeline:
                 if old_path != new_path:
                     new_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(old_path), str(new_path))
+                    make_plex_readable(new_path)
                     existing_movie.file_path = str(new_path)
                     logger.info(f"Pipeline: renamed existing movie to include edition: {new_path.name}")
             except Exception as e:

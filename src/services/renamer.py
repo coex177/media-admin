@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Show, Episode, PendingAction
-from .file_utils import sanitize_filename, move_accompanying_files, plex_safe_stem
+from .file_utils import sanitize_filename, move_accompanying_files, plex_safe_stem, make_plex_readable
 
 
 @dataclass
@@ -224,6 +224,7 @@ class RenamerService:
 
         # Move the main file
         shutil.move(str(source), str(dest))
+        make_plex_readable(dest)
 
         # Move accompanying files (subtitles, nfo, etc.)
         move_accompanying_files(
@@ -250,6 +251,7 @@ class RenamerService:
 
         # Copy the main file
         shutil.copy2(str(source), str(dest))
+        make_plex_readable(dest)
 
         return RenameResult(
             success=True,

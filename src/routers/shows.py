@@ -20,6 +20,7 @@ from ..models import Show, Episode, AppSettings
 from ..services.tmdb import TMDBService
 from ..services.tvdb import TVDBService
 from ..services.renamer import RenamerService
+from ..services.file_utils import make_plex_readable
 from ..services.pagination import compute_sort_name, compute_page_boundaries
 
 logger = logging.getLogger("scanner")
@@ -1508,6 +1509,7 @@ async def fix_match_execute(
         # Move the file
         try:
             shutil.move(str(source_path), str(target_path))
+            make_plex_readable(target_path)
             renamer._move_accompanying_files(source_path, target_path)
 
             # Update episode record
