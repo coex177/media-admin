@@ -3,19 +3,21 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Boolean, DateTime, Text, Float
+from sqlalchemy import String, Integer, Boolean, DateTime, Text, Float, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
+from .tenant import TenantMixin
 
 
-class Movie(Base):
+class Movie(TenantMixin, Base):
     """Movie model."""
 
     __tablename__ = "movies"
+    __table_args__ = (UniqueConstraint("tenant_id", "tmdb_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    tmdb_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, nullable=True)
+    tmdb_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     title: Mapped[str] = mapped_column(String(500), nullable=False)

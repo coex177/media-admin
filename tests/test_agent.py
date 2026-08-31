@@ -12,6 +12,8 @@ from agent import watch
 from agent.client import Agent
 from agent.config import Config
 from agent.fs import Jail
+from src.models import Agent as AgentRow, Tenant
+from src.routers.auth import token_hash
 from src.services.agent_hub import AgentError, hub, router
 
 
@@ -30,8 +32,11 @@ def test_jail_rejects_escapes(tmp_path):
         jail.check(link / "x")
 
 
-def test_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENT_TOKEN", "t")
+def test_roundtrip(tmp_path, monkeypatch, db):
+    db.add(Tenant(id=1, name="t"))
+    db.commit()
+    db.add(AgentRow(id=1, tenant_id=1, name="paired", token_hash=token_hash("t")))
+    db.commit()
     monkeypatch.setattr(watch, "CHECK_INTERVAL", 1)
     app = FastAPI()
     app.include_router(router)
@@ -52,10 +57,10 @@ def test_roundtrip(tmp_path, monkeypatch):
         cfg = Config(server=url, token="t", roots=[tmp_path], name="test", settle_seconds=1, min_file_mb=0)
         agent = Agent(cfg)
         session = asyncio.create_task(agent.session())
-        while "test" not in hub.agents:
+        while not hub.is_online(1):
             await asyncio.sleep(0.05)
-        proxy = hub.get("test")
-        assert proxy.roots == [str(tmp_path)]
+        proxy = hub.get(1)
+        assert proxy.roots == [str(tmp_path)] and proxy.name == "test" and proxy.tenant_id == 1
 
         (tmp_path / "a.mkv").write_bytes(b"x" * 10)
         (tmp_path / "a.txt").write_bytes(b"x")
@@ -78,6 +83,6 @@ def test_roundtrip(tmp_path, monkeypatch):
         session.cancel()
         server.should_exit = True
         await serve
-        assert "test" not in hub.agents
+        assert not hub.is_online(1)
 
     asyncio.run(main())

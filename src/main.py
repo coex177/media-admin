@@ -4,14 +4,15 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_database
 from .routers import shows_router, scan_router, actions_router, settings_router, watcher_router, movies_router, feeds_router
 from .services.agent_hub import router as agent_router
+from .routers.auth import router as auth_router, require_user
+from .routers.agents import router as agents_router
 
 # Configure logging
 logging.basicConfig(
@@ -157,6 +158,21 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE library_log ADD COLUMN media_type VARCHAR(20)"))
                 conn.commit()
 
+        # Tenancy: every business table gets tenant_id (default 1 = the pre-tenancy install).
+        # ponytail: no REFERENCES clause — SQLite can't add a NOT NULL FK column in place;
+        # the real constraint lives in the model and lands with the Postgres schema.
+        insp = inspect(engine)
+        for table in ("shows", "episodes", "movies", "scan_folders", "pending_actions", "app_settings",
+                      "ignored_episodes", "watcher_log", "library_log", "rss_feeds"):
+            if table in insp.get_table_names() and "tenant_id" not in [c["name"] for c in insp.get_columns(table)]:
+                logger.info(f"Adding tenant_id column to {table}")
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN tenant_id INTEGER NOT NULL DEFAULT 1"))
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_tenant_id ON {table} (tenant_id)"))
+                conn.commit()
+        if conn.execute(text("SELECT COUNT(*) FROM tenants")).scalar() == 0:
+            conn.execute(text("INSERT INTO tenants (id, name, created_at) VALUES (1, 'default', CURRENT_TIMESTAMP)"))
+            conn.commit()
+
         # Add movie columns to watcher_log if missing
         if "watcher_log" in inspector.get_table_names():
             wl_columns = [c["name"] for c in inspector.get_columns("watcher_log")]
@@ -208,24 +224,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Include routers
-app.include_router(shows_router)
-app.include_router(scan_router)
-app.include_router(actions_router)
-app.include_router(settings_router)
-app.include_router(watcher_router)
-app.include_router(movies_router)
-app.include_router(feeds_router)
-app.include_router(agent_router)
+# Every API router is behind require_user, which also scopes the ORM to the caller's tenant.
+# tests/test_tenancy.py asserts no /api route slips through without it.
+AUTHED = [Depends(require_user)]
+app.include_router(auth_router)
+app.include_router(agent_router)          # agents authenticate with their own token
+for r in (shows_router, scan_router, actions_router, settings_router, watcher_router, movies_router, feeds_router, agents_router):
+    app.include_router(r, dependencies=AUTHED)
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"

@@ -4735,3 +4735,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     outline: none;
 }
 
+
+/* ── Auth ── */
+.login-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg-primary, #1a1a2e); z-index: 1000; }
+.login-card { display: flex; flex-direction: column; gap: 12px; width: 320px; padding: 32px; border-radius: 12px; background: var(--bg-secondary, #16213e); text-align: center; }
+.login-card h1 { margin: 0 0 8px; font-size: 1.4rem; }
+.login-card input { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color, #333); background: var(--bg-primary, #1a1a2e); color: inherit; }
+.login-error { color: #e57373; font-size: 0.9rem; }
+.nav-signout { display: block; margin: 12px 20px; font-size: 0.85rem; opacity: 0.6; }
+.nav-signout:hover { opacity: 1; }

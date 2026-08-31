@@ -7,9 +7,10 @@ from sqlalchemy import String, Integer, DateTime, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
+from .tenant import TenantMixin
 
 
-class LibraryLog(Base):
+class LibraryLog(TenantMixin, Base):
     """Log entries for library file operations (renames, imports)."""
 
     __tablename__ = "library_log"

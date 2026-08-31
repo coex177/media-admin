@@ -7,9 +7,10 @@ from sqlalchemy import String, Integer, DateTime, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
+from .tenant import TenantMixin
 
 
-class WatcherLog(Base):
+class WatcherLog(TenantMixin, Base):
     """Log entries for media watcher activity."""
 
     __tablename__ = "watcher_log"

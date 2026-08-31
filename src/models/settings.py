@@ -3,19 +3,21 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import String, Integer, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
+from .tenant import TenantMixin
 
 
-class ScanFolder(Base):
+class ScanFolder(TenantMixin, Base):
     """Scan folder configuration."""
 
     __tablename__ = "scan_folders"
+    __table_args__ = (UniqueConstraint("tenant_id", "path"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    path: Mapped[str] = mapped_column(String(1024), nullable=False, unique=True)
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
     folder_type: Mapped[str] = mapped_column(String(50), nullable=False)
     # Type values: library, download
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -37,7 +39,7 @@ class ScanFolder(Base):
         }
 
 
-class PendingAction(Base):
+class PendingAction(TenantMixin, Base):
     """Pending rename/move actions."""
 
     __tablename__ = "pending_actions"
@@ -89,13 +91,14 @@ class PendingAction(Base):
         }
 
 
-class AppSettings(Base):
+class AppSettings(TenantMixin, Base):
     """Application settings stored in database."""
 
     __tablename__ = "app_settings"
+    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
@@ -105,7 +108,7 @@ class AppSettings(Base):
         return f"<AppSettings(key='{self.key}')>"
 
 
-class IgnoredEpisode(Base):
+class IgnoredEpisode(TenantMixin, Base):
     """Ignored episodes that should not appear in missing lists."""
 
     __tablename__ = "ignored_episodes"

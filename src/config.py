@@ -74,7 +74,7 @@ def get_project_root() -> Path:
 
 def get_data_dir() -> Path:
     """Get the data directory path."""
-    data_dir = get_project_root() / "data"
+    data_dir = Path(os.environ.get("MEDIA_ADMIN_DATA_DIR") or get_project_root() / "data")
     data_dir.mkdir(exist_ok=True)
     return data_dir
 

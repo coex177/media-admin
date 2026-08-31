@@ -8,6 +8,17 @@
     <link rel="icon" href="/static/images/favicon.png" type="image/png">
 </head>
 <body>
+    <div id="login-screen" class="login-screen" hidden>
+        <form id="login-form" class="login-card" autocomplete="on">
+            <img src="/static/images/app-icon.png" alt="" class="sidebar-logo">
+            <h1>Media Admin</h1>
+            <input type="email" id="login-email" placeholder="Email" required autocomplete="username">
+            <input type="password" id="login-password" placeholder="Password" required minlength="8" autocomplete="current-password">
+            <div class="login-error" id="login-error" hidden></div>
+            <button type="submit" class="btn btn-primary">Sign in</button>
+            <button type="button" class="btn" id="login-signup">Create account</button>
+        </form>
+    </div>
     <div class="app-container">
         <!-- Sidebar -->
         <aside class="sidebar">
@@ -57,6 +68,7 @@
                         </a>
                     </li>
                 </ul>
+                <a href="#" id="nav-signout" class="nav-signout" title="Sign out">Sign out</a>
                 <div class="nav-back-section" id="nav-back-section" style="display: none;">
                     <a href="#" id="nav-back-btn" onclick="goBack(); return false;">
                         <span class="nav-icon">&#x2190;</span>

@@ -7,12 +7,13 @@ from sqlalchemy import String, Integer, DateTime, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
+from .tenant import TenantMixin
 
 if TYPE_CHECKING:
     from .show import Show
 
 
-class Episode(Base):
+class Episode(TenantMixin, Base):
     """TV Episode model."""
 
     __tablename__ = "episodes"

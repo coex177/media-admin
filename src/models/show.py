@@ -3,22 +3,24 @@
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import String, Integer, Boolean, DateTime, Text
+from sqlalchemy import String, Integer, Boolean, DateTime, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
+from .tenant import TenantMixin
 
 if TYPE_CHECKING:
     from .episode import Episode
 
 
-class Show(Base):
+class Show(TenantMixin, Base):
     """TV Show model."""
 
     __tablename__ = "shows"
+    __table_args__ = (UniqueConstraint("tenant_id", "tmdb_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    tmdb_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, nullable=True)
+    tmdb_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tvdb_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     metadata_source: Mapped[str] = mapped_column(String(10), default="tmdb", nullable=False)

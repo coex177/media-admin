@@ -89,6 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    initAuthUi();
+
     // Check if setup is completed
     checkSetup();
 
@@ -676,6 +678,10 @@ async function api(endpoint, options = {}) {
             ...options
         });
 
+        if (response.status === 401) {
+            showLogin();
+            throw Object.assign(new Error('Not signed in'), { silent: true });
+        }
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.detail || 'API request failed');
@@ -683,9 +689,41 @@ async function api(endpoint, options = {}) {
 
         return await response.json();
     } catch (error) {
-        showToast(error.message, 'error');
+        if (!error.silent) showToast(error.message, 'error');
         throw error;
     }
+}
+
+// ── Auth ─────────────────────────────────────────────────────────
+function showLogin() {
+    document.getElementById('login-screen').hidden = false;
+    document.querySelector('.app-container').hidden = true;
+}
+
+async function authRequest(path) {
+    const errBox = document.getElementById('login-error');
+    errBox.hidden = true;
+    const res = await fetch(`${API_BASE}/auth/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            email: document.getElementById('login-email').value,
+            password: document.getElementById('login-password').value,
+        }),
+    });
+    if (res.ok) { location.reload(); return; }
+    errBox.textContent = (await res.json()).detail || 'Request failed';
+    errBox.hidden = false;
+}
+
+function initAuthUi() {
+    document.getElementById('login-form').addEventListener('submit', e => { e.preventDefault(); authRequest('login'); });
+    document.getElementById('login-signup').addEventListener('click', () => authRequest('signup'));
+    document.getElementById('nav-signout').addEventListener('click', async e => {
+        e.preventDefault();
+        await fetch(`${API_BASE}/auth/logout`, { method: 'POST' });
+        location.reload();
+    });
 }
 
 // ── UI Preferences (DB-backed) ──────────────────────────────────
@@ -761,6 +799,7 @@ async function loadUiPrefs() {
 // Check Setup Status
 async function checkSetup() {
     try {
+        if ((await fetch(`${API_BASE}/auth/me`)).status === 401) { showLogin(); return; }
         const [settings] = await Promise.all([api('/settings'), loadUiPrefs()]);
         state.settings = settings;
         state.setupCompleted = settings.setup_completed;
