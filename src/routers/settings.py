@@ -1,6 +1,7 @@
 """API endpoints for application settings."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -9,8 +10,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..services.storage import StorageError, storage_for_agent
+from ..services.storage import StorageError, storage_for_agent, storage_for_path
 from ..models import ScanFolder, AppSettings, Agent
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -307,14 +310,20 @@ async def list_folders(db: Session = Depends(get_db)):
 
 
 def _sync_watcher_issues_folder(db: Session):
-    """Sync the watcher service with the current enabled issues folder."""
-    from ..services.watcher import watcher_service
+    """Record the enabled issues folder; a running watcher restarts to pick it up."""
+    from ..models import current_tenant_id
+    from ..services.watch_manager import watch_manager
     issues = db.query(ScanFolder).filter(
         ScanFolder.folder_type == "issues", ScanFolder.enabled == True
     ).first()
-    path = issues.path if issues else ""
-    watcher_service.set_issues_folder(path)
-    set_setting(db, "watcher_issues_folder", path)
+    set_setting(db, "watcher_issues_folder", issues.path if issues else "")
+    tenant_id = current_tenant_id.get()
+    if watch_manager.is_running(tenant_id):
+        watch_manager.stop(tenant_id)
+        try:
+            watch_manager.start(db, tenant_id)
+        except (RuntimeError, StorageError) as e:
+            logger.warning(f"watcher not restarted after issues-folder change: {e}")
 
 
 @router.post("/folders")
@@ -364,7 +373,8 @@ def create_folder(data: FolderCreate, db: Session = Depends(get_db)):
 
 
 @router.delete("/folders/{folder_id}")
-async def delete_folder(folder_id: int, db: Session = Depends(get_db)):
+def delete_folder(folder_id: int, db: Session = Depends(get_db)):
+    # sync: may restart the watcher, which touches storage
     """Remove a scan folder."""
     folder = db.query(ScanFolder).filter(ScanFolder.id == folder_id).first()
     if not folder:
@@ -381,7 +391,8 @@ async def delete_folder(folder_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/folders/{folder_id}/toggle")
-async def toggle_folder(folder_id: int, db: Session = Depends(get_db)):
+def toggle_folder(folder_id: int, db: Session = Depends(get_db)):
+    # sync: may restart the watcher, which touches storage
     """Toggle a folder's enabled status."""
     folder = db.query(ScanFolder).filter(ScanFolder.id == folder_id).first()
     if not folder:
@@ -749,10 +760,9 @@ async def get_episode_gaps(
 
 
 @router.get("/storage-stats")
-async def get_storage_stats(db: Session = Depends(get_db)):
-    """Get storage statistics for the library."""
-    from ..models import Episode
-    import os
+def get_storage_stats(db: Session = Depends(get_db)):
+    """Get storage statistics for the library. Sync: storage calls block a worker thread."""
+    from ..models import Episode, Show
 
     episodes_with_files = (
         db.query(Episode)
@@ -764,14 +774,19 @@ async def get_storage_stats(db: Session = Depends(get_db)):
     file_count = 0
     errors = 0
 
+    # One list() per show folder instead of a stat() per episode — an agent round trip each.
+    sizes: dict[str, int] = {}
+    for show in db.query(Show).filter(Show.folder_path != None).all():
+        try:
+            for e in storage_for_path(db, show.folder_path).list(show.folder_path):
+                sizes[e["path"]] = e["size"]
+        except StorageError:
+            errors += 1
+
     for ep in episodes_with_files:
-        if ep.file_path:
-            try:
-                if os.path.exists(ep.file_path):
-                    total_size += os.path.getsize(ep.file_path)
-                    file_count += 1
-            except (OSError, IOError):
-                errors += 1
+        if ep.file_path and ep.file_path in sizes:
+            total_size += sizes[ep.file_path]
+            file_count += 1
 
     avg_size = total_size / file_count if file_count > 0 else 0
 
@@ -919,35 +934,28 @@ async def get_network_distribution(db: Session = Depends(get_db)):
 
 
 @router.get("/extra-files")
-async def get_extra_files(db: Session = Depends(get_db)):
+def get_extra_files(db: Session = Depends(get_db)):
     """Get shows with more video files on disk than matched episodes in the DB."""
     from ..models import Show, Episode
-    from ..config import settings
-    import os
-    from pathlib import Path
-
-    video_extensions = set(settings.video_extensions)
 
     shows = db.query(Show).filter(Show.folder_path != None).all()
 
     result = []
     for show in shows:
-        if not show.folder_path or not os.path.isdir(show.folder_path):
+        if not show.folder_path:
+            continue
+        try:
+            storage = storage_for_path(db, show.folder_path)
+            if not storage.is_dir(show.folder_path):
+                continue
+            disk_files = len(storage.list(show.folder_path))   # videos only, recursive
+        except StorageError:
             continue
 
         matched_episodes = db.query(Episode).filter(
             Episode.show_id == show.id,
             Episode.file_status != "missing",
         ).count()
-
-        disk_files = 0
-        try:
-            for root, dirs, filenames in os.walk(show.folder_path):
-                for f in filenames:
-                    if Path(f).suffix.lower() in video_extensions:
-                        disk_files += 1
-        except (PermissionError, OSError):
-            continue
 
         if disk_files > matched_episodes:
             result.append({

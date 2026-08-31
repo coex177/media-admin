@@ -2,7 +2,6 @@
 
 import json
 import logging
-import shutil
 import time
 from pathlib import Path
 from typing import Optional
@@ -13,9 +12,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import AppSettings, Episode, Show
+from ..models import AppSettings, Episode, Show, current_tenant_id
 from ..models.library_log import LibraryLog
-from ..services.file_utils import make_plex_readable
+from ..services.storage import StorageError, storage_for_path
 from ..services.renamer import RenamerService
 from ..services.scanner import ScannerService, ScanResult
 
@@ -86,7 +85,7 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
     """
     global _scan_status, _metadata_updates, _download_matches
     import asyncio
-    from ..services.watcher import watcher_service
+    from ..services.watch_manager import watch_manager
     from ..services.tmdb import TMDBService
     from ..services.tvdb import TVDBService
 
@@ -94,7 +93,8 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
     time.sleep(0.5)
 
     # Acquire scan lock so watcher queues files while we scan
-    watcher_service.acquire_scan_lock()
+    _scan_lock = watch_manager.scan_lock(current_tenant_id.get())
+    _scan_held = _scan_lock.acquire(timeout=300)
 
     SessionLocal = db_session_maker()
     db = SessionLocal()
@@ -185,7 +185,8 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
             pass
         loop.close()
         db.close()
-        watcher_service.release_scan_lock()
+        if _scan_held:
+            _scan_lock.release()
 
 
 def _save_setting(db: Session, key: str, value: str):
@@ -201,13 +202,14 @@ def _save_setting(db: Session, key: str, value: str):
 def run_downloads_scan(db_session_maker):
     """Background task for downloads scan."""
     global _scan_status
-    from ..services.watcher import watcher_service
+    from ..services.watch_manager import watch_manager
 
     # Small delay to ensure any recent commits are visible
     time.sleep(0.5)
 
     # Acquire scan lock so watcher queues files while we scan
-    watcher_service.acquire_scan_lock()
+    _scan_lock = watch_manager.scan_lock(current_tenant_id.get())
+    _scan_held = _scan_lock.acquire(timeout=300)
 
     SessionLocal = db_session_maker()
     db = SessionLocal()
@@ -248,18 +250,20 @@ def run_downloads_scan(db_session_maker):
     finally:
         _scan_status["running"] = False
         db.close()
-        watcher_service.release_scan_lock()
+        if _scan_held:
+            _scan_lock.release()
 
 
 def run_single_show_scan(db_session_maker, show_id: int):
     """Background task for scanning a single show only."""
     global _scan_status
-    from ..services.watcher import watcher_service
+    from ..services.watch_manager import watch_manager
 
     logger = logging.getLogger("scanner")
 
     time.sleep(0.3)
-    watcher_service.acquire_scan_lock()
+    _scan_lock = watch_manager.scan_lock(current_tenant_id.get())
+    _scan_held = _scan_lock.acquire(timeout=300)
 
     SessionLocal = db_session_maker()
     db = SessionLocal()
@@ -316,7 +320,8 @@ def run_single_show_scan(db_session_maker, show_id: int):
     finally:
         _scan_status["running"] = False
         db.close()
-        watcher_service.release_scan_lock()
+        if _scan_held:
+            _scan_lock.release()
 
 
 @router.post("/show/{show_id}")
@@ -402,11 +407,15 @@ async def trigger_ongoing_scan(
 
 
 @router.post("/folder")
-async def scan_specific_folder(
+def scan_specific_folder(
     data: ScanFolderRequest,
     scanner: ScannerService = Depends(get_scanner),
 ):
-    """Scan a specific folder."""
+    """Scan a specific folder (must be under a configured scan folder)."""
+    try:
+        storage_for_path(scanner.db, data.path)
+    except StorageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     files = scanner.scan_folder(data.path)
 
     return {
@@ -570,7 +579,7 @@ class ApplyRenamesRequest(BaseModel):
 
 
 @router.post("/apply-renames")
-async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)):
+def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)):
     """Execute selected file renames from the metadata updates list."""
     global _metadata_updates
 
@@ -590,23 +599,25 @@ async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)
         source = Path(preview["current_path"])
         dest = Path(preview["expected_path"])
 
-        if not source.exists():
-            errors.append(f"Source not found: {source.name}")
-            failed += 1
-            continue
+        try:
+            storage = storage_for_path(db, str(dest))
+            if not storage.exists(str(source)):
+                errors.append(f"Source not found: {source.name}")
+                failed += 1
+                continue
 
-        if dest.exists() and str(source) != str(dest):
-            errors.append(f"Destination already exists: {dest.name}")
+            if str(source) != str(dest) and storage.exists(str(dest)):
+                errors.append(f"Destination already exists: {dest.name}")
+                failed += 1
+                continue
+        except StorageError as e:
+            errors.append(f"{source.name}: {e}")
             failed += 1
             continue
 
         try:
-            # Create destination directory
-            dest.parent.mkdir(parents=True, exist_ok=True)
-
-            # Move the main file
-            shutil.move(str(source), str(dest))
-            make_plex_readable(dest)
+            # Move the main file (storage creates parents and makes it Plex-readable)
+            storage.move(str(source), str(dest))
 
             # Move accompanying files
             renamer._move_accompanying_files(source, dest)
@@ -664,7 +675,7 @@ class ImportDownloadsRequest(BaseModel):
 
 
 @router.post("/import-downloads")
-async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)):
+def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)):
     """Import matched files from downloads to library."""
     global _download_matches
 
@@ -684,23 +695,25 @@ async def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(g
         source = Path(match["source_path"])
         dest = Path(match["dest_path"])
 
-        if not source.exists():
-            errors.append(f"Source not found: {source.name}")
-            failed += 1
-            continue
+        try:
+            storage = storage_for_path(db, str(dest))
+            if not storage.exists(str(source)):
+                errors.append(f"Source not found: {source.name}")
+                failed += 1
+                continue
 
-        if dest.exists():
-            errors.append(f"Destination already exists: {dest.name}")
+            if storage.exists(str(dest)):
+                errors.append(f"Destination already exists: {dest.name}")
+                failed += 1
+                continue
+        except StorageError as e:
+            errors.append(f"{source.name}: {e}")
             failed += 1
             continue
 
         try:
-            # Create destination directory
-            dest.parent.mkdir(parents=True, exist_ok=True)
-
-            # Move the file
-            shutil.move(str(source), str(dest))
-            make_plex_readable(dest)
+            # Move the file (storage creates parents and makes it Plex-readable)
+            storage.move(str(source), str(dest))
 
             # Move accompanying files
             renamer._move_accompanying_files(source, dest)
@@ -822,13 +835,14 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
             "detail": detail,
         })
 
-    from ..services.watcher import watcher_service
+    from ..services.watch_manager import watch_manager
 
     # Small delay to ensure any recent commits are visible
     time.sleep(0.3)
 
     # Acquire scan lock so watcher queues files while we scan
-    watcher_service.acquire_scan_lock()
+    _scan_lock = watch_manager.scan_lock(current_tenant_id.get())
+    _scan_held = _scan_lock.acquire(timeout=300)
 
     SessionLocal = db_session_maker()
     db = SessionLocal()
@@ -859,22 +873,23 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
         folder_path = Path(folder.path)
         _library_folder_scan_status["folder_path"] = str(folder_path)
 
-        if not folder_path.exists():
-            log(f"Folder does not exist: {folder_path}", "error")
-            _library_folder_scan_status["result"] = {"error": "Folder does not exist"}
-            return
-
-        update_status(f"Scanning {folder_path.name}...", 5)
-        log(f"Starting scan of: {folder_path}")
-
-        # Get list of subdirectories (each should be a show)
-        show_dirs = []
         try:
-            for item in folder_path.iterdir():
-                if item.is_dir() and not item.name.startswith('.'):
-                    show_dirs.append(item)
-        except PermissionError as e:
-            log(f"Permission denied: {e}", "error")
+            storage = storage_for_path(db, folder.path)
+            if not storage.exists(folder.path):
+                log(f"Folder does not exist: {folder_path}", "error")
+                _library_folder_scan_status["result"] = {"error": "Folder does not exist"}
+                return
+
+            update_status(f"Scanning {folder_path.name}...", 5)
+            log(f"Starting scan of: {folder_path}")
+
+            # Get list of subdirectories (each should be a show)
+            show_dirs = [
+                Path(e["path"]) for e in storage.listdir(folder.path)
+                if e["is_dir"] and not e["name"].startswith('.')
+            ]
+        except StorageError as e:
+            log(f"Storage error: {e}", "error")
             _library_folder_scan_status["result"] = {"error": str(e)}
             return
 
@@ -1285,7 +1300,8 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
             pass
         loop.close()
         db.close()
-        watcher_service.release_scan_lock()
+        if _scan_held:
+            _scan_lock.release()
 
 
 def _count_file_matches(scanner: ScannerService, files: list, episode_list: list, show_dir: Path) -> int:
@@ -1357,7 +1373,7 @@ def _scan_show_folder(scanner: ScannerService, show, show_dir: Path) -> tuple[in
         .all()
     )
     for ep in stale_episodes:
-        if not Path(ep.file_path).exists():
+        if not scanner._exists(ep.file_path):
             ep.file_path = None
             ep.file_status = "missing"
             ep.matched_at = None
@@ -1700,7 +1716,7 @@ class ScanSelectedRequest(BaseModel):
 
 
 @router.post("/selected-episodes")
-async def scan_selected_episodes(
+def scan_selected_episodes(
     data: ScanSelectedRequest,
     db: Session = Depends(get_db),
 ):
@@ -2009,7 +2025,7 @@ async def get_movie_scan_status():
 
 
 @router.post("/movie/{movie_id}")
-async def scan_single_movie(
+def scan_single_movie(
     movie_id: int,
     db: Session = Depends(get_db),
 ):
@@ -2260,7 +2276,7 @@ async def get_movie_discovery_status():
 
 
 @router.get("/movie-rename-previews")
-async def get_movie_rename_previews(db: Session = Depends(get_db)):
+def get_movie_rename_previews(db: Session = Depends(get_db)):
     """Get pending movie rename previews."""
     from ..services.movie_scanner import MovieScannerService
 
@@ -2274,7 +2290,7 @@ async def get_movie_rename_previews(db: Session = Depends(get_db)):
 
 
 @router.post("/apply-movie-renames")
-async def apply_movie_renames(db: Session = Depends(get_db)):
+def apply_movie_renames(db: Session = Depends(get_db)):
     """Execute movie file renames."""
     from ..models import Movie, AppSettings
     from ..services.movie_renamer import MovieRenamerService

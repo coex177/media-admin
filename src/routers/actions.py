@@ -102,7 +102,7 @@ async def get_action(action_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{action_id}/approve")
-async def approve_action(
+def approve_action(
     action_id: int,
     renamer: RenamerService = Depends(get_renamer),
 ):
@@ -121,7 +121,7 @@ async def approve_action(
 
 
 @router.post("/approve-all")
-async def approve_all_actions(
+def approve_all_actions(
     renamer: RenamerService = Depends(get_renamer),
 ):
     """Approve and execute all pending actions."""

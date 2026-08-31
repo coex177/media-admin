@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -15,6 +16,7 @@ from ..database import get_db
 from ..models import Movie, AppSettings
 from ..services.tmdb import TMDBService
 from ..services.movie_scanner import MovieScannerService
+from ..services.storage import StorageError, storage_for_path
 from ..services.pagination import compute_sort_name, compute_page_boundaries
 
 logger = logging.getLogger("movie_scanner")
@@ -65,7 +67,7 @@ def _get_setting(db: Session, key: str, default: str = "") -> str:
 # ── Stats endpoints (must come before parameterized routes) ──
 
 @router.get("/stats")
-async def get_movie_stats(db: Session = Depends(get_db)):
+def get_movie_stats(db: Session = Depends(get_db)):
     """Get movie statistics."""
     total = db.query(func.count(Movie.id)).scalar() or 0
     found = db.query(func.count(Movie.id)).filter(Movie.file_status != "missing").scalar() or 0
@@ -74,12 +76,13 @@ async def get_movie_stats(db: Session = Depends(get_db)):
     # Total storage
     total_size = 0
     movies_with_files = db.query(Movie).filter(Movie.file_path.isnot(None)).all()
+    # ponytail: one stat per movie; cache sizes on the row if this shows up on the agent path
     for movie in movies_with_files:
         try:
-            p = Path(movie.file_path)
-            if p.exists():
-                total_size += p.stat().st_size
-        except (OSError, TypeError):
+            st = storage_for_path(db, movie.file_path).stat(movie.file_path)
+            if st["exists"]:
+                total_size += st["size"]
+        except (StorageError, TypeError):
             pass
 
     return {
@@ -341,7 +344,7 @@ async def list_movies(
 
 
 @router.get("/{movie_id}")
-async def get_movie(movie_id: int, db: Session = Depends(get_db)):
+def get_movie(movie_id: int, db: Session = Depends(get_db)):
     """Get a movie by ID."""
     movie = db.query(Movie).filter(Movie.id == movie_id).first()
     if not movie:
@@ -351,13 +354,14 @@ async def get_movie(movie_id: int, db: Session = Depends(get_db)):
 
     # Check if file exists on disk
     if movie.file_path:
-        file_exists = Path(movie.file_path).exists()
-        movie_dict["file_exists"] = file_exists
-        if file_exists:
-            try:
-                movie_dict["file_size"] = Path(movie.file_path).stat().st_size
-            except OSError:
-                movie_dict["file_size"] = 0
+        try:
+            st = storage_for_path(db, movie.file_path).stat(movie.file_path)
+        except StorageError as e:
+            logger.warning(f"get_movie: {e}")
+            st = {"exists": False}
+        movie_dict["file_exists"] = st["exists"]
+        if st["exists"]:
+            movie_dict["file_size"] = st.get("size", 0)
     else:
         movie_dict["file_exists"] = False
         movie_dict["file_size"] = 0
@@ -407,10 +411,9 @@ async def create_movie(
     db.commit()
     db.refresh(movie)
 
-    # Auto-scan to find the file on disk
+    # Auto-scan to find the file on disk (worker thread: storage is sync)
     try:
-        scanner = MovieScannerService(db)
-        scanner.scan_single_movie(movie)
+        await run_in_threadpool(MovieScannerService(db).scan_single_movie, movie)
         db.refresh(movie)
     except Exception as e:
         logger.warning(f"Auto-scan failed for '{movie.title}': {e}")
@@ -428,6 +431,11 @@ async def update_movie(
         raise HTTPException(status_code=404, detail="Movie not found")
 
     if data.folder_path is not None:
+        if data.folder_path:
+            try:
+                storage_for_path(db, data.folder_path)   # resolution only; must be under a configured folder
+            except StorageError as e:
+                raise HTTPException(status_code=400, detail=str(e))
         movie.folder_path = data.folder_path
     if data.do_rename is not None:
         movie.do_rename = data.do_rename

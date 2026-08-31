@@ -2,8 +2,6 @@
 
 import logging
 import shutil
-import subprocess
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -74,59 +72,44 @@ class QualityService:
 
     @staticmethod
     def is_available() -> bool:
-        """Check if ffprobe is available on the system."""
+        """ffprobe on *this* box — only meaningful for local storage; agents report their own."""
         return shutil.which("ffprobe") is not None
 
     @staticmethod
     def get_ffprobe_path() -> Optional[str]:
-        """Get the full path to ffprobe."""
+        """Get the full path to ffprobe on this box."""
         return shutil.which("ffprobe")
 
     @staticmethod
-    def probe_file(file_path: str) -> Optional[dict]:
-        """Run ffprobe on a file and return the parsed JSON output."""
-        if not QualityService.is_available():
-            logger.warning("ffprobe is not available")
-            return None
+    def probe_file(file_path: str, storage=None) -> Optional[dict]:
+        """ffprobe JSON via the file's storage backend (the owning box runs ffprobe).
 
-        path = Path(file_path)
-        if not path.exists():
-            logger.warning(f"File does not exist: {file_path}")
-            return None
+        ponytail: storage=None falls back to a LocalStorage jailed to the file's
+        parent, for callers not yet passing a backend (watcher_pipeline).
+        """
+        from .storage import LocalStorage, StorageError
 
+        if storage is None:
+            storage = LocalStorage([str(Path(file_path).parent)])
         try:
-            result = subprocess.run(
-                [
-                    "ffprobe",
-                    "-v", "quiet",
-                    "-print_format", "json",
-                    "-show_format",
-                    "-show_streams",
-                    str(path),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode != 0:
-                logger.warning(f"ffprobe failed for {file_path}: {result.stderr}")
+            if not storage.exists(file_path):
+                logger.warning(f"File does not exist: {file_path}")
                 return None
-
-            return json.loads(result.stdout)
-        except subprocess.TimeoutExpired:
-            logger.warning(f"ffprobe timed out for {file_path}")
-            return None
-        except (json.JSONDecodeError, OSError) as e:
+            probe = storage.probe(file_path)
+        except StorageError as e:
             logger.warning(f"ffprobe error for {file_path}: {e}")
             return None
+        if not probe:
+            logger.warning(f"ffprobe unavailable or failed for {file_path}")
+        return probe
 
     @staticmethod
-    def analyze(file_path: str) -> Optional[MediaQuality]:
+    def analyze(file_path: str, storage=None) -> Optional[MediaQuality]:
         """Analyze a video file and return a MediaQuality profile.
 
         Returns None if ffprobe is unavailable or the file can't be probed.
         """
-        probe = QualityService.probe_file(file_path)
+        probe = QualityService.probe_file(file_path, storage)
         if not probe:
             return None
 

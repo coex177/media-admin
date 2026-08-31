@@ -4,7 +4,7 @@
     agent = hub.get(agent_id)
     files = await agent.call("list", root="/mnt/tv")
     await agent.call("move", src=..., dst=...)
-    async for ev in agent.events(): ...
+    agent.on_event.append(lambda ev: ...)   # {'type':'event','event':'stable','path':..,'size':..}
 
 Agents authenticate with a per-agent bearer token (sha256 stored on the agents
 row); the connection is keyed by agent id and scoped to the agent's tenant.
@@ -40,7 +40,7 @@ class AgentProxy:
         self.ffprobe: bool = hello.get("ffprobe", False)
         self._ids = itertools.count(1)
         self._pending: dict[int, asyncio.Future] = {}
-        self._events: asyncio.Queue = asyncio.Queue()
+        self.on_event: list = []   # callables(msg) invoked on the loop thread for each agent event
 
     async def call(self, op: str, timeout: float = 600, **args):
         cid = next(self._ids)
@@ -52,9 +52,6 @@ class AgentProxy:
         finally:
             self._pending.pop(cid, None)
 
-    def events(self) -> asyncio.Queue:
-        return self._events
-
     def _dispatch(self, msg: dict):
         t = msg.get("type")
         if t in ("result", "error"):
@@ -65,7 +62,11 @@ class AgentProxy:
                 else:
                     fut.set_exception(AgentError(msg.get("error", "agent error")))
         elif t == "event":
-            self._events.put_nowait(msg)
+            for cb in self.on_event:
+                try:
+                    cb(msg)
+                except Exception as e:
+                    logger.error(f"agent #{self.id} event handler failed: {e}", exc_info=True)
 
     def _fail_all(self, reason: str):
         for fut in self._pending.values():
@@ -76,6 +77,8 @@ class AgentProxy:
 class AgentHub:
     def __init__(self):
         self.agents: dict[int, AgentProxy] = {}
+        # async callables run as a task for the life of each connection (e.g. the watch manager's event consumer)
+        self.on_connect: list = []
 
     def get(self, agent_id: int) -> AgentProxy:
         try:
@@ -122,12 +125,15 @@ class AgentHub:
             old._fail_all("replaced by a new connection")
             await old.ws.close(code=1000)
         logger.info(f"agent connected: #{agent_id} {proxy.name} v{proxy.version} roots={proxy.roots}")
+        hooks = [asyncio.create_task(h(proxy)) for h in self.on_connect]
         try:
             while True:
                 proxy._dispatch(await ws.receive_json())
         except WebSocketDisconnect:
             pass
         finally:
+            for t in hooks:
+                t.cancel()
             if self.agents.get(agent_id) is proxy:
                 del self.agents[agent_id]
             proxy._fail_all("agent disconnected")

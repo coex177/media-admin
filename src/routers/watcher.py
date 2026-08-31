@@ -3,18 +3,18 @@
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ..database import get_db, get_session_maker
-from ..models import ScanFolder, AppSettings, WatcherLog
-from ..services.watcher import watcher_service
+from ..database import get_db
+from ..models import ScanFolder, AppSettings, WatcherLog, current_tenant_id
+from ..services.watch_manager import watch_manager
 from ..services.quality import QualityService
-from ..services.watcher_pipeline import WatcherPipeline
+from ..services.storage import StorageError, storage_for_path
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +100,9 @@ class WatcherSettingsUpdate(BaseModel):
 # ── Watcher status ──────────────────────────────────────────────────
 
 @router.get("/watcher/status")
-async def get_watcher_status(db: Session = Depends(get_db)):
-    """Get current watcher status and prerequisites."""
-    status = watcher_service.get_status()
+def get_watcher_status(db: Session = Depends(get_db)):
+    """Get current watcher status and prerequisites. Sync: prerequisites touch storage."""
+    status = watch_manager.status(current_tenant_id.get())
 
     # Add prerequisite info
     prerequisites = _check_prerequisites(db)
@@ -116,7 +116,7 @@ async def get_watcher_status(db: Session = Depends(get_db)):
 # ── Watcher start/stop ──────────────────────────────────────────────
 
 @router.post("/watcher/start")
-async def start_watcher(db: Session = Depends(get_db)):
+def start_watcher(db: Session = Depends(get_db)):
     """Start the media watcher after validating prerequisites."""
     prerequisites = _check_prerequisites(db)
     unmet = [p for p in prerequisites if not p["met"]]
@@ -128,22 +128,15 @@ async def start_watcher(db: Session = Depends(get_db)):
             detail=f"Prerequisites not met: {names}",
         )
 
-    if watcher_service.is_running:
+    tenant_id = current_tenant_id.get()
+    if watch_manager.is_running(tenant_id):
         return {"message": "Watcher is already running", "status": "running"}
 
-    # Configure watcher from settings
-    _configure_watcher(db)
-
-    # Add TV folders
-    tv_folders = (
-        db.query(ScanFolder)
-        .filter(ScanFolder.folder_type == "tv", ScanFolder.enabled == True)
-        .all()
-    )
-    for folder in tv_folders:
-        watcher_service.add_watch_folder(folder.path)
-
-    watcher_service.start()
+    try:
+        watch_manager.start(db, tenant_id)
+    except RuntimeError as e:
+        log_watcher_event(db, "watcher_started", result="failure", details=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Mark as enabled
     set_setting(db, "watcher_enabled", "true")
@@ -155,12 +148,13 @@ async def start_watcher(db: Session = Depends(get_db)):
 
 
 @router.post("/watcher/stop")
-async def stop_watcher(db: Session = Depends(get_db)):
+def stop_watcher(db: Session = Depends(get_db)):
     """Stop the media watcher."""
-    if not watcher_service.is_running:
+    tenant_id = current_tenant_id.get()
+    if not watch_manager.is_running(tenant_id):
         return {"message": "Watcher is not running", "status": "stopped"}
 
-    watcher_service.stop()
+    watch_manager.stop(tenant_id)
     set_setting(db, "watcher_enabled", "false")
 
     log_watcher_event(db, "watcher_stopped", details="Watcher stopped by user")
@@ -171,7 +165,7 @@ async def stop_watcher(db: Session = Depends(get_db)):
 # ── Watcher settings ───────────────────────────────────────────────
 
 @router.get("/watcher/settings")
-async def get_watcher_settings(db: Session = Depends(get_db)):
+def get_watcher_settings(db: Session = Depends(get_db)):
     """Get all watcher settings."""
     result = {}
     for key, default in WATCHER_DEFAULTS.items():
@@ -199,27 +193,23 @@ async def get_watcher_settings(db: Session = Depends(get_db)):
 
 
 @router.put("/watcher/settings")
-async def update_watcher_settings(
+def update_watcher_settings(
     data: WatcherSettingsUpdate,
     db: Session = Depends(get_db),
 ):
-    """Update watcher settings."""
+    """Update watcher settings. Sync: storage calls block a worker thread."""
     if data.watcher_issues_folder is not None:
         # Validate path exists or is empty
         if data.watcher_issues_folder:
-            path = Path(data.watcher_issues_folder)
-            if not path.exists():
-                # Create it
-                try:
-                    path.mkdir(parents=True, exist_ok=True)
-                except OSError as e:
-                    raise HTTPException(status_code=400, detail=f"Cannot create issues folder: {e}")
+            # Must live under a configured folder (its agent/local disk creates it if missing)
+            try:
+                storage_for_path(db, data.watcher_issues_folder).mkdir(data.watcher_issues_folder)
+            except StorageError as e:
+                raise HTTPException(status_code=400, detail=f"Cannot create issues folder: {e}")
         set_setting(db, "watcher_issues_folder", data.watcher_issues_folder)
-        watcher_service.set_issues_folder(data.watcher_issues_folder)
 
     if data.watcher_monitor_subfolders is not None:
         set_setting(db, "watcher_monitor_subfolders", "true" if data.watcher_monitor_subfolders else "false")
-        watcher_service.set_monitor_subfolders(data.watcher_monitor_subfolders)
 
     if data.watcher_delete_empty_folders is not None:
         set_setting(db, "watcher_delete_empty_folders", "true" if data.watcher_delete_empty_folders else "false")
@@ -227,7 +217,6 @@ async def update_watcher_settings(
     if data.watcher_min_file_size_mb is not None:
         val = max(0, data.watcher_min_file_size_mb)
         set_setting(db, "watcher_min_file_size_mb", str(val))
-        watcher_service.set_min_file_size(val)
 
     if data.watcher_issues_organization is not None:
         if data.watcher_issues_organization in ("date", "reason", "flat"):
@@ -236,7 +225,6 @@ async def update_watcher_settings(
     if data.watcher_auto_purge_days is not None:
         val = max(0, data.watcher_auto_purge_days)
         set_setting(db, "watcher_auto_purge_days", str(val))
-        watcher_service.set_auto_purge_days(val)
 
     if data.watcher_companion_types is not None:
         set_setting(db, "watcher_companion_types", json.dumps(data.watcher_companion_types))
@@ -244,7 +232,16 @@ async def update_watcher_settings(
     if data.watcher_quality_priorities is not None:
         set_setting(db, "watcher_quality_priorities", json.dumps(data.watcher_quality_priorities))
 
-    return await get_watcher_settings(db)
+    # Settings are read at start; a running watcher restarts to pick them up.
+    tenant_id = current_tenant_id.get()
+    if watch_manager.is_running(tenant_id):
+        watch_manager.stop(tenant_id)
+        try:
+            watch_manager.start(db, tenant_id)
+        except RuntimeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    return get_watcher_settings(db)
 
 
 # ── Watcher log ─────────────────────────────────────────────────────
@@ -328,45 +325,58 @@ async def delete_watcher_log_entry(entry_id: int, db: Session = Depends(get_db))
 
 # ── Issues folder browsing ───────────────────────────────────────
 
-@router.get("/watcher/issues")
-async def get_issues_files(db: Session = Depends(get_db)):
-    """List all files in the configured issues folder."""
+def _issues_folder(db: Session) -> str:
     issues_entry = (
         db.query(ScanFolder)
         .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
         .first()
     )
-    issues_folder = issues_entry.path if issues_entry else ""
+    return issues_entry.path if issues_entry else ""
 
-    if not issues_folder or not Path(issues_folder).is_dir():
-        return {"total": 0, "issues_folder": issues_folder, "files": []}
 
-    root = Path(issues_folder)
-    files = []
-    for f in root.rglob("*"):
-        if not f.is_file():
+def _prune_empty_dirs(storage, root: str, dirs: set[str]):
+    """rmdir candidate dirs deepest-first; rmdir is non-recursive so non-empty ones just stay."""
+    for d in sorted(dirs, key=lambda p: len(PurePath(p).parts), reverse=True):
+        if d == root:
             continue
         try:
-            stat = f.stat()
-            rel = f.relative_to(root)
-            # Subfolder is the first parent component relative to root, or empty
-            subfolder = str(rel.parent) if str(rel.parent) != "." else ""
-            files.append({
-                "name": f.name,
-                "path": str(rel),
-                "full_path": str(f),
-                "size": stat.st_size,
-                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "subfolder": subfolder,
-            })
-        except OSError:
+            storage.rmdir(d)
+        except StorageError:
             continue
+
+
+@router.get("/watcher/issues")
+def get_issues_files(db: Session = Depends(get_db)):
+    """List all files in the configured issues folder (via its storage backend)."""
+    issues_folder = _issues_folder(db)
+    try:
+        if not issues_folder or not storage_for_path(db, issues_folder).is_dir(issues_folder):
+            return {"total": 0, "issues_folder": issues_folder, "files": []}
+        entries = storage_for_path(db, issues_folder).list(issues_folder, videos_only=False)
+    except StorageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    root = PurePath(issues_folder)
+    files = []
+    for e in entries:
+        f = PurePath(e["path"])
+        rel = f.relative_to(root)
+        # Subfolder is the parent path relative to root, or empty
+        subfolder = str(rel.parent) if str(rel.parent) != "." else ""
+        files.append({
+            "name": f.name,
+            "path": str(rel),
+            "full_path": str(f),
+            "size": e["size"],
+            "modified": datetime.fromtimestamp(e["mtime"]).isoformat(),
+            "subfolder": subfolder,
+        })
 
     return {"total": len(files), "issues_folder": issues_folder, "files": files}
 
 
 @router.delete("/watcher/issues")
-async def delete_issues_file(
+def delete_issues_file(
     body: dict = Body(...),
     db: Session = Depends(get_db),
 ):
@@ -375,71 +385,57 @@ async def delete_issues_file(
     if not rel_path:
         raise HTTPException(status_code=400, detail="Missing 'path' in request body")
 
-    issues_entry = (
-        db.query(ScanFolder)
-        .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
-        .first()
-    )
-    issues_folder = issues_entry.path if issues_entry else ""
+    issues_folder = _issues_folder(db)
     if not issues_folder:
         raise HTTPException(status_code=400, detail="Issues folder not configured")
 
-    root = Path(issues_folder).resolve()
-    target = (root / rel_path).resolve()
-
-    # Prevent path traversal
-    if not str(target).startswith(str(root)):
+    # Traversal guard: a pure path check here, and the owning box's jail re-checks the real path.
+    root = PurePath(issues_folder)
+    target = root / rel_path
+    if ".." in target.parts or not target.is_relative_to(root) or target == root:
         raise HTTPException(status_code=400, detail="Invalid path")
 
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-
-    target.unlink()
-
-    # Clean up empty parent directories up to the issues root
-    parent = target.parent
-    while parent != root and parent.is_dir():
-        try:
-            parent.rmdir()  # Only succeeds if empty
-            parent = parent.parent
-        except OSError:
-            break
+    try:
+        storage = storage_for_path(db, str(target))
+        if not storage.is_file(str(target)):
+            raise HTTPException(status_code=404, detail="File not found")
+        storage.delete(str(target))
+        # Clean up empty parent directories up to the issues root
+        _prune_empty_dirs(storage, issues_folder, {str(p) for p in target.parents if p.is_relative_to(root)})
+    except StorageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return {"message": "File deleted"}
 
 
 @router.delete("/watcher/issues/all")
-async def delete_all_issues_files(db: Session = Depends(get_db)):
+def delete_all_issues_files(db: Session = Depends(get_db)):
     """Delete all files in the issues folder."""
-    issues_entry = (
-        db.query(ScanFolder)
-        .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
-        .first()
-    )
-    issues_folder = issues_entry.path if issues_entry else ""
+    issues_folder = _issues_folder(db)
     if not issues_folder:
         raise HTTPException(status_code=400, detail="Issues folder not configured")
 
-    root = Path(issues_folder)
-    if not root.is_dir():
-        return {"message": "Deleted 0 files", "deleted": 0}
+    try:
+        storage = storage_for_path(db, issues_folder)
+        if not storage.is_dir(issues_folder):
+            return {"message": "Deleted 0 files", "deleted": 0}
+        entries = storage.list(issues_folder, videos_only=False)
+    except StorageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
+    root = PurePath(issues_folder)
     deleted = 0
-    for f in list(root.rglob("*")):
-        if f.is_file():
-            try:
-                f.unlink()
-                deleted += 1
-            except OSError:
-                continue
+    dirs: set[str] = set()
+    for e in entries:
+        try:
+            storage.delete(e["path"])
+            deleted += 1
+        except StorageError:
+            continue
+        dirs.update(str(p) for p in PurePath(e["path"]).parents if p.is_relative_to(root))
 
     # Clean up empty subdirectories
-    for d in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-        if d.is_dir():
-            try:
-                d.rmdir()
-            except OSError:
-                continue
+    _prune_empty_dirs(storage, issues_folder, dirs)
 
     return {"message": f"Deleted {deleted} files", "deleted": deleted}
 
@@ -467,7 +463,10 @@ def _check_prerequisites(db: Session) -> list[dict]:
         .first()
     )
     issues_folder = issues_entry.path if issues_entry else ""
-    issues_ok = bool(issues_folder) and Path(issues_folder).is_dir()
+    try:
+        issues_ok = bool(issues_folder) and storage_for_path(db, issues_folder).is_dir(issues_folder)
+    except StorageError:
+        issues_ok = False
     results.append({
         "name": "Issues Folder",
         "key": "issues_folder",
@@ -511,95 +510,3 @@ def _check_prerequisites(db: Session) -> list[dict]:
     })
 
     return results
-
-
-def _make_pipeline_callback():
-    """Create a callback that processes files through the watcher pipeline.
-
-    Each invocation opens a fresh DB session (the callback runs in the
-    watcher's background maturity thread, not in a request context).
-    """
-
-    def callback(file_path: str):
-        session_factory = get_session_maker()
-        db = session_factory()
-        try:
-            pipeline = WatcherPipeline(db)
-            pipeline.process_file(file_path)
-        except Exception as e:
-            logger.error(f"Pipeline callback error: {e}", exc_info=True)
-            db.rollback()
-        finally:
-            db.close()
-
-    return callback
-
-
-def _configure_watcher(db: Session):
-    """Apply stored settings to the watcher service instance."""
-    monitor_subfolders = get_setting(db, "watcher_monitor_subfolders", "true") == "true"
-    watcher_service.set_monitor_subfolders(monitor_subfolders)
-
-    try:
-        min_size = int(get_setting(db, "watcher_min_file_size_mb", "50"))
-    except ValueError:
-        min_size = 50
-    watcher_service.set_min_file_size(min_size)
-
-    # Auto-purge settings
-    try:
-        purge_days = int(get_setting(db, "watcher_auto_purge_days", "0"))
-    except ValueError:
-        purge_days = 0
-    watcher_service.set_auto_purge_days(purge_days)
-
-    # Read issues folder from scan_folders table
-    issues_entry = (
-        db.query(ScanFolder)
-        .filter(ScanFolder.folder_type == "issues", ScanFolder.enabled == True)
-        .first()
-    )
-    watcher_service.set_issues_folder(issues_entry.path if issues_entry else "")
-
-    # Set the pipeline callback
-    watcher_service.set_callback(_make_pipeline_callback())
-
-
-def auto_start_watcher(db: Session):
-    """Auto-start the watcher if it was previously enabled. Called during app startup."""
-    enabled = get_setting(db, "watcher_enabled", "false") == "true"
-    if not enabled:
-        logger.info("Watcher auto-start: disabled in settings")
-        return
-
-    prerequisites = _check_prerequisites(db)
-    unmet = [p for p in prerequisites if not p["met"]]
-    if unmet:
-        names = ", ".join(p["name"] for p in unmet)
-        logger.warning(f"Watcher auto-start: prerequisites not met ({names})")
-        return
-
-    _configure_watcher(db)
-
-    tv_folders = (
-        db.query(ScanFolder)
-        .filter(ScanFolder.folder_type == "tv", ScanFolder.enabled == True)
-        .all()
-    )
-    for folder in tv_folders:
-        watcher_service.add_watch_folder(folder.path)
-
-    # ponytail: add_watch_folder() returns False for a missing folder (e.g. ZFS
-    # pool not imported yet), which used to leave the watcher "running" with zero
-    # watches and no visible error. Fail loudly so Restart=on-failure retries.
-    if tv_folders and not watcher_service.watched_paths:
-        missing = ", ".join(f.path for f in tv_folders)
-        log_watcher_event(
-            db, "watcher_started", result="failure",
-            details=f"No watch folders registered (unreachable: {missing})",
-        )
-        raise RuntimeError(f"Watcher has no watchable folders: {missing}")
-
-    watcher_service.start()
-    log_watcher_event(db, "watcher_started", details="Auto-started on app launch")
-    logger.info("Watcher auto-started successfully")

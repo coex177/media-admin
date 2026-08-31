@@ -7,13 +7,15 @@ async function renderSettings() {
     appContent.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
     try {
-        const [settings, folders] = await Promise.all([
+        const [settings, folders, agents] = await Promise.all([
             api('/settings'),
-            api('/folders')
+            api('/folders'),
+            api('/agents')
         ]);
 
         state.settings = settings;
         state.folders = folders;
+        state.agents = agents;
 
         // Store original values for reset functionality
         state.originalSettings = { ...settings };
@@ -480,6 +482,81 @@ function updateMovieFormatPreview() {
     }
 }
 
+function agentName(agentId) {
+    const a = (state.agents || []).find(a => a.id === agentId);
+    return a ? a.name : `#${agentId}`;
+}
+
+function folderPathCell(folder) {
+    const where = folder.agent_id ? `<span class="badge badge-info" title="on agent">${escapeHtml(agentName(folder.agent_id))}</span> ` : '';
+    return `${where}${escapeHtml(folder.path)}`;
+}
+
+function renderAgentsCard() {
+    const agents = state.agents || [];
+    return `
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Agents</h2>
+                <button class="btn btn-sm btn-primary" onclick="showAddAgentModal()">+ Pair Agent</button>
+            </div>
+            <p class="text-muted">An agent runs on the machine that holds your media and executes file operations there. Folders below can live on an agent or on this server.</p>
+            ${agents.length === 0 ? `<p class="text-muted">No agents paired.</p>` : `
+                <table class="folders-table">
+                    <thead><tr><th>Name</th><th>Status</th><th>Roots</th><th>Last seen</th><th>Actions</th></tr></thead>
+                    <tbody>
+                        ${agents.map(a => `
+                            <tr>
+                                <td>${escapeHtml(a.name)}</td>
+                                <td><span class="badge ${a.online ? 'badge-success' : 'badge-warning'}">${a.online ? 'Online' : 'Offline'}</span></td>
+                                <td class="text-muted">${(a.roots || []).map(escapeHtml).join('<br>') || '—'}</td>
+                                <td class="text-muted">${a.last_seen ? new Date(a.last_seen + 'Z').toLocaleString() : '—'}</td>
+                                <td><button class="btn btn-sm btn-danger" onclick="deleteAgent(${a.id})">Revoke</button></td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>`}
+        </div>`;
+}
+
+function showAddAgentModal() {
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').textContent = 'Pair Agent';
+    document.getElementById('modal-body').innerHTML = `
+        <div class="form-group">
+            <label>Agent name</label>
+            <input type="text" id="new-agent-name" class="form-control" placeholder="nas">
+        </div>
+        <button class="btn btn-primary" onclick="createAgent()">Create</button>`;
+    modal.classList.add('active');
+}
+
+async function createAgent() {
+    const name = document.getElementById('new-agent-name').value.trim();
+    if (!name) { showToast('Please enter a name', 'warning'); return; }
+    try {
+        const a = await api('/agents', { method: 'POST', body: JSON.stringify({ name }) });
+        state.agents = await api('/agents');
+        document.getElementById('modal-title').textContent = 'Agent token';
+        document.getElementById('modal-body').innerHTML = `
+            <p>Put this in the agent's <code>agent.toml</code>. It is shown <strong>once</strong>.</p>
+            <pre class="agent-token" style="user-select: all; white-space: pre-wrap; word-break: break-all;">${escapeHtml(a.token)}</pre>
+            <pre class="text-muted" style="white-space: pre-wrap;">server = "${escapeHtml(location.origin.replace(/^http/, 'ws'))}/api/agent/ws"
+token = "${escapeHtml(a.token)}"
+roots = ["/path/to/tv", "/path/to/downloads"]</pre>
+            <button class="btn btn-primary" onclick="closeModal(); renderSettingsTabContent('folders')">Done</button>`;
+    } catch (e) { /* toast shown by api() */ }
+}
+
+async function deleteAgent(agentId) {
+    if (!confirm('Revoke this agent? It will be disconnected and folders on it become unreachable.')) return;
+    try {
+        await api(`/agents/${agentId}`, { method: 'DELETE' });
+        state.agents = await api('/agents');
+        renderSettingsTabContent('folders');
+        showToast('Agent revoked', 'success');
+    } catch (e) { /* toast shown by api() */ }
+}
+
 function renderSettingsFolders(settings, folders) {
     const libraryFolders = folders.filter(f => f.type === 'library');
     const tvFolders = folders.filter(f => f.type === 'tv');
@@ -487,6 +564,7 @@ function renderSettingsFolders(settings, folders) {
     const movieLibraryFolders = folders.filter(f => f.type === 'movie_library');
 
     return `
+        ${renderAgentsCard()}
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Shows Library Folders</h2>
@@ -506,7 +584,7 @@ function renderSettingsFolders(settings, folders) {
                     <tbody>
                         ${libraryFolders.map(folder => `
                             <tr data-folder-id="${folder.id}">
-                                <td>${escapeHtml(folder.path)}</td>
+                                <td>${folderPathCell(folder)}</td>
                                 <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
                                 <td>
                                     <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
@@ -538,7 +616,7 @@ function renderSettingsFolders(settings, folders) {
                     <tbody>
                         ${movieLibraryFolders.map(folder => `
                             <tr data-folder-id="${folder.id}">
-                                <td>${escapeHtml(folder.path)}</td>
+                                <td>${folderPathCell(folder)}</td>
                                 <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
                                 <td>
                                     <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
@@ -571,7 +649,7 @@ function renderSettingsFolders(settings, folders) {
                     <tbody>
                         ${tvFolders.map(folder => `
                             <tr data-folder-id="${folder.id}">
-                                <td>${escapeHtml(folder.path)}</td>
+                                <td>${folderPathCell(folder)}</td>
                                 <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
                                 <td>
                                     <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
@@ -603,7 +681,7 @@ function renderSettingsFolders(settings, folders) {
                     <tbody>
                         ${issuesFolders.map(folder => `
                             <tr data-folder-id="${folder.id}">
-                                <td>${escapeHtml(folder.path)}</td>
+                                <td>${folderPathCell(folder)}</td>
                                 <td class="folder-status"><span class="badge ${folder.enabled ? 'badge-success' : 'badge-warning'}">${folder.enabled ? 'Enabled' : 'Disabled'}</span></td>
                                 <td>
                                     <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${folder.id})">${folder.enabled ? 'Disable' : 'Enable'}</button>
@@ -895,6 +973,13 @@ function showAddFolderModal(folderType) {
     modalTitle.textContent = `Add ${typeLabel} Folder`;
     modalBody.innerHTML = `
         <div class="form-group">
+            <label>Location</label>
+            <select id="new-folder-agent" class="form-control">
+                <option value="">This server (local disk)</option>
+                ${(state.agents || []).map(a => `<option value="${a.id}">${escapeHtml(a.name)}${a.online ? '' : ' (offline)'}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group">
             <label>Folder Path</label>
             <input type="text" id="new-folder-path" class="form-control" placeholder="/path/to/folder">
         </div>
@@ -912,9 +997,11 @@ async function addFolder(folderType) {
     }
 
     try {
+        const agentSel = document.getElementById('new-folder-agent');
+        const agent_id = agentSel && agentSel.value ? parseInt(agentSel.value, 10) : null;
         const newFolder = await api('/folders', {
             method: 'POST',
-            body: JSON.stringify({ path, type: folderType })
+            body: JSON.stringify({ path, type: folderType, agent_id })
         });
 
         // Close modal first so user sees immediate feedback
@@ -942,7 +1029,7 @@ async function addFolder(folderType) {
         // Create the new row HTML
         const newRowHtml = `
             <tr data-folder-id="${newFolder.id}">
-                <td>${escapeHtml(newFolder.path)}</td>
+                <td>${folderPathCell(newFolder)}</td>
                 <td class="folder-status"><span class="badge ${newFolder.enabled ? 'badge-success' : 'badge-warning'}">${newFolder.enabled ? 'Enabled' : 'Disabled'}</span></td>
                 <td>
                     <button class="btn btn-sm btn-secondary folder-toggle-btn" onclick="toggleFolder(${newFolder.id})">${newFolder.enabled ? 'Disable' : 'Enable'}</button>

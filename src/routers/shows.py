@@ -3,14 +3,13 @@
 import asyncio
 import json
 import logging
-import os
 import re
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -20,7 +19,7 @@ from ..models import Show, Episode, AppSettings
 from ..services.tmdb import TMDBService
 from ..services.tvdb import TVDBService
 from ..services.renamer import RenamerService
-from ..services.file_utils import make_plex_readable
+from ..services.storage import StorageError, storage_for_path
 from ..services.pagination import compute_sort_name, compute_page_boundaries
 
 logger = logging.getLogger("scanner")
@@ -238,7 +237,7 @@ async def list_shows(
 
 
 @router.get("/{show_id}")
-async def get_show(show_id: int, db: Session = Depends(get_db)):
+def get_show(show_id: int, db: Session = Depends(get_db)):
     """Get a show by ID with episodes."""
     from ..models import IgnoredEpisode
 
@@ -299,17 +298,16 @@ async def get_show(show_id: int, db: Session = Depends(get_db)):
             ep.file_path for ep in episodes if ep.file_path
         )
         try:
-            for root, dirs, filenames in os.walk(show.folder_path):
-                for f in sorted(filenames):
-                    if Path(f).suffix.lower() in video_extensions:
-                        full_path = os.path.join(root, f)
-                        if full_path not in matched_paths:
-                            extra_files.append({
-                                "filename": f,
-                                "path": full_path,
-                            })
-        except (PermissionError, OSError):
-            pass
+            storage = storage_for_path(db, show.folder_path)
+            if storage.exists(show.folder_path):
+                for entry in sorted(storage.list(show.folder_path), key=lambda e: e["path"]):
+                    if Path(entry["path"]).suffix.lower() in video_extensions and entry["path"] not in matched_paths:
+                        extra_files.append({
+                            "filename": Path(entry["path"]).name,
+                            "path": entry["path"],
+                        })
+        except StorageError as e:
+            logger.warning(f"get_show extra files: {e}")
     show_dict["extra_files"] = extra_files
 
     return show_dict
@@ -488,7 +486,7 @@ async def create_show(
         overview=show_data.get("overview"),
         poster_path=show_data.get("poster_path"),
         backdrop_path=show_data.get("backdrop_path"),
-        folder_path=data.folder_path,
+        folder_path=_checked_folder_path(db, data.folder_path),
         status=show_data.get("status", "Unknown"),
         first_air_date=show_data.get("first_air_date"),
         number_of_seasons=show_data.get("number_of_seasons", 0),
@@ -539,7 +537,7 @@ async def update_show(
         raise HTTPException(status_code=404, detail="Show not found")
 
     if data.folder_path is not None:
-        show.folder_path = data.folder_path
+        show.folder_path = _checked_folder_path(db, data.folder_path)
     if data.season_format is not None:
         show.season_format = data.season_format
     if data.episode_format is not None:
@@ -570,6 +568,17 @@ async def delete_show(show_id: int, db: Session = Depends(get_db)):
     return {"message": "Show deleted"}
 
 
+def _checked_folder_path(db: Session, folder_path: Optional[str]) -> Optional[str]:
+    """A client-supplied folder must sit under a configured scan folder (400 otherwise)."""
+    if not folder_path:
+        return folder_path
+    try:
+        storage_for_path(db, folder_path)
+    except StorageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return folder_path
+
+
 def _rename_show_folder_if_year_wrong(db: Session, show: Show) -> bool:
     """Rename the show's folder if the year in the folder name doesn't match.
 
@@ -583,7 +592,12 @@ def _rename_show_folder_if_year_wrong(db: Session, show: Show) -> bool:
         return False
 
     folder = Path(show.folder_path)
-    if not folder.exists():
+    try:
+        storage = storage_for_path(db, show.folder_path)
+        if not storage.exists(show.folder_path):
+            return False
+    except StorageError as e:
+        logger.warning(f"Cannot rename folder for '{show.name}': {e}")
         return False
 
     # Extract year from folder name
@@ -606,12 +620,12 @@ def _rename_show_folder_if_year_wrong(db: Session, show: Show) -> bool:
     new_folder_name = folder.name[:folder_year_match.start()] + f"({correct_year})"
     new_folder = folder.parent / new_folder_name
 
-    if new_folder.exists():
+    if storage.exists(str(new_folder)):
         logger.warning(f"Cannot rename folder — destination already exists: {new_folder}")
         return False
 
     try:
-        shutil.move(str(folder), str(new_folder))
+        storage.move(str(folder), str(new_folder))
         logger.info(f"Renamed show folder: {folder.name} → {new_folder.name}")
 
         old_prefix = str(folder)
@@ -676,7 +690,12 @@ def _rename_episodes_to_match_metadata(db: Session, show: Show) -> int:
 
     for file_path, eps in path_to_episodes.items():
         current_path = Path(file_path)
-        if not current_path.exists():
+        try:
+            storage = storage_for_path(db, file_path)
+            if not storage.exists(file_path):
+                continue
+        except StorageError as e:
+            logger.warning("Rename skipped for %s: %s", file_path, e)
             continue
 
         extension = current_path.suffix
@@ -695,16 +714,14 @@ def _rename_episodes_to_match_metadata(db: Session, show: Show) -> int:
             continue  # Already named correctly
 
         # Avoid overwriting an existing different file
-        if expected_path.exists() and expected_path != current_path:
+        if expected_path != current_path and storage.exists(str(expected_path)):
             logger.warning(
                 "Rename skipped – destination already exists: %s", expected_path
             )
             continue
 
-        expected_path.parent.mkdir(parents=True, exist_ok=True)
-
         try:
-            shutil.move(str(current_path), str(expected_path))
+            storage.move(str(current_path), str(expected_path))
             renamer._move_accompanying_files(current_path, expected_path)
 
             for ep in eps:
@@ -803,19 +820,25 @@ async def refresh_show(
     db.commit()
     db.refresh(show)
 
-    # Rescan the show's folder to re-match files against updated episode list
+    # Disk work runs in a worker thread: storage is sync and refuses the event loop.
+    await run_in_threadpool(_rescan_and_rename_after_refresh, db, show)
+    db.refresh(show)
+
+    return show.to_dict()
+
+
+def _rescan_and_rename_after_refresh(db: Session, show: Show):
+    """Re-match files, discover the folder if nothing matched, fix folder year, rename files."""
     from ..services.scanner import ScannerService
     from ..routers.scan import _scan_show_folder
 
     scanner = ScannerService(db)
     matched_count = 0
 
-    if show.folder_path:
-        show_dir = Path(show.folder_path)
-        if show_dir.exists():
-            matched_count, _ = _scan_show_folder(scanner, show, show_dir)
-            db.commit()
-            db.refresh(show)
+    if show.folder_path and scanner._exists(show.folder_path):
+        matched_count, _ = _scan_show_folder(scanner, show, Path(show.folder_path))
+        db.commit()
+        db.refresh(show)
 
     # If no files matched, try discovering the correct folder in library folders
     if matched_count == 0:
@@ -824,9 +847,8 @@ async def refresh_show(
             logger.info(f"Refresh: discovered existing folder for '{show.name}': {discovered}")
             show.folder_path = discovered
             db.commit()
-            show_dir = Path(discovered)
-            if show_dir.exists():
-                _scan_show_folder(scanner, show, show_dir)
+            if scanner._exists(discovered):
+                _scan_show_folder(scanner, show, Path(discovered))
                 db.commit()
                 db.refresh(show)
 
@@ -835,9 +857,6 @@ async def refresh_show(
 
     # Rename files on disk to match updated metadata
     _rename_episodes_to_match_metadata(db, show)
-    db.refresh(show)
-
-    return show.to_dict()
 
 
 @router.post("/{show_id}/switch-source")
@@ -924,18 +943,22 @@ async def switch_metadata_source(
     db.refresh(show)
 
     # Rescan the show's folder to re-match files against new episode structure
-    if show.folder_path:
-        from ..services.scanner import ScannerService
-        from ..routers.scan import _scan_show_folder
-
-        show_dir = Path(show.folder_path)
-        if show_dir.exists():
-            scanner = ScannerService(db)
-            _scan_show_folder(scanner, show, show_dir)
-            db.commit()
-            db.refresh(show)
+    await run_in_threadpool(_rescan_show_folder, db, show)
+    db.refresh(show)
 
     return show.to_dict()
+
+
+def _rescan_show_folder(db: Session, show: Show):
+    if not show.folder_path:
+        return
+    from ..services.scanner import ScannerService
+    from ..routers.scan import _scan_show_folder
+
+    scanner = ScannerService(db)
+    if scanner._exists(show.folder_path):
+        _scan_show_folder(scanner, show, Path(show.folder_path))
+        db.commit()
 
 
 @router.post("/{show_id}/switch-season-type")
@@ -1002,20 +1025,9 @@ async def switch_season_type(
     db.commit()
     db.refresh(show)
 
-    # Rescan the show's folder to re-match files against new episode structure
-    if show.folder_path:
-        from ..services.scanner import ScannerService
-        from ..routers.scan import _scan_show_folder
-
-        show_dir = Path(show.folder_path)
-        if show_dir.exists():
-            scanner = ScannerService(db)
-            _scan_show_folder(scanner, show, show_dir)
-            db.commit()
-            db.refresh(show)
-
-    # Rename files on disk to match new metadata
-    _rename_episodes_to_match_metadata(db, show)
+    # Rescan the show's folder and rename files to match the new metadata
+    await run_in_threadpool(_rescan_show_folder, db, show)
+    await run_in_threadpool(_rename_episodes_to_match_metadata, db, show)
     db.refresh(show)
 
     return show.to_dict()
@@ -1258,8 +1270,8 @@ async def _refresh_all_shows_async(db, tmdb, tvdb):
 
             db.commit()
 
-            # Rename files on disk to match updated metadata
-            _rename_episodes_to_match_metadata(db, show)
+            # Rename files on disk to match updated metadata (off this loop: storage is sync)
+            await asyncio.to_thread(_rename_episodes_to_match_metadata, db, show)
 
             _refresh_status["completed"].append(show.name)
 
@@ -1429,7 +1441,7 @@ async def fix_match_preview(
 
 
 @router.post("/{show_id}/fix-match")
-async def fix_match_execute(
+def fix_match_execute(
     show_id: int,
     data: FixMatchRequest,
     db: Session = Depends(get_db),
@@ -1461,9 +1473,16 @@ async def fix_match_execute(
             "error": None,
         }
 
-        # Verify source file exists
-        if not source_path.exists():
-            result["error"] = "Source file not found on disk"
+        # Verify source file exists (and is under a configured folder)
+        try:
+            storage = storage_for_path(db, match.source_path)
+            if not storage.exists(match.source_path):
+                result["error"] = "Source file not found on disk"
+                error_count += 1
+                results.append(result)
+                continue
+        except StorageError as e:
+            result["error"] = str(e)
             error_count += 1
             results.append(result)
             continue
@@ -1503,13 +1522,9 @@ async def fix_match_execute(
             results.append(result)
             continue
 
-        # Create season folder if needed
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Move the file
+        # Move the file (storage creates the season folder and makes it Plex-readable)
         try:
-            shutil.move(str(source_path), str(target_path))
-            make_plex_readable(target_path)
+            storage.move(str(source_path), str(target_path))
             renamer._move_accompanying_files(source_path, target_path)
 
             # Update episode record

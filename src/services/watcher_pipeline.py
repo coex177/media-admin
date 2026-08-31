@@ -3,8 +3,6 @@
 import asyncio
 import json
 import logging
-import os
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -18,12 +16,12 @@ from .movie_matcher import MovieMatcherService
 from .quality import QualityService
 from .tmdb import TMDBService
 from .tvdb import TVDBService
-from .file_utils import sanitize_filename, make_plex_readable, LANGUAGE_CODES
+from .file_utils import sanitize_filename
+from .renamer import move_companions
+from .storage import StorageError, storage_for_path
 
 logger = logging.getLogger(__name__)
 
-# Temp extension used during safe copy
-TEMP_EXTENSION = ".madmintmp"
 
 
 class WatcherPipeline:
@@ -50,34 +48,19 @@ class WatcherPipeline:
         self.matcher = MatcherService()
         self.movie_matcher = MovieMatcherService()
 
-    # ── Ownership helpers ─────────────────────────────────────────
+    # ── Storage helpers ───────────────────────────────────────────
+    # ponytail: uid/gid inheritance (_mkdir_inherit/_chown_inherit) is gone — agents
+    # can't chown; storage.move/copy make parents and set Plex-readable bits.
 
-    def _mkdir_inherit(self, path: Path):
-        """Create directory (and parents) with ownership inherited from the
-        deepest existing ancestor."""
-        existing = path
-        to_create = []
-        while not existing.exists():
-            to_create.append(existing)
-            existing = existing.parent
+    def _storage(self, path):
+        return storage_for_path(self.db, str(path))
 
-        path.mkdir(parents=True, exist_ok=True)
-
+    def _exists(self, path) -> bool:
         try:
-            st = existing.stat()
-            uid, gid = st.st_uid, st.st_gid
-            for d in reversed(to_create):
-                os.chown(str(d), uid, gid)
-        except OSError:
-            pass
-
-    def _chown_inherit(self, file_path: Path):
-        """Set file ownership to match its parent directory."""
-        try:
-            st = file_path.parent.stat()
-            os.chown(str(file_path), st.st_uid, st.st_gid)
-        except OSError:
-            pass
+            return self._storage(path).exists(str(path))
+        except StorageError as e:
+            logger.warning(f"Pipeline: {e}")
+            return False
 
     # ── Settings helpers ────────────────────────────────────────────
 
@@ -344,7 +327,7 @@ class WatcherPipeline:
             if first_air and len(first_air) >= 4 and first_air[:4].isdigit():
                 safe_name = f"{safe_name} ({first_air[:4]})"
             show_folder = Path(library_folder.path) / safe_name
-            self._mkdir_inherit(show_folder)
+            self._storage(show_folder).mkdir(str(show_folder))
 
         # Get user's default naming formats from settings
         season_fmt = self._get_setting("season_format", "Season {season}")
@@ -449,22 +432,21 @@ class WatcherPipeline:
         are matched against the newly created episode records.
         """
         folder = Path(show.folder_path)
-        if not folder.is_dir():
+        try:
+            storage = self._storage(folder)
+            if not storage.is_dir(str(folder)):
+                return
+            entries = storage.list(str(folder))   # video extensions only; temp files never match
+        except StorageError as e:
+            logger.warning(f"Pipeline: cannot scan library folder {folder}: {e}")
             return
 
-        video_exts = set(settings.video_extensions)
         matched = 0
         scanned = 0
 
-        for video_file in folder.rglob("*"):
-            if not video_file.is_file():
-                continue
-            if video_file.suffix.lower() not in video_exts:
-                continue
+        for entry in entries:
+            video_file = Path(entry["path"])
             if str(video_file) == exclude_path:
-                continue
-            # Skip temp files
-            if video_file.suffix.lower() == TEMP_EXTENSION.lower():
                 continue
 
             scanned += 1
@@ -527,8 +509,13 @@ class WatcherPipeline:
     def process_file(self, file_path: str):
         """Process a single stable video file through the pipeline."""
         path = Path(file_path)
-        if not path.exists():
-            logger.warning(f"Pipeline: file no longer exists: {file_path}")
+        try:
+            if not self._storage(path).exists(file_path):
+                logger.warning(f"Pipeline: file no longer exists: {file_path}")
+                return
+        except StorageError as e:
+            logger.warning(f"Pipeline: cannot reach {file_path}: {e}")
+            self._log("error", result="failed", file_path=file_path, details=f"Storage unavailable: {e}")
             return
 
         logger.info(f"Pipeline: processing {path.name}")
@@ -785,7 +772,7 @@ class WatcherPipeline:
           as duplicate (safe fallback)
         """
         existing_path = episode.file_path
-        if not existing_path or not Path(existing_path).exists():
+        if not existing_path or not self._exists(existing_path):
             # Existing file is gone — treat as missing, move new file in
             logger.info(
                 f"Pipeline: existing file missing for {ep_code}, treating as new"
@@ -793,20 +780,9 @@ class WatcherPipeline:
             self._move_to_library(new_file_path, show, episode, extension)
             return
 
-        # Analyze both files
-        if not QualityService.is_available():
-            logger.warning("Pipeline: ffprobe unavailable, sending duplicate to Issues")
-            self._move_to_issues(
-                new_file_path,
-                "duplicate_episode",
-                f"Duplicate {ep_code} for '{show.name}' (ffprobe unavailable for comparison)",
-                show_name=show.name,
-                show_id=show.id,
-            )
-            return
-
-        existing_quality = QualityService.analyze(existing_path)
-        new_quality = QualityService.analyze(new_file_path)
+        # Analyze both files (ffprobe runs on the box that owns each file; None → Issues below)
+        existing_quality = QualityService.analyze(existing_path, storage=self._storage(existing_path))
+        new_quality = QualityService.analyze(new_file_path, storage=self._storage(new_file_path))
 
         if not existing_quality or not new_quality:
             logger.warning(
@@ -902,19 +878,19 @@ class WatcherPipeline:
         issues_dir = self._resolve_issues_dir(issues_root, organization, "quality_replaced")
 
         try:
-            self._mkdir_inherit(issues_dir)
+            issues_storage = self._storage(issues_dir)
+            issues_storage.mkdir(str(issues_dir))
             old_issues_dest = issues_dir / prefixed_name
             # Avoid collision
-            if old_issues_dest.exists():
+            if issues_storage.exists(str(old_issues_dest)):
                 stem = Path(prefixed_name).stem
                 ext = old_path.suffix
                 counter = 1
-                while old_issues_dest.exists():
+                while issues_storage.exists(str(old_issues_dest)):
                     old_issues_dest = issues_dir / f"{stem} ({counter}){ext}"
                     counter += 1
 
-            self._safe_copy(old_file_path, str(old_issues_dest))
-            old_path.unlink()
+            issues_storage.move(old_file_path, str(old_issues_dest))
             logger.info(f"Pipeline: moved replaced file to Issues: {old_issues_dest}")
         except Exception as e:
             logger.error(f"Pipeline: failed to move old file to Issues: {e}", exc_info=True)
@@ -1010,21 +986,22 @@ class WatcherPipeline:
         issues_dir = self._resolve_issues_dir(issues_root, organization, reason)
 
         src = Path(file_path)
-        if not src.exists():
+        if not self._exists(src):
             return
 
-        dest = issues_dir / src.name
-        # Avoid overwriting — append counter
-        if dest.exists():
-            stem = src.stem
-            ext = src.suffix
-            counter = 1
-            while dest.exists():
-                dest = issues_dir / f"{stem} ({counter}){ext}"
-                counter += 1
-
         try:
-            self._mkdir_inherit(issues_dir)
+            issues_storage = self._storage(issues_dir)
+            dest = issues_dir / src.name
+            # Avoid overwriting — append counter
+            if issues_storage.exists(str(dest)):
+                stem = src.stem
+                ext = src.suffix
+                counter = 1
+                while issues_storage.exists(str(dest)):
+                    dest = issues_dir / f"{stem} ({counter}){ext}"
+                    counter += 1
+
+            issues_storage.mkdir(str(issues_dir))
             self._safe_copy(file_path, str(dest))
             self._move_companions(file_path, str(dest))
             self._safe_delete_source(file_path)
@@ -1063,63 +1040,27 @@ class WatcherPipeline:
     # ── Safe file operations ────────────────────────────────────────
 
     def _safe_copy(self, src: str, dest: str):
-        """Safe copy: src → dest.madmintmp → rename to dest.
+        """Copy src → dest through the destination's storage backend.
 
-        If dest.madmintmp already exists (stale from a crash), delete it first.
-        Handles: permission errors, disk full, files deleted mid-process.
+        ponytail: the temp-file + rename dance now lives on the box doing the copy
+        (storage.copy makes parents, sets Plex-readable bits, refuses to overwrite).
         """
-        src_path = Path(src)
-        dest_path = Path(dest)
-        temp_path = Path(dest + TEMP_EXTENSION)
-
-        # Verify source still exists
-        if not src_path.exists():
+        storage = self._storage(dest)
+        if not storage.exists(src):
             raise FileNotFoundError(f"Source file no longer exists: {src}")
-
-        # Create destination directory (inherit parent ownership)
-        try:
-            self._mkdir_inherit(dest_path.parent)
-        except PermissionError:
-            raise PermissionError(f"No write permission for directory: {dest_path.parent}")
-
-        # Remove stale temp file if present
-        if temp_path.exists():
-            logger.info(f"Pipeline: removing stale temp file: {temp_path}")
-            try:
-                temp_path.unlink()
-            except PermissionError:
-                raise PermissionError(f"Cannot remove stale temp file: {temp_path}")
-
-        # Copy to temp
-        try:
-            shutil.copy2(src, str(temp_path))
-        except OSError as e:
-            # Clean up partial temp file on failure (e.g. disk full)
-            if temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except OSError:
-                    pass
-            if "No space left" in str(e) or e.errno == 28:
-                raise OSError(f"Disk full — cannot copy to {dest_path.parent}")
-            raise
-
-        # Rename temp to final, inherit parent ownership, ensure Plex can read it
-        temp_path.rename(dest_path)
-        self._chown_inherit(dest_path)
-        make_plex_readable(dest_path)
+        storage.copy(src, dest)
 
     def _safe_delete_source(self, file_path: str):
         """Delete the source file, and optionally clean up empty parent dirs."""
         src = Path(file_path)
-        if src.exists():
-            try:
-                src.unlink()
+        try:
+            storage = self._storage(src)
+            if storage.exists(file_path):
+                storage.delete(file_path)
                 logger.debug(f"Pipeline: deleted source: {file_path}")
-            except PermissionError:
-                logger.warning(f"Pipeline: permission denied deleting source: {file_path}")
-            except OSError as e:
-                logger.warning(f"Pipeline: error deleting source {file_path}: {e}")
+        except StorageError as e:
+            logger.warning(f"Pipeline: error deleting source {file_path}: {e}")
+            return
 
         if self._should_delete_empty_folders():
             self._cleanup_empty_parents(src.parent)
@@ -1139,51 +1080,32 @@ class WatcherPipeline:
         current = directory
         while current and str(current) not in tv_roots:
             try:
-                if current.is_dir() and not any(current.iterdir()):
+                storage = self._storage(current)
+                if storage.is_dir(str(current)) and not storage.listdir(str(current)):
                     logger.debug(f"Pipeline: removing empty directory: {current}")
-                    current.rmdir()
+                    storage.rmdir(str(current))
                     current = current.parent
                 else:
                     break
-            except OSError:
+            except StorageError:
                 break
 
     # ── Companion file handling ─────────────────────────────────────
 
     def _move_companions(self, src_video: str, dest_video: str):
-        """Move companion files (subtitles, nfo, etc.) alongside the video."""
+        """Move companion files (subtitles, nfo, etc.) alongside the video.
+
+        Every configured companion type is passed as a "subtitle" extension so
+        the language-coded variant (video.en.srt) is tried for all of them —
+        exactly what the old loop did.
+        """
         companion_types = self._get_companion_types()
         if not companion_types:
             return
-
-        src_path = Path(src_video)
-        dest_path = Path(dest_video)
-        src_stem = src_path.stem
-        dest_stem = dest_path.stem
-        src_dir = src_path.parent
-        dest_dir = dest_path.parent
-
-        for ext in companion_types:
-            # Direct match: video_name.ext
-            companion = src_dir / f"{src_stem}{ext}"
-            if companion.exists():
-                dest_companion = dest_dir / f"{dest_stem}{ext}"
-                try:
-                    self._safe_copy(str(companion), str(dest_companion))
-                    companion.unlink()
-                except Exception as e:
-                    logger.warning(f"Pipeline: failed to move companion {companion}: {e}")
-
-            # Language-coded: video_name.en.ext, etc.
-            for lang in LANGUAGE_CODES:
-                companion = src_dir / f"{src_stem}.{lang}{ext}"
-                if companion.exists():
-                    dest_companion = dest_dir / f"{dest_stem}.{lang}{ext}"
-                    try:
-                        self._safe_copy(str(companion), str(dest_companion))
-                        companion.unlink()
-                    except Exception as e:
-                        logger.warning(f"Pipeline: failed to move companion {companion}: {e}")
+        try:
+            move_companions(self._storage(dest_video), src_video, dest_video, set(companion_types), set(), set())
+        except StorageError as e:
+            logger.warning(f"Pipeline: failed to move companions for {src_video}: {e}")
 
     # ── Movie pipeline ─────────────────────────────────────────────
 
@@ -1240,7 +1162,7 @@ class WatcherPipeline:
                 return
 
         # 3. Check if movie already has a file
-        if movie.file_path and Path(movie.file_path).exists():
+        if movie.file_path and self._exists(movie.file_path):
             incoming_edition = parsed_movie.edition
             plex_versions = self._get_setting("plex_versions_enabled", "false") == "true"
             # Check if this is a different edition and Plex Versions is enabled
@@ -1380,9 +1302,7 @@ class WatcherPipeline:
                 old_path = Path(existing_movie.file_path)
                 new_path = Path(new_path_str)
                 if old_path != new_path:
-                    new_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(old_path), str(new_path))
-                    make_plex_readable(new_path)
+                    self._storage(new_path).move(str(old_path), str(new_path))
                     existing_movie.file_path = str(new_path)
                     logger.info(f"Pipeline: renamed existing movie to include edition: {new_path.name}")
             except Exception as e:
@@ -1516,21 +1436,12 @@ class WatcherPipeline:
         """Compare quality of incoming movie file vs existing."""
         existing_path = movie.file_path
 
-        if not existing_path or not Path(existing_path).exists():
+        if not existing_path or not self._exists(existing_path):
             self._move_movie_to_library(new_file_path, movie, extension, edition)
             return
 
-        if not QualityService.is_available():
-            logger.warning("Pipeline: ffprobe unavailable for movie quality comparison")
-            self._move_to_issues(
-                new_file_path,
-                "duplicate_movie",
-                f"Duplicate movie '{movie.title}' (ffprobe unavailable)",
-            )
-            return
-
-        existing_quality = QualityService.analyze(existing_path)
-        new_quality = QualityService.analyze(new_file_path)
+        existing_quality = QualityService.analyze(existing_path, storage=self._storage(existing_path))
+        new_quality = QualityService.analyze(new_file_path, storage=self._storage(new_file_path))
 
         if not existing_quality or not new_quality:
             self._move_to_issues(
@@ -1556,11 +1467,11 @@ class WatcherPipeline:
             issues_dir = self._resolve_issues_dir(issues_root, organization, "quality_replaced")
 
             try:
-                self._mkdir_inherit(issues_dir)
+                issues_storage = self._storage(issues_dir)
+                issues_storage.mkdir(str(issues_dir))
                 safe_title = sanitize_filename(movie.title)
                 old_issues_dest = issues_dir / f"{safe_title} - {old_path.name}"
-                self._safe_copy(existing_path, str(old_issues_dest))
-                old_path.unlink()
+                issues_storage.move(existing_path, str(old_issues_dest))
             except Exception as e:
                 logger.error(f"Pipeline: failed to move old movie to Issues: {e}")
                 self._move_to_issues(

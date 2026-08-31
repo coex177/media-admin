@@ -75,9 +75,11 @@ def test_roundtrip(tmp_path, monkeypatch, db):
         with pytest.raises(AgentError, match="unknown op"):
             await proxy.call("jail")
 
+        events = asyncio.Queue()
+        proxy.on_event.append(events.put_nowait)
         await proxy.call("watch", paths=[str(tmp_path)])
         (tmp_path / "new.mkv").write_bytes(b"y" * 10)
-        ev = await asyncio.wait_for(proxy.events().get(), 15)
+        ev = await asyncio.wait_for(events.get(), 15)
         assert ev == {"type": "event", "event": "stable", "path": str(tmp_path / "new.mkv"), "size": 10}
 
         session.cancel()

@@ -1,7 +1,5 @@
 """File renaming service."""
 
-import os
-import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,7 +9,27 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Show, Episode, PendingAction
-from .file_utils import sanitize_filename, move_accompanying_files, plex_safe_stem, make_plex_readable
+from .file_utils import sanitize_filename, plex_safe_stem, LANGUAGE_CODES
+from .storage import StorageError, storage_for_path
+
+
+def move_companions(storage, source, dest, subtitle_extensions, metadata_extensions, image_extensions):
+    """Move subtitle/nfo/image siblings of `source` next to `dest`, through `storage`.
+
+    Same matching as file_utils.move_accompanying_files: `<stem><ext>` for every
+    companion extension, plus `<stem>.<lang><ext>` for subtitles.
+    """
+    source, dest = Path(source), Path(dest)
+    wanted = {}
+    for ext in subtitle_extensions:
+        wanted[f"{source.stem}{ext}"] = f"{dest.stem}{ext}"
+        for lang in LANGUAGE_CODES:
+            wanted[f"{source.stem}.{lang}{ext}"] = f"{dest.stem}.{lang}{ext}"
+    for ext in metadata_extensions | image_extensions:
+        wanted[f"{source.stem}{ext}"] = f"{dest.stem}{ext}"
+    for entry in storage.listdir(str(source.parent)):
+        if not entry["is_dir"] and entry["name"] in wanted:
+            storage.move(entry["path"], str(dest.parent / wanted[entry["name"]]))
 
 
 @dataclass
@@ -33,10 +51,19 @@ class RenamerService:
         self.image_extensions = set(settings.image_extensions)
         self.metadata_extensions = set(settings.metadata_extensions)
 
+    def _storage(self, path):
+        return storage_for_path(self.db, str(path))
+
+    def _exists(self, path) -> bool:
+        try:
+            return self._storage(path).exists(str(path))
+        except StorageError:
+            return False
+
     def _move_accompanying_files(self, source: Path, dest: Path):
-        """Move accompanying subtitle, metadata, and image files."""
-        move_accompanying_files(
-            source, dest,
+        """Move accompanying subtitle, metadata, and image files (via the dest's storage)."""
+        move_companions(
+            self._storage(dest), source, dest,
             self.subtitle_extensions,
             self.metadata_extensions,
             self.image_extensions,
@@ -147,8 +174,8 @@ class RenamerService:
             "action_type": action.action_type,
             "source_path": action.source_path,
             "dest_path": action.dest_path,
-            "source_exists": Path(action.source_path).exists() if action.source_path else False,
-            "dest_exists": Path(action.dest_path).exists() if action.dest_path else False,
+            "source_exists": self._exists(action.source_path) if action.source_path else False,
+            "dest_exists": self._exists(action.dest_path) if action.dest_path else False,
         }
 
     def execute_action(self, action: PendingAction, dry_run: bool = False) -> RenameResult:
@@ -157,7 +184,7 @@ class RenamerService:
         dest = Path(action.dest_path) if action.dest_path else None
 
         # Validate source exists
-        if not source.exists():
+        if not self._exists(source):
             return RenameResult(
                 success=False,
                 source_path=action.source_path,
@@ -218,21 +245,11 @@ class RenamerService:
             )
 
     def _move_file(self, source: Path, dest: Path) -> RenameResult:
-        """Move a file to a new location."""
-        # Create destination directory if needed
-        dest.parent.mkdir(parents=True, exist_ok=True)
-
-        # Move the main file
-        shutil.move(str(source), str(dest))
-        make_plex_readable(dest)
+        """Move a file to a new location (storage creates parents and sets Plex-readable bits)."""
+        self._storage(dest).move(str(source), str(dest))
 
         # Move accompanying files (subtitles, nfo, etc.)
-        move_accompanying_files(
-            source, dest,
-            self.subtitle_extensions,
-            self.metadata_extensions,
-            self.image_extensions,
-        )
+        self._move_accompanying_files(source, dest)
 
         return RenameResult(
             success=True,
@@ -245,13 +262,8 @@ class RenamerService:
         return self._move_file(source, dest)
 
     def _copy_file(self, source: Path, dest: Path) -> RenameResult:
-        """Copy a file to a new location."""
-        # Create destination directory if needed
-        dest.parent.mkdir(parents=True, exist_ok=True)
-
-        # Copy the main file
-        shutil.copy2(str(source), str(dest))
-        make_plex_readable(dest)
+        """Copy a file to a new location (storage creates parents and sets Plex-readable bits)."""
+        self._storage(dest).copy(str(source), str(dest))
 
         return RenameResult(
             success=True,
@@ -261,7 +273,7 @@ class RenamerService:
 
     def _delete_file(self, source: Path) -> RenameResult:
         """Delete a file."""
-        source.unlink()
+        self._storage(source).delete(str(source))
 
         return RenameResult(
             success=True,

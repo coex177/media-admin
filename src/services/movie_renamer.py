@@ -1,7 +1,5 @@
 """Movie file renaming service."""
 
-import os
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -12,10 +10,10 @@ from ..config import settings
 from ..models import Movie
 from .file_utils import (
     sanitize_filename as _sanitize_filename,
-    move_accompanying_files,
     plex_safe_stem,
-    make_plex_readable,
 )
+from .renamer import move_companions
+from .storage import StorageError, storage_for_path
 
 
 @dataclass
@@ -123,25 +121,22 @@ class MovieRenamerService:
         source_path = Path(source)
         dest_path = Path(dest)
 
-        if not source_path.exists():
-            return MovieRenameResult(
-                success=False,
-                source_path=source,
-                dest_path=dest,
-                error="Source file does not exist",
-            )
-
         try:
-            # Create destination directory
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            storage = storage_for_path(self.db, dest)
+            if not storage_for_path(self.db, source).exists(source):
+                return MovieRenameResult(
+                    success=False,
+                    source_path=source,
+                    dest_path=dest,
+                    error="Source file does not exist",
+                )
 
-            # Move the main file
-            shutil.move(str(source_path), str(dest_path))
-            make_plex_readable(dest_path)
+            # Move the main file (storage creates parents and sets Plex-readable bits)
+            storage.move(source, dest)
 
             # Move accompanying files
-            move_accompanying_files(
-                source_path, dest_path,
+            move_companions(
+                storage, source_path, dest_path,
                 self.subtitle_extensions,
                 self.metadata_extensions,
                 self.image_extensions,
@@ -170,7 +165,10 @@ class MovieRenamerService:
             return None
 
         current_path = Path(movie.file_path)
-        if not current_path.exists():
+        try:
+            if not storage_for_path(self.db, movie.file_path).exists(movie.file_path):
+                return None
+        except StorageError:
             return None
 
         extension = current_path.suffix

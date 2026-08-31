@@ -1,5 +1,6 @@
 """FastAPI application entry point for media-admin."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -197,26 +198,14 @@ async def lifespan(app: FastAPI):
     run_migrations()
     logger.info("Database initialized")
 
-    # Auto-start watcher if previously enabled
-    try:
-        from .database import get_session_maker
-        from .routers.watcher import auto_start_watcher
-        SessionLocal = get_session_maker()
-        db = SessionLocal()
-        try:
-            auto_start_watcher(db)
-        finally:
-            db.close()
-    except Exception as e:
-        logger.error(f"Watcher auto-start failed: {e}", exc_info=True)
+    # Resume every tenant's watcher that was enabled (agent folders attach as agents connect)
+    from .services.watch_manager import watch_manager
+    await asyncio.to_thread(watch_manager.auto_start_all)
 
     yield
 
     # Shutdown
-    from .services.watcher import watcher_service
-    if watcher_service.is_running:
-        logger.info("Stopping media watcher...")
-        watcher_service.stop()
+    watch_manager.shutdown()
     logger.info("Shutting down media-admin...")
 
 
