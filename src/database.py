@@ -22,6 +22,8 @@ _session_maker = None
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")      # readers don't block the writer (scans + watcher + UI)
+    cursor.execute("PRAGMA busy_timeout=30000")    # wait instead of 'database is locked'
     cursor.close()
 
 
@@ -32,7 +34,7 @@ def get_engine():
         db_path = get_database_path()
         _engine = create_engine(
             f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
+            connect_args={"check_same_thread": False, "timeout": 30},
             echo=False
         )
     return _engine

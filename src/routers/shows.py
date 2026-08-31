@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings as app_settings
 from ..database import get_db, get_session_maker
+from ..services.tenant_state import TenantState, TenantList
 from ..models import Show, Episode, AppSettings
 from ..services.tmdb import TMDBService
 from ..services.tvdb import TVDBService
@@ -27,14 +28,14 @@ logger = logging.getLogger("scanner")
 router = APIRouter(prefix="/api/shows", tags=["shows"])
 
 # Global refresh status
-_refresh_status = {
+_refresh_status = TenantState({
     "running": False,
     "current": 0,
     "total": 0,
     "current_show": "",
     "completed": [],
     "errors": [],
-}
+})
 
 
 class ShowCreate(BaseModel):
@@ -1197,7 +1198,6 @@ async def preview_show(
 
 async def _refresh_all_shows_async(db, tmdb, tvdb):
     """Async helper to refresh all shows."""
-    global _refresh_status
 
     shows = db.query(Show).all()
     _refresh_status["total"] = len(shows)
@@ -1289,7 +1289,6 @@ async def _refresh_all_shows_async(db, tmdb, tvdb):
 
 def run_refresh_all(db_session_maker, tmdb_api_key: str, tvdb_api_key: str):
     """Background task to refresh all shows."""
-    global _refresh_status
     import time
 
     # Small delay to ensure any recent commits are visible
@@ -1332,7 +1331,6 @@ async def refresh_all_shows(
     db: Session = Depends(get_db),
 ):
     """Refresh metadata for all shows."""
-    global _refresh_status
 
     if _refresh_status["running"]:
         raise HTTPException(status_code=400, detail="Refresh already in progress")
@@ -1359,7 +1357,7 @@ async def refresh_all_shows(
 @router.get("/refresh-all/status")
 async def get_refresh_status():
     """Get the status of the refresh-all operation."""
-    return _refresh_status
+    return dict(_refresh_status)
 
 
 @router.post("/{show_id}/fix-match/preview")

@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..services.tenant_state import TenantState, TenantList
 from ..models import Movie, AppSettings
 from ..services.tmdb import TMDBService
 from ..services.movie_scanner import MovieScannerService
@@ -24,14 +25,14 @@ logger = logging.getLogger("movie_scanner")
 router = APIRouter(prefix="/api/movies", tags=["movies"])
 
 # Global refresh status
-_movie_refresh_status = {
+_movie_refresh_status = TenantState({
     "running": False,
     "current": 0,
     "total": 0,
     "current_movie": "",
     "completed": [],
     "errors": [],
-}
+})
 
 
 class MovieCreate(BaseModel):
@@ -286,7 +287,7 @@ async def preview_movie(
 @router.get("/refresh-all/status")
 async def get_movie_refresh_status():
     """Get the status of the refresh-all operation."""
-    return _movie_refresh_status
+    return dict(_movie_refresh_status)
 
 
 # ── CRUD endpoints ──
@@ -506,7 +507,6 @@ async def refresh_movie(
 
 async def _refresh_all_movies_async(db, tmdb):
     """Async helper to refresh all movies."""
-    global _movie_refresh_status
 
     movies = db.query(Movie).all()
     _movie_refresh_status["total"] = len(movies)
@@ -556,7 +556,6 @@ async def _refresh_all_movies_async(db, tmdb):
 
 def run_movie_refresh_all(db_session_maker, tmdb_api_key: str):
     """Background task to refresh all movies."""
-    global _movie_refresh_status
     import time
 
     time.sleep(0.5)
@@ -593,7 +592,6 @@ async def refresh_all_movies(
     db: Session = Depends(get_db),
 ):
     """Refresh metadata for all movies."""
-    global _movie_refresh_status
 
     if _movie_refresh_status["running"]:
         raise HTTPException(status_code=400, detail="Refresh already in progress")

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..services.tenant_state import TenantState, TenantList
 from ..models import AppSettings, Episode, Show, current_tenant_id
 from ..models.library_log import LibraryLog
 from ..services.storage import StorageError, storage_for_path
@@ -52,17 +53,17 @@ def log_library_event(
     db.add(entry)
 
 # Global scan status
-_scan_status = {
+_scan_status = TenantState({
     "running": False,
     "type": None,
     "progress": 0,
     "message": "",
     "result": None,
-}
+})
 
 # Scan result data for new sections
-_metadata_updates: list[dict] = []
-_download_matches: list[dict] = []
+_metadata_updates = TenantList()
+_download_matches = TenantList()
 
 
 class ScanFolderRequest(BaseModel):
@@ -83,7 +84,6 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
         scan_mode: "full" for all shows, "ongoing" for non-canceled/ended, "quick" for recently aired.
         recent_days: Number of days back to check for recently aired episodes (only used when scan_mode="quick").
     """
-    global _scan_status, _metadata_updates, _download_matches
     import asyncio
     from ..services.watch_manager import watch_manager
     from ..services.tmdb import TMDBService
@@ -148,8 +148,8 @@ def run_library_scan(db_session_maker, scan_mode: str = "full", recent_days: int
         db.commit()
 
         # Store results for new endpoints
-        _metadata_updates = result.rename_previews
-        _download_matches = result.download_matches
+        _metadata_updates.set(result.rename_previews)
+        _download_matches.set(result.download_matches)
 
         scan_result = {
             "type": scan_type,
@@ -201,7 +201,6 @@ def _save_setting(db: Session, key: str, value: str):
 
 def run_downloads_scan(db_session_maker):
     """Background task for downloads scan."""
-    global _scan_status
     from ..services.watch_manager import watch_manager
 
     # Small delay to ensure any recent commits are visible
@@ -256,7 +255,6 @@ def run_downloads_scan(db_session_maker):
 
 def run_single_show_scan(db_session_maker, show_id: int):
     """Background task for scanning a single show only."""
-    global _scan_status
     from ..services.watch_manager import watch_manager
 
     logger = logging.getLogger("scanner")
@@ -331,7 +329,6 @@ async def trigger_single_show_scan(
     db: Session = Depends(get_db),
 ):
     """Trigger a scan for a single show only (folder match + episode scan + downloads)."""
-    global _scan_status
     from ..models import Show
 
     if _scan_status["running"]:
@@ -354,7 +351,6 @@ async def trigger_full_scan(
     db: Session = Depends(get_db),
 ):
     """Trigger a full scan of all shows (library + downloads)."""
-    global _scan_status
 
     if _scan_status["running"]:
         raise HTTPException(status_code=400, detail="Scan already in progress")
@@ -372,7 +368,6 @@ async def trigger_quick_scan(
     db: Session = Depends(get_db),
 ):
     """Trigger a quick scan of shows with recently aired episodes."""
-    global _scan_status
 
     if _scan_status["running"]:
         raise HTTPException(status_code=400, detail="Scan already in progress")
@@ -394,7 +389,6 @@ async def trigger_ongoing_scan(
     db: Session = Depends(get_db),
 ):
     """Trigger a scan of ongoing shows only (not canceled/ended)."""
-    global _scan_status
 
     if _scan_status["running"]:
         raise HTTPException(status_code=400, detail="Scan already in progress")
@@ -443,7 +437,7 @@ def scan_specific_folder(
 @router.get("/status")
 async def get_scan_status():
     """Get current scan status."""
-    return _scan_status
+    return dict(_scan_status)
 
 
 @router.post("/downloads")
@@ -452,7 +446,6 @@ async def scan_download_folders(
     db: Session = Depends(get_db),
 ):
     """Scan download folders for new files."""
-    global _scan_status
 
     if _scan_status["running"]:
         raise HTTPException(status_code=400, detail="Scan already in progress")
@@ -563,13 +556,13 @@ async def get_all_missing_episodes(
 @router.get("/metadata-updates")
 async def get_metadata_updates():
     """Get computed rename previews from the last scan."""
-    return _metadata_updates
+    return _metadata_updates.get()
 
 
 @router.get("/download-matches")
 async def get_download_matches():
     """Get download matches for missing episodes from the last scan."""
-    return _download_matches
+    return _download_matches.get()
 
 
 class ApplyRenamesRequest(BaseModel):
@@ -581,7 +574,6 @@ class ApplyRenamesRequest(BaseModel):
 @router.post("/apply-renames")
 def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)):
     """Execute selected file renames from the metadata updates list."""
-    global _metadata_updates
 
     renamer = RenamerService(db)
     success = 0
@@ -590,12 +582,12 @@ def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)):
     completed_indices = set()
 
     for idx in data.rename_indices:
-        if idx < 0 or idx >= len(_metadata_updates):
+        if idx < 0 or idx >= len(_metadata_updates.get()):
             errors.append(f"Invalid index: {idx}")
             failed += 1
             continue
 
-        preview = _metadata_updates[idx]
+        preview = _metadata_updates.get()[idx]
         source = Path(preview["current_path"])
         dest = Path(preview["expected_path"])
 
@@ -660,10 +652,10 @@ def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)):
 
     # Remove completed renames from the global list so the UI refreshes correctly
     if completed_indices:
-        _metadata_updates = [
-            item for i, item in enumerate(_metadata_updates)
+        _metadata_updates.set([
+            item for i, item in enumerate(_metadata_updates.get())
             if i not in completed_indices
-        ]
+        ])
 
     return {"success": success, "failed": failed, "errors": errors}
 
@@ -677,7 +669,6 @@ class ImportDownloadsRequest(BaseModel):
 @router.post("/import-downloads")
 def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)):
     """Import matched files from downloads to library."""
-    global _download_matches
 
     renamer = RenamerService(db)
     success = 0
@@ -686,12 +677,12 @@ def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)
     completed_indices = set()
 
     for idx in data.match_indices:
-        if idx < 0 or idx >= len(_download_matches):
+        if idx < 0 or idx >= len(_download_matches.get()):
             errors.append(f"Invalid index: {idx}")
             failed += 1
             continue
 
-        match = _download_matches[idx]
+        match = _download_matches.get()[idx]
         source = Path(match["source_path"])
         dest = Path(match["dest_path"])
 
@@ -756,16 +747,16 @@ def import_downloads(data: ImportDownloadsRequest, db: Session = Depends(get_db)
 
     # Remove completed imports from the global list so the UI refreshes correctly
     if completed_indices:
-        _download_matches = [
-            item for i, item in enumerate(_download_matches)
+        _download_matches.set([
+            item for i, item in enumerate(_download_matches.get())
             if i not in completed_indices
-        ]
+        ])
 
     return {"success": success, "failed": failed, "errors": errors}
 
 
 # Library folder discovery scan status (separate from regular scan)
-_library_folder_scan_status = {
+_library_folder_scan_status = TenantState({
     "running": False,
     "folder_id": None,
     "folder_path": "",
@@ -779,7 +770,7 @@ _library_folder_scan_status = {
     "console": [],  # List of log entries
     "shows_processed": [],  # Per-show results for summary table
     "result": None,
-}
+})
 
 
 class LibraryFolderScanRequest(BaseModel):
@@ -797,7 +788,6 @@ def run_library_folder_discovery(db_session_maker, folder_id: int, api_key: str,
         metadata_source: Which provider to use for new shows ("tmdb" or "tvdb").
         tvdb_api_key: TVDB API key (used when metadata_source is "tvdb").
     """
-    global _library_folder_scan_status
     import asyncio
     import re
     from ..models import ScanFolder
@@ -1453,7 +1443,6 @@ async def scan_library_folder_for_shows(
     db: Session = Depends(get_db),
 ):
     """Scan a library folder to discover and add new shows."""
-    global _library_folder_scan_status
 
     if _library_folder_scan_status["running"]:
         raise HTTPException(status_code=400, detail="Library folder scan already in progress")
@@ -1503,7 +1492,7 @@ async def scan_library_folder_for_shows(
 @router.get("/library-folder/status")
 async def get_library_folder_scan_status():
     """Get the status of the library folder discovery scan."""
-    return _library_folder_scan_status
+    return dict(_library_folder_scan_status)
 
 
 class IgnoreEpisodesRequest(BaseModel):
@@ -1937,25 +1926,24 @@ async def delete_library_log_entry(entry_id: int, db: Session = Depends(get_db))
 
 # ── Movie scan endpoints ──────────────────────────────────────────
 
-_movie_scan_status = {
+_movie_scan_status = TenantState({
     "running": False,
     "progress": 0,
     "message": "",
     "result": None,
-}
+})
 
-_movie_discovery_status = {
+_movie_discovery_status = TenantState({
     "running": False,
     "progress": 0,
     "message": "",
     "discovered": [],
     "result": None,
-}
+})
 
 
 def run_movie_library_scan(db_session_maker):
     """Background task to scan movie library."""
-    global _movie_scan_status
 
     time.sleep(0.3)
 
@@ -1999,17 +1987,16 @@ async def scan_movie_library(
     db: Session = Depends(get_db),
 ):
     """Scan movie library (match files to existing movies)."""
-    global _movie_scan_status
 
     if _movie_scan_status["running"]:
         raise HTTPException(status_code=400, detail="Movie scan already in progress")
 
-    _movie_scan_status = {
-        "running": True,
-        "progress": 0,
-        "message": "Starting movie scan...",
-        "result": None,
-    }
+    _movie_scan_status.reset(
+        running=True,
+        progress=0,
+        message="Starting movie scan...",
+        result=None,
+    )
 
     from ..database import get_session_maker
 
@@ -2021,7 +2008,7 @@ async def scan_movie_library(
 @router.get("/movies/status")
 async def get_movie_scan_status():
     """Get movie scan status."""
-    return _movie_scan_status
+    return dict(_movie_scan_status)
 
 
 @router.post("/movie/{movie_id}")
@@ -2048,7 +2035,6 @@ def scan_single_movie(
 
 def run_movie_library_discovery(db_session_maker, folder_id: int, tmdb_api_key: str, limit: int = None):
     """Background task to discover movies from a folder."""
-    global _movie_discovery_status
     import asyncio
 
     time.sleep(0.3)
@@ -2237,7 +2223,6 @@ async def scan_movie_library_folder(
     db: Session = Depends(get_db),
 ):
     """Discover and add movies from a movie library folder."""
-    global _movie_discovery_status
 
     if _movie_discovery_status["running"]:
         raise HTTPException(status_code=400, detail="Movie discovery scan already in progress")
@@ -2248,13 +2233,13 @@ async def scan_movie_library_folder(
     if not tmdb_key:
         raise HTTPException(status_code=400, detail="TMDB API key not configured")
 
-    _movie_discovery_status = {
-        "running": True,
-        "progress": 0,
-        "message": "Starting movie discovery...",
-        "discovered": [],
-        "result": None,
-    }
+    _movie_discovery_status.reset(
+        running=True,
+        progress=0,
+        message="Starting movie discovery...",
+        discovered=[],
+        result=None,
+    )
 
     from ..database import get_session_maker
 
@@ -2272,7 +2257,7 @@ async def scan_movie_library_folder(
 @router.get("/movie-library-folder/status")
 async def get_movie_discovery_status():
     """Get the status of the movie library folder discovery scan."""
-    return _movie_discovery_status
+    return dict(_movie_discovery_status)
 
 
 @router.get("/movie-rename-previews")
