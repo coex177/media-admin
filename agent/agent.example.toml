@@ -1,0 +1,15 @@
+# Media Admin agent config. Install: pip install -r requirements.txt && python -m agent agent.toml
+
+server = "wss://media.example.com/api/agent/ws"
+token = "paste-the-token-from-the-web-ui"
+# name = "nas"                # defaults to hostname
+
+# The ONLY directories this agent will ever read, move, or delete inside.
+roots = [
+    "/mnt/tv",
+    "/mnt/movies",
+    "/mnt/downloads",
+]
+
+# settle_seconds = 60         # a new file must stop growing for this long before it is reported
+# min_file_mb = 50            # smaller video files are ignored by the watcher
