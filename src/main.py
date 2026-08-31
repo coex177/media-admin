@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
+from .config import settings
 from .database import init_database
 from .routers import shows_router, scan_router, actions_router, settings_router, watcher_router, movies_router, feeds_router
 from .services.agent_hub import router as agent_router
@@ -24,11 +25,13 @@ logger = logging.getLogger(__name__)
 
 
 def run_migrations():
-    """Run database migrations for new columns."""
+    """Legacy in-place migrations for the SQLite (self-hosted) database. Postgres uses Alembic."""
     from .database import get_engine
     from sqlalchemy import text, inspect
 
     engine = get_engine()
+    if engine.dialect.name != "sqlite":
+        return
     inspector = inspect(engine)
 
     with engine.connect() as conn:
@@ -271,7 +274,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "src.main:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8095,
-        reload=True,
+        reload=settings.debug,
     )
