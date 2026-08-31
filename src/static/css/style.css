@@ -4744,3 +4744,5 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .login-error { color: #e57373; font-size: 0.9rem; }
 .nav-signout { display: block; margin: 12px 20px; font-size: 0.85rem; opacity: 0.6; }
 .nav-signout:hover { opacity: 1; }
+/* The hidden attribute must win over any display: rule (login overlay, etc.) */
+[hidden] { display: none !important; }
