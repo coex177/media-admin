@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ScanFolder, AppSettings
+from ..services.storage import StorageError, storage_for_agent
+from ..models import ScanFolder, AppSettings, Agent
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -55,6 +56,7 @@ class FolderCreate(BaseModel):
 
     path: str
     type: str  # library, tv, issues, or movie_library
+    agent_id: Optional[int] = None   # None = local disk
 
 
 class SettingsResponse(BaseModel):
@@ -316,19 +318,21 @@ def _sync_watcher_issues_folder(db: Session):
 
 
 @router.post("/folders")
-async def create_folder(data: FolderCreate, db: Session = Depends(get_db)):
-    """Add a scan folder."""
+def create_folder(data: FolderCreate, db: Session = Depends(get_db)):
+    """Add a scan folder. Sync (not async): storage calls block a worker thread."""
     # Validate folder type
     if data.type not in ("library", "tv", "issues", "movie_library"):
         raise HTTPException(status_code=400, detail="Type must be 'library', 'tv', 'issues', or 'movie_library'")
 
-    # Check if path exists
-    path = Path(data.path)
-    if not path.exists():
-        raise HTTPException(status_code=400, detail="Path does not exist")
+    if data.agent_id and not db.query(Agent).filter(Agent.id == data.agent_id).first():
+        raise HTTPException(status_code=400, detail="Unknown agent")
 
-    if not path.is_dir():
-        raise HTTPException(status_code=400, detail="Path is not a directory")
+    # The path must exist on the box that owns it — the agent's disk, or this one.
+    try:
+        if not storage_for_agent(data.agent_id, data.path).is_dir(data.path):
+            raise HTTPException(status_code=400, detail="Path is not a directory")
+    except StorageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Check for duplicate
     existing = db.query(ScanFolder).filter(ScanFolder.path == data.path).first()
@@ -338,6 +342,7 @@ async def create_folder(data: FolderCreate, db: Session = Depends(get_db)):
     folder = ScanFolder(
         path=data.path,
         folder_type=data.type,
+        agent_id=data.agent_id,
         enabled=True,
     )
 

@@ -23,7 +23,7 @@ from .watch import Watcher
 logger = logging.getLogger(__name__)
 
 # The complete vocabulary a cloud can speak to this agent. Nothing else is reachable.
-FS_OPS = frozenset({"list", "stat", "probe", "move", "delete", "mkdir", "rmdir", "chmod_readable"})
+FS_OPS = frozenset({"list", "listdir", "stat", "probe", "move", "copy", "delete", "mkdir", "rmdir", "chmod_readable"})
 
 
 class Agent:

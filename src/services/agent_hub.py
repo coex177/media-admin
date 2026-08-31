@@ -31,6 +31,7 @@ class AgentError(Exception):
 class AgentProxy:
     def __init__(self, ws: WebSocket, agent_id: int, tenant_id: int, hello: dict):
         self.ws = ws
+        self.loop = asyncio.get_running_loop()   # sync code (worker threads) submits calls here
         self.id = agent_id
         self.tenant_id = tenant_id
         self.name: str = hello.get("name", "?")

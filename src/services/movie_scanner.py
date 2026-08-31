@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import Movie, AppSettings, ScanFolder
 from .movie_matcher import MovieMatcherService, ParsedMovie
+from .storage import StorageError, storage_for_folder, storage_for_path
 
 # Scanner logger
 _log_dir = Path(__file__).resolve().parent.parent.parent / "data"
@@ -70,28 +71,56 @@ class MovieScannerService:
         """Check if a file is a video file."""
         return path.suffix.lower() in self.video_extensions
 
+    def _storage(self, path: str):
+        return storage_for_path(self.db, path)
+
+    def _exists(self, path: str) -> bool:
+        try:
+            return self._storage(path).exists(path)
+        except StorageError as e:
+            logger.warning(f"  _exists: {e}")
+            return False
+
+    def _is_dir(self, path: str) -> bool:
+        try:
+            return self._storage(path).is_dir(path)
+        except StorageError as e:
+            logger.warning(f"  _is_dir: {e}")
+            return False
+
+    def _video_entries(self, path: str) -> list[dict]:
+        """Immediate video-file children of `path` as storage entries."""
+        try:
+            return [e for e in self._storage(path).listdir(path) if not e["is_dir"] and self.is_video_file(Path(e["name"]))]
+        except StorageError as e:
+            logger.warning(f"  _video_entries: {e}")
+            return []
+
     def scan_movie_folder(self, folder_path: str) -> list[MovieFileInfo]:
-        """Scan a folder for movie video files."""
+        """Scan a folder for movie video files through its storage backend (agent or local)."""
+        try:
+            storage = self._storage(folder_path)
+            if not storage.exists(folder_path):
+                logger.debug(f"  scan_movie_folder: path does not exist: {folder_path}")
+                return []
+            logger.debug(f"  scan_movie_folder: walking {folder_path}")
+            entries = storage.list(folder_path)
+        except StorageError as e:
+            logger.warning(f"  scan_movie_folder: {e}")
+            return []
+
         files = []
-        folder = Path(folder_path)
-
-        if not folder.exists():
-            logger.debug(f"  scan_movie_folder: path does not exist: {folder_path}")
-            return files
-
-        logger.debug(f"  scan_movie_folder: walking {folder_path}")
-        for item in folder.rglob("*"):
-            if item.is_file() and self.is_video_file(item):
-                parsed = self.matcher.parse_filename(item.name)
-                files.append(
-                    MovieFileInfo(
-                        path=str(item),
-                        filename=item.name,
-                        size=item.stat().st_size,
-                        extension=item.suffix,
-                        parsed=parsed,
-                    )
+        for entry in entries:
+            item = Path(entry["path"])
+            files.append(
+                MovieFileInfo(
+                    path=entry["path"],
+                    filename=item.name,
+                    size=entry["size"],
+                    extension=item.suffix,
+                    parsed=self.matcher.parse_filename(item.name),
                 )
+            )
 
         logger.debug(f"  scan_movie_folder: found {len(files)} video files")
         return files
@@ -132,7 +161,7 @@ class MovieScannerService:
             progress_percent = 10 + int((i / max(total_movies, 1)) * 70)
             report_progress(f"Scanning: {movie.title}", progress_percent)
 
-            if movie.file_path and Path(movie.file_path).exists():
+            if movie.file_path and self._exists(movie.file_path):
                 # File already tracked and exists
                 if movie.file_status == "missing":
                     movie.file_status = "found"
@@ -192,7 +221,7 @@ class MovieScannerService:
             self._auto_match_movie_folder(movie, library_folders)
 
         # Check existing file
-        if movie.file_path and Path(movie.file_path).exists():
+        if movie.file_path and self._exists(movie.file_path):
             if movie.file_status == "missing":
                 movie.file_status = "found"
                 movie.matched_at = datetime.utcnow()
@@ -230,14 +259,14 @@ class MovieScannerService:
 
         for folder_entry in library_folders:
             folder_path = Path(folder_entry.path)
-            if not folder_path.exists():
+            if not self._exists(folder_entry.path):
                 continue
 
             # Try direct path lookups
             # Individual: /library/Title (Year)/
             if year_str:
                 candidate = folder_path / f"{safe_title} ({year_str})"
-                if candidate.is_dir():
+                if self._is_dir(str(candidate)):
                     movie.folder_path = str(folder_path)
                     self.db.commit()
                     logger.info(f"  auto_match_movie: found folder for '{movie.title}': {candidate}")
@@ -246,7 +275,7 @@ class MovieScannerService:
             # Year-based: /library/Year/
             if year_str:
                 candidate = folder_path / year_str
-                if candidate.is_dir():
+                if self._is_dir(str(candidate)):
                     movie.folder_path = str(folder_path)
                     self.db.commit()
                     logger.info(f"  auto_match_movie: found year folder for '{movie.title}': {candidate}")
@@ -262,7 +291,7 @@ class MovieScannerService:
             return False
 
         folder = Path(movie.folder_path)
-        if not folder.is_dir():
+        if not self._is_dir(movie.folder_path):
             return False
 
         safe_title = self._sanitize_folder_name(movie.title)
@@ -274,12 +303,12 @@ class MovieScannerService:
         if year_str:
             # Check individual movie folder first (most specific)
             individual_folder = folder / f"{safe_title} ({year_str})"
-            if individual_folder.is_dir():
+            if self._is_dir(str(individual_folder)):
                 search_dirs.append(individual_folder)
 
             # Check year-based folder next
             year_folder = folder / year_str
-            if year_folder.is_dir():
+            if self._is_dir(str(year_folder)):
                 search_dirs.append(year_folder)
 
         # Base folder last (broadest search)
@@ -290,11 +319,8 @@ class MovieScannerService:
         best_parsed = None
 
         for search_dir in search_dirs:
-            for item in search_dir.iterdir():
-                if not item.is_file() or not self.is_video_file(item):
-                    continue
-
-                parsed = self.matcher.parse_filename(item.name)
+            for item in self._video_entries(str(search_dir)):
+                parsed = self.matcher.parse_filename(item["name"])
                 if not parsed or not parsed.title:
                     continue
 
@@ -314,14 +340,13 @@ class MovieScannerService:
                 break
 
             # Also check subdirectories (one level deep)
-            for subdir in search_dir.iterdir():
-                if not subdir.is_dir():
-                    continue
-                for item in subdir.iterdir():
-                    if not item.is_file() or not self.is_video_file(item):
-                        continue
-
-                    parsed = self.matcher.parse_filename(item.name)
+            try:
+                subdirs = [e for e in self._storage(str(search_dir)).listdir(str(search_dir)) if e["is_dir"]]
+            except StorageError:
+                subdirs = []
+            for subdir in subdirs:
+                for item in self._video_entries(subdir["path"]):
+                    parsed = self.matcher.parse_filename(item["name"])
                     if not parsed or not parsed.title:
                         continue
 
@@ -341,13 +366,13 @@ class MovieScannerService:
                 break
 
         if best_item and best_score >= 0.7:
-            movie.file_path = str(best_item)
+            movie.file_path = best_item["path"]
             movie.file_status = "found"
             movie.matched_at = datetime.utcnow()
             if best_parsed.edition and not movie.edition:
                 movie.edition = best_parsed.edition
             self.db.commit()
-            logger.info(f"  _scan_for_movie_file: matched '{best_item.name}' → '{movie.title}' (score={best_score:.2f})")
+            logger.info(f"  _scan_for_movie_file: matched '{best_item['name']}' → '{movie.title}' (score={best_score:.2f})")
             return True
 
         return False
@@ -355,7 +380,7 @@ class MovieScannerService:
     def _search_library_for_movie(self, movie: Movie, library_path: str) -> bool:
         """Search a library folder path for a movie file by walking subdirectories."""
         folder = Path(library_path)
-        if not folder.is_dir():
+        if not self._is_dir(library_path):
             return False
 
         safe_title = self._sanitize_folder_name(movie.title)
@@ -365,25 +390,22 @@ class MovieScannerService:
         if year_str:
             # Try individual folder
             candidate = folder / f"{safe_title} ({year_str})"
-            if candidate.is_dir():
-                for item in candidate.iterdir():
-                    if item.is_file() and self.is_video_file(item):
-                        movie.file_path = str(item)
-                        movie.file_status = "found"
-                        movie.matched_at = datetime.utcnow()
-                        self.db.commit()
-                        logger.info(f"  _search_library: found '{movie.title}' at {item}")
-                        return True
+            if self._is_dir(str(candidate)):
+                for item in self._video_entries(str(candidate)):
+                    movie.file_path = item["path"]
+                    movie.file_status = "found"
+                    movie.matched_at = datetime.utcnow()
+                    self.db.commit()
+                    logger.info(f"  _search_library: found '{movie.title}' at {item['path']}")
+                    return True
 
             # Try year folder — use best match in case multiple similar titles exist
             year_folder = folder / year_str
-            if year_folder.is_dir():
+            if self._is_dir(str(year_folder)):
                 best_score = 0.0
                 best_item = None
-                for item in year_folder.iterdir():
-                    if not item.is_file() or not self.is_video_file(item):
-                        continue
-                    parsed = self.matcher.parse_filename(item.name)
+                for item in self._video_entries(str(year_folder)):
+                    parsed = self.matcher.parse_filename(item["name"])
                     if parsed and parsed.title:
                         score = self.matcher.match_movie_title(
                             parsed.title, movie.title, parsed.year, movie.year
@@ -392,7 +414,7 @@ class MovieScannerService:
                             best_score = score
                             best_item = item
                 if best_item and best_score >= 0.7:
-                    movie.file_path = str(best_item)
+                    movie.file_path = best_item["path"]
                     movie.file_status = "found"
                     movie.matched_at = datetime.utcnow()
                     self.db.commit()
@@ -407,8 +429,7 @@ class MovieScannerService:
         Returns list of dicts with movie info ready to be added to DB.
         """
         discovered = []
-        folder = Path(folder_path)
-        if not folder.is_dir():
+        if not self._is_dir(folder_path):
             return discovered
 
         files = self.scan_movie_folder(folder_path)

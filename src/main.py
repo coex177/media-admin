@@ -169,6 +169,10 @@ def run_migrations():
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN tenant_id INTEGER NOT NULL DEFAULT 1"))
                 conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_tenant_id ON {table} (tenant_id)"))
                 conn.commit()
+        if "agent_id" not in [c["name"] for c in inspect(engine).get_columns("scan_folders")]:
+            logger.info("Adding agent_id column to scan_folders")
+            conn.execute(text("ALTER TABLE scan_folders ADD COLUMN agent_id INTEGER"))
+            conn.commit()
         if conn.execute(text("SELECT COUNT(*) FROM tenants")).scalar() == 0:
             conn.execute(text("INSERT INTO tenants (id, name, created_at) VALUES (1, 'default', CURRENT_TIMESTAMP)"))
             conn.commit()

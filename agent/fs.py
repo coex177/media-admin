@@ -4,6 +4,8 @@ This is the whole trust boundary of the product: a compromised cloud can only
 ever ask for operations inside the roots the customer wrote in their own config.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -53,6 +55,19 @@ class FS:
                 out.append({"path": str(p), "size": st.st_size, "mtime": st.st_mtime})
         return out
 
+    def listdir(self, path: str) -> list[dict]:
+        """Immediate children with is_dir — for folder discovery, not media listing."""
+        p = self.jail.check(path)
+        out = []
+        for child in p.iterdir():
+            try:
+                st = child.stat()
+            except OSError:
+                continue
+            out.append({"path": str(child), "name": child.name, "is_dir": child.is_dir(),
+                        "size": st.st_size, "mtime": st.st_mtime})
+        return out
+
     def stat(self, path: str) -> dict:
         p = self.jail.check(path)
         try:
@@ -84,6 +99,15 @@ class FS:
             raise FileExistsError(f"destination exists: {d}")
         d.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(s), str(d))
+        self._readable(d)
+        return {"path": str(d)}
+
+    def copy(self, src: str, dst: str) -> dict:
+        s, d = self.jail.check(src), self.jail.check(dst)
+        if d.exists():
+            raise FileExistsError(f"destination exists: {d}")
+        d.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(s), str(d))
         self._readable(d)
         return {"path": str(d)}
 

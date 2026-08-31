@@ -20,6 +20,8 @@ class ScanFolder(TenantMixin, Base):
     path: Mapped[str] = mapped_column(String(1024), nullable=False)
     folder_type: Mapped[str] = mapped_column(String(50), nullable=False)
     # Type values: library, download
+    # Which paired agent owns this path; NULL = local disk (self-hosted mode).
+    agent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
@@ -34,6 +36,7 @@ class ScanFolder(TenantMixin, Base):
             "id": self.id,
             "path": self.path,
             "type": self.folder_type,
+            "agent_id": self.agent_id,
             "enabled": self.enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

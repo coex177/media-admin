@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import Show, Episode, ScanFolder, PendingAction
 from .matcher import MatcherService, ParsedEpisode
+from .storage import StorageError, storage_for_folder, storage_for_path
 from .file_utils import sanitize_filename
 
 # ── Scanner logger (detailed, writes to file + console) ──────────
@@ -71,28 +72,39 @@ class ScannerService:
         """Check if a file is a video file."""
         return path.suffix.lower() in self.video_extensions
 
+    def _exists(self, path: str) -> bool:
+        """exists() through the path's storage backend; unknown/offline → False."""
+        try:
+            return storage_for_path(self.db, path).exists(path)
+        except StorageError as e:
+            logger.warning(f"  _exists: {e}")
+            return False
+
     def scan_folder(self, folder_path: str) -> list[FileInfo]:
-        """Scan a folder for video files."""
+        """Scan a folder for video files through its storage backend (agent or local)."""
+        try:
+            storage = storage_for_path(self.db, folder_path)
+            if not storage.exists(folder_path):
+                logger.debug(f"  scan_folder: path does not exist: {folder_path}")
+                return []
+            logger.debug(f"  scan_folder: walking {folder_path}")
+            entries = storage.list(folder_path)
+        except StorageError as e:
+            logger.warning(f"  scan_folder: {e}")
+            return []
+
         files = []
-        folder = Path(folder_path)
-
-        if not folder.exists():
-            logger.debug(f"  scan_folder: path does not exist: {folder_path}")
-            return files
-
-        logger.debug(f"  scan_folder: walking {folder_path}")
-        for item in folder.rglob("*"):
-            if item.is_file() and self.is_video_file(item):
-                parsed = self.matcher.parse_filename(item.name)
-                files.append(
-                    FileInfo(
-                        path=str(item),
-                        filename=item.name,
-                        size=item.stat().st_size,
-                        extension=item.suffix,
-                        parsed=parsed,
-                    )
+        for entry in entries:
+            item = Path(entry["path"])
+            files.append(
+                FileInfo(
+                    path=entry["path"],
+                    filename=item.name,
+                    size=entry["size"],
+                    extension=item.suffix,
+                    parsed=self.matcher.parse_filename(item.name),
                 )
+            )
 
         logger.debug(f"  scan_folder: found {len(files)} video files")
         return files
@@ -160,20 +172,25 @@ class ScannerService:
 
         for folder in folders:
             folder_path = Path(folder.path)
-            if not folder_path.exists():
-                continue
+            storage = storage_for_folder(self.db, folder)
+            try:
+                if not storage.exists(folder.path):
+                    continue
 
-            for name_var in name_variants:
-                candidate = folder_path / name_var
-                if candidate.is_dir():
-                    logger.info(f"  find_show_folder: DIRECT HIT → {candidate}")
-                    return str(candidate)
-
-                if show_year:
-                    candidate = folder_path / f"{name_var} ({show_year})"
-                    if candidate.is_dir():
-                        logger.info(f"  find_show_folder: DIRECT HIT (year) → {candidate}")
+                for name_var in name_variants:
+                    candidate = folder_path / name_var
+                    if storage.is_dir(str(candidate)):
+                        logger.info(f"  find_show_folder: DIRECT HIT → {candidate}")
                         return str(candidate)
+
+                    if show_year:
+                        candidate = folder_path / f"{name_var} ({show_year})"
+                        if storage.is_dir(str(candidate)):
+                            logger.info(f"  find_show_folder: DIRECT HIT (year) → {candidate}")
+                            return str(candidate)
+            except StorageError as e:
+                logger.warning(f"  find_show_folder: {e}")
+                continue
 
         logger.debug(f"  find_show_folder: no direct hit, falling back to directory listing")
 
@@ -183,16 +200,16 @@ class ScannerService:
         candidates = []
 
         for folder in folders:
-            folder_path = Path(folder.path)
-            if not folder_path.exists():
-                continue
-
+            storage = storage_for_folder(self.db, folder)
             try:
-                for subfolder in folder_path.iterdir():
-                    if not subfolder.is_dir():
+                if not storage.exists(folder.path):
+                    continue
+
+                for subfolder in storage.listdir(folder.path):
+                    if not subfolder["is_dir"]:
                         continue
 
-                    folder_name = subfolder.name
+                    folder_name = subfolder["name"]
                     folder_year = self._extract_folder_year(folder_name)
                     folder_country = self._extract_folder_country(folder_name)
 
@@ -205,14 +222,15 @@ class ScannerService:
                     folder_name_normalized = self.matcher.normalize_show_name(folder_name_clean)
 
                     candidates.append({
-                        'path': str(subfolder),
+                        'path': subfolder["path"],
                         'name': folder_name,
                         'name_clean': folder_name_clean,
                         'name_normalized': folder_name_normalized,
                         'year': folder_year,
                         'country': folder_country,
                     })
-            except PermissionError:
+            except StorageError as e:
+                logger.warning(f"  find_show_folder: {e}")
                 continue
 
         # Sort: same first letter first for faster matching
@@ -620,7 +638,7 @@ class ScannerService:
 
             for current_path_str, eps in file_groups.items():
                 current_path = Path(current_path_str)
-                if not current_path.exists():
+                if not self._exists(current_path_str):
                     continue
 
                 eps_sorted = sorted(eps, key=lambda e: (e.season, e.episode))
