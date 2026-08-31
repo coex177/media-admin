@@ -858,8 +858,8 @@ function renderSetupWizard() {
                 </div>
 
                 <div class="setup-step">
-                    <h3><span class="setup-step-number">2</span> Add Library Folder</h3>
-                    <p class="text-muted mb-10">Where are your TV shows stored?</p>
+                    <h3><span class="setup-step-number">2</span> Add Library Folder (Optional)</h3>
+                    <p class="text-muted mb-10">Where are your TV shows stored on this server? If your media lives on another machine, skip this and pair an agent under Settings → Folders instead.</p>
                     <div class="form-group">
                         <input type="text" id="setup-library-path" class="form-control" placeholder="/path/to/tv/shows">
                     </div>
@@ -893,7 +893,7 @@ async function completeSetup() {
         // Save API key
         await api('/settings', {
             method: 'PUT',
-            body: JSON.stringify({ tmdb_api_key: apiKey })
+            body: JSON.stringify({ tmdb_api_key: apiKey, setup_completed: true })
         });
 
         // Add library folder
