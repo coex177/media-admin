@@ -213,11 +213,12 @@ class TVDBService:
                     "runtime": ep.get("runtime"),
                 })
 
-            # Check for more pages
-            links = data.get("links", {})
-            next_page = links.get("next")
-            if next_page and next_page != page:
-                page = next_page
+            # Check for more pages. TVDB's links.next is a full URL, not a page
+            # index — assigning it to `page` sent params={"page": "<url>"}, which
+            # the API ignored, so page 0 came back a second time and every episode
+            # past the first page was never fetched at all.
+            if data.get("links", {}).get("next"):
+                page += 1
             else:
                 break
 
