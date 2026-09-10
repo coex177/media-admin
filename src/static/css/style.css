@@ -143,7 +143,7 @@ a:hover {
 .main-content {
     flex: 1;
     min-width: 0;
-    overflow-x: hidden;
+    overflow-x: clip;
     margin-left: 250px;
     padding: 20px 30px;
 }
@@ -4735,3 +4735,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     outline: none;
 }
 
+
+/* Gaps page — header follows the page so the tabs stay reachable in long lists.
+   Works because .main-content uses overflow-x: clip, not hidden: `hidden` would
+   force overflow-y to compute to auto and give sticky a scrollport that never scrolls. */
+.gaps-sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: var(--dark-bg);
+    padding: 20px 0 10px;
+    margin: -20px 0 20px;
+    border-bottom: 2px solid var(--border-color);
+}

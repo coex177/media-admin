@@ -83,6 +83,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Handle browser back/forward
     window.addEventListener('hashchange', () => {
+        const showId = getShowIdFromHash();
+        if (showId) {
+            showShowDetail(showId);
+            return;
+        }
         const page = getPageFromHash();
         if (page !== state.currentPage || state.currentView.type !== 'page') {
             navigateTo(page, false, true); // skipHashUpdate = true
@@ -107,6 +112,12 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Get page from URL hash
+// Deep link to a show detail: #show/123. Lets a show be opened in a new tab.
+function getShowIdFromHash() {
+    const m = window.location.hash.match(/^#show\/(\d+)$/);
+    return m ? parseInt(m[1], 10) : null;
+}
+
 function getPageFromHash() {
     const hash = window.location.hash.slice(1); // Remove the #
     const validPages = ['dashboard', 'shows', 'movies', 'scan', 'feeds', 'gaps', 'settings'];
@@ -797,8 +808,13 @@ async function checkSetup() {
             renderSetupWizard();
         } else {
             // Navigate to page from URL hash, or dashboard if no hash
-            const page = getPageFromHash();
-            navigateTo(page, false, false, false);
+            const showId = getShowIdFromHash();
+            if (showId) {
+                showShowDetail(showId);
+            } else {
+                const page = getPageFromHash();
+                navigateTo(page, false, false, false);
+            }
         }
     } catch (error) {
         showToast('Failed to load settings', 'error');

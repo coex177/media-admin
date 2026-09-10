@@ -46,8 +46,21 @@ async function renderGaps() {
     }[activeGapsTab]();
 
     appContent.innerHTML = `
-        <div class="page-header">
-            <h1 class="page-title">Gaps</h1>
+        <div class="gaps-sticky-header">
+            <div class="page-header" style="margin-bottom: 12px;">
+                <h1 class="page-title">Gaps</h1>
+            </div>
+            <div class="scan-tabs" style="margin-bottom: 0;">
+                <button class="scan-tab ${activeGapsTab === 'summary' ? 'active' : ''}" onclick="switchGapsTab('summary')">
+                    <img src="/static/images/nav-lists.png" class="tab-icon-img" alt="">Summary (${shows.length})
+                </button>
+                <button class="scan-tab ${activeGapsTab === 'missing' ? 'active' : ''}" onclick="switchGapsTab('missing')">
+                    <img src="/static/images/list-ignore.png" class="tab-icon-img" alt="">Missing (${totalMissing})
+                </button>
+                <button class="scan-tab ${activeGapsTab === 'extra' ? 'active' : ''}" onclick="switchGapsTab('extra')">
+                    <img src="/static/images/list-special.png" class="tab-icon-img" alt="">Extra (${totalExtra})
+                </button>
+            </div>
         </div>
 
         <div class="card" style="margin-bottom: 20px;">
@@ -63,20 +76,14 @@ async function renderGaps() {
             </p>
         </div>
 
-        <div class="scan-tabs">
-            <button class="scan-tab ${activeGapsTab === 'summary' ? 'active' : ''}" onclick="switchGapsTab('summary')">
-                <img src="/static/images/nav-lists.png" class="tab-icon-img" alt="">Summary (${shows.length})
-            </button>
-            <button class="scan-tab ${activeGapsTab === 'missing' ? 'active' : ''}" onclick="switchGapsTab('missing')">
-                <img src="/static/images/list-ignore.png" class="tab-icon-img" alt="">Missing (${totalMissing})
-            </button>
-            <button class="scan-tab ${activeGapsTab === 'extra' ? 'active' : ''}" onclick="switchGapsTab('extra')">
-                <img src="/static/images/list-special.png" class="tab-icon-img" alt="">Extra (${totalExtra})
-            </button>
-        </div>
-
         <div id="gaps-tab-content">${body}</div>
     `;
+}
+
+// The show detail lives in this same app; #show/<id> deep links straight to it.
+function openShowLink(id) {
+    return `<a class="btn btn-sm" href="#show/${id}" target="_blank" rel="noopener"
+               onclick="event.stopPropagation();" title="Open this show in a new tab">Open</a>`;
 }
 
 function renderGapsSummary(shows, withMissing, withExtra, totalMissing, totalExtra) {
@@ -109,6 +116,7 @@ function renderGapsSummary(shows, withMissing, withExtra, totalMissing, totalExt
                             <th style="text-align: right;">Extra</th>
                             <th style="text-align: right;">Not aired</th>
                             <th style="text-align: right;">Specials</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -121,6 +129,7 @@ function renderGapsSummary(shows, withMissing, withExtra, totalMissing, totalExt
                                 <td style="text-align: right;">${s.extra_count ? `<span class="badge">${s.extra_count}</span>` : ''}</td>
                                 <td style="text-align: right;">${s.not_aired || ''}</td>
                                 <td style="text-align: right;">${s.specials || ''}</td>
+                                <td style="text-align: right;">${openShowLink(s.id)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -142,7 +151,10 @@ function renderGapsMissing(shows, total) {
                 <div style="padding: 14px 0; border-bottom: 1px solid var(--border-color);">
                     <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 15px;">
                         <strong>${escapeHtml(s.name)}</strong>
-                        <span class="badge badge-warning">${s.missing} missing</span>
+                        <span style="display: flex; align-items: center; gap: 10px; white-space: nowrap;">
+                            <span class="badge badge-warning">${s.missing} missing</span>
+                            ${openShowLink(s.id)}
+                        </span>
                     </div>
                     <div class="text-muted" style="font-size: 0.85rem; margin: 4px 0;"><code>${escapeHtml(s.folder)}</code></div>
                     <div style="font-family: monospace; font-size: 0.85rem;">${escapeHtml(s.missing_ranges)}</div>
@@ -167,7 +179,10 @@ function renderGapsExtra(shows, total) {
                 <div style="padding: 14px 0; border-bottom: 1px solid var(--border-color);">
                     <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 15px;">
                         <strong>${escapeHtml(s.name)}</strong>
-                        <span class="badge">${s.extra_count} extra</span>
+                        <span style="display: flex; align-items: center; gap: 10px; white-space: nowrap;">
+                            <span class="badge">${s.extra_count} extra</span>
+                            ${openShowLink(s.id)}
+                        </span>
                     </div>
                     <div class="text-muted" style="font-size: 0.85rem; margin: 4px 0;"><code>${escapeHtml(s.folder)}</code></div>
                     <div style="font-family: monospace; font-size: 0.85rem;">${escapeHtml(s.extra_ranges)}</div>
