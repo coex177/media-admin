@@ -46,11 +46,11 @@ async function renderGaps() {
     }[activeGapsTab]();
 
     appContent.innerHTML = `
-        <div class="gaps-sticky-header">
-            <div class="page-header" style="margin-bottom: 12px;">
+        <div>
+            <div class="page-header">
                 <h1 class="page-title">Gaps</h1>
             </div>
-            <div class="scan-tabs" style="margin-bottom: 0;">
+            <div class="scan-tabs">
                 <button class="scan-tab ${activeGapsTab === 'summary' ? 'active' : ''}" onclick="switchGapsTab('summary')">
                     <img src="/static/images/nav-lists.png" class="tab-icon-img" alt="">Summary (${shows.length})
                 </button>
@@ -105,8 +105,8 @@ function renderGapsSummary(shows, withMissing, withExtra, totalMissing, totalExt
                 accountable. Season 0 specials are never counted as missing, so they sit in their own
                 column and are excluded from Tracked.
             </p>
-            <div class="table-container">
-                <table>
+            <div>
+                <table class="gaps-summary-table">
                     <thead>
                         <tr>
                             <th>Show</th>
