@@ -4,45 +4,6 @@
  "imported": 509,
  "shows": [
   {
-   "name": "The New Scooby and Scrappy-Doo Show",
-   "folder": "/home/coex/drives/tv-shows/The New Scooby and Scrappy-Doo Show (1983)",
-   "found": 16,
-   "tracked": 26,
-   "missing": 10,
-   "not_aired": 0,
-   "specials": 0,
-   "missing_ranges": "S01E17-E26",
-   "extra_count": 24,
-   "extra_ranges": "S02E01-E08, S03E01-E16",
-   "extra_files": [
-    "3x01 - Watch Out! The Willawaw!.mkv",
-    "3x02 - A Creepy Tangle in the Bermuda Triangle.mkv",
-    "3x03 - A Scary Night with a Snow Beast Fright.mkv",
-    "3x04 - To Switch a Witch.mkv",
-    "3x05 - The Tar Monster.mkv",
-    "3x06 - A Highland Fling with a Monstrous Thing.mkv",
-    "3x07 - The Creepy Case of Old Iron Face.mkv",
-    "3x08 - Jeepers, It's the Jaguaro!.mkv",
-    "3x09 - Make a Beeline Away from That Feline.mkv",
-    "3x10 - The Creepy Creature of Vulture's Claw.mkv",
-    "3x11 - The Diabolical Disc Demon.mkv",
-    "3x12 - Scooby's Chinese Fortune Kooky Caper.mp4",
-    "3x13 - A Menace in Venice.mkv",
-    "3x14 - Don't Go Near the Fortress of Fear.mkv",
-    "3x15 - The Warlock of Wimbledon.mkv",
-    "3x16 - The Beast is Awake in Bottomless Lake.mkv",
-    "2x01 - The Curse of Viking Lake.mkv",
-    "2x02 - Vampire Bats and Scaredy Cats.mkv",
-    "2x03 - Hang in There, Scooby-Doo.mkv",
-    "2x04 - The Chiller Diller Movie Thriller.mkv",
-    "2x05 - The Spooky Case of the Grand Prix Race.mkv",
-    "2x06 - The Ozark Witch Switch.mkv",
-    "2x07 - Creepy Cruise.mkv",
-    "2x08 - The Creepy Heap from the Deep.mkv"
-   ],
-   "id": 2559
-  },
-  {
    "name": "Captain Scarlet and the Mysterons",
    "folder": "/home/coex/drives/tv-shows/Captain Scarlet and the Mysterons (1967)",
    "found": 13,
@@ -117,20 +78,6 @@
     "8x37 - Four Hundred.mkv"
    ],
    "id": 2457
-  },
-  {
-   "name": "Scooby-Doo, Where Are You!",
-   "folder": "/home/coex/drives/tv-shows/Scooby-Doo, Where Are You!",
-   "found": 25,
-   "tracked": 41,
-   "missing": 16,
-   "not_aired": 0,
-   "specials": 9,
-   "missing_ranges": "S03E01-E16",
-   "extra_count": 0,
-   "extra_ranges": "",
-   "extra_files": [],
-   "id": 2426
   },
   {
    "name": "Guilt",
