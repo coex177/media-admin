@@ -117,22 +117,6 @@
    "id": 2367
   },
   {
-   "name": "Animaniacs",
-   "folder": "/home/coex/drives/tv-shows/Animaniacs (1993)",
-   "found": 259,
-   "tracked": 275,
-   "missing": 16,
-   "not_aired": 0,
-   "specials": 4,
-   "missing_ranges": "S01E161-E172, S03E30, S03E44-E46",
-   "extra_count": 1,
-   "extra_ranges": "S05E24",
-   "extra_files": [
-    "5x24 - Star Warners.mkv"
-   ],
-   "id": 2366
-  },
-  {
    "name": "Teen Titans Go!",
    "folder": "/home/coex/drives/tv-shows/Teen Titans Go!",
    "found": 435,
@@ -405,6 +389,20 @@
    "extra_ranges": "",
    "extra_files": [],
    "id": 2667
+  },
+  {
+   "name": "Animaniacs",
+   "folder": "/home/coex/drives/tv-shows/Animaniacs (1993)",
+   "found": 259,
+   "tracked": 261,
+   "missing": 2,
+   "not_aired": 0,
+   "specials": 5,
+   "missing_ranges": "S03E30, S05E03",
+   "extra_count": 0,
+   "extra_ranges": "",
+   "extra_files": [],
+   "id": 2366
   },
   {
    "name": "Marvel's Ultimate Spider-Man",
