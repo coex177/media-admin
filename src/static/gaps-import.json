@@ -4,20 +4,6 @@
  "imported": 509,
  "shows": [
   {
-   "name": "Animaniacs",
-   "folder": "/home/coex/drives/tv-shows/Animaniacs (2020)",
-   "found": 79,
-   "tracked": 123,
-   "missing": 44,
-   "not_aired": 0,
-   "specials": 4,
-   "missing_ranges": "S02E01-E44",
-   "extra_count": 0,
-   "extra_ranges": "",
-   "extra_files": [],
-   "id": 2699
-  },
-  {
    "name": "The New Scooby and Scrappy-Doo Show",
    "folder": "/home/coex/drives/tv-shows/The New Scooby and Scrappy-Doo Show (1983)",
    "found": 16,
@@ -389,20 +375,6 @@
    "extra_ranges": "",
    "extra_files": [],
    "id": 2667
-  },
-  {
-   "name": "Animaniacs",
-   "folder": "/home/coex/drives/tv-shows/Animaniacs (1993)",
-   "found": 259,
-   "tracked": 261,
-   "missing": 2,
-   "not_aired": 0,
-   "specials": 5,
-   "missing_ranges": "S03E30, S05E03",
-   "extra_count": 0,
-   "extra_ranges": "",
-   "extra_files": [],
-   "id": 2366
   },
   {
    "name": "Marvel's Ultimate Spider-Man",
