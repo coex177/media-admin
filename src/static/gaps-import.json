@@ -4,20 +4,6 @@
  "imported": 509,
  "shows": [
   {
-   "name": "Manga Fairy Tales of the World",
-   "folder": "/home/coex/drives/tv-shows/Manga Fairy Tales of the World (1976)",
-   "found": 4,
-   "tracked": 245,
-   "missing": 241,
-   "not_aired": 0,
-   "specials": 0,
-   "missing_ranges": "S01E05-E245",
-   "extra_count": 0,
-   "extra_ranges": "",
-   "extra_files": [],
-   "id": 2637
-  },
-  {
    "name": "SpongeBob SquarePants",
    "folder": "/home/coex/drives/tv-shows/SpongeBob SquarePants (1999)",
    "found": 505,
