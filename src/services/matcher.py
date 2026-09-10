@@ -43,8 +43,10 @@ class MatcherService:
         r"(?:^|[^0-9])(\d)(\d{2})(?:[^0-9]|$)",
     ]
 
-    # Codec patterns that look like episode numbers (e.g. x264, x265, h264, h265, H.265)
-    CODEC_FALSE_POSITIVE = re.compile(r"[xXhH]\.?(\d{3})(?:[^0-9]|$)")
+    # Codec patterns that look like episode numbers (e.g. x264, x265, h264, h265, H.265).
+    # The lookbehind keeps zero-padded 3-digit episodes (1x054, 3x057-3x058) out of this
+    # guard — a codec tag is never preceded by a digit, an episode number always is.
+    CODEC_FALSE_POSITIVE = re.compile(r"(?<![0-9])[xXhH]\.?(\d{3})(?:[^0-9]|$)")
 
     # Resolution patterns that look like episode numbers (e.g. 720p, 480i)
     RESOLUTION_FALSE_POSITIVE = re.compile(r"(\d{3,4})[pPiI]")
