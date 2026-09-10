@@ -1,23 +1,14 @@
 /**
- * Media Admin - Gaps (library completeness)
+ * Media Admin - Gaps (managed import review)
  *
- * Two views over the library: episodes the provider lists that are not on disk,
- * and video files on disk that no episode record claims. Both read endpoints
- * that already back the dashboard cards — this is the full list, not the top 5.
+ * A frozen snapshot of the 2026-09-08/09 managed import of /home/coex/drives/tv-shows,
+ * baked from /home/coex/docs/media-import-2026-09-09-episode-gaps.md. Deliberately
+ * static and import-only: the dashboard's Most Incomplete and Extra Files cards
+ * already track the live library. Temporary — see the note at the foot of the page.
  */
 
-let activeGapsTab = 'missing';
-
-// The 2026-09-08/09 managed import of /home/coex/drives/tv-shows. Scoping to it
-// separates "gaps the import brought in" from the library's pre-existing ones.
-const IMPORT_SINCE = '2026-09-08';
-let gapsScope = 'import';   // 'import' | 'all'
-
-function switchGapsScope(scope) {
-    gapsScope = scope;
-    setUiPref('gapsScope', scope);
-    renderGaps();
-}
+let gapsData = null;
+let activeGapsTab = 'summary';
 
 function switchGapsTab(tab) {
     activeGapsTab = tab;
@@ -25,80 +16,87 @@ function switchGapsTab(tab) {
     renderGaps();
 }
 
-function scopeNote() {
-    return gapsScope === 'import'
-        ? `Showing only shows added by the ${IMPORT_SINCE} import.`
-        : 'Showing the whole library.';
-}
-
 async function renderGaps() {
     appContent.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
     const saved = getUiPref('activeGapsTab', null);
-    if (saved === 'missing' || saved === 'extra') activeGapsTab = saved;
-    const savedScope = getUiPref('gapsScope', null);
-    if (savedScope === 'import' || savedScope === 'all') gapsScope = savedScope;
+    if (['summary', 'missing', 'extra'].includes(saved)) activeGapsTab = saved;
 
-    const since = gapsScope === 'import' ? `&added_since=${IMPORT_SINCE}` : '';
-
-    try {
-        const [missing, extra] = await Promise.all([
-            api(`/most-incomplete?limit=1000${since}`),
-            api(`/extra-files?${since.slice(1)}`),
-        ]);
-
-        const missingEpisodes = missing.reduce((n, s) => n + s.episodes_missing, 0);
-        const extraFiles = extra.reduce((n, s) => n + s.extra, 0);
-
-        appContent.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">Gaps</h1>
-                <div class="add-show-tabs" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
-                    <button class="tab-btn ${gapsScope === 'import' ? 'active' : ''}"
-                            onclick="switchGapsScope('import')">From import</button>
-                    <button class="tab-btn ${gapsScope === 'all' ? 'active' : ''}"
-                            onclick="switchGapsScope('all')">Whole library</button>
-                </div>
-            </div>
-
-            <div class="scan-tabs">
-                <button class="scan-tab ${activeGapsTab === 'missing' ? 'active' : ''}"
-                        onclick="switchGapsTab('missing')">
-                    <img src="/static/images/nav-lists.png" class="tab-icon-img" alt="">
-                    Missing (${missing.length})
-                </button>
-                <button class="scan-tab ${activeGapsTab === 'extra' ? 'active' : ''}"
-                        onclick="switchGapsTab('extra')">
-                    <img src="/static/images/list-special.png" class="tab-icon-img" alt="">
-                    Extra (${extra.length})
-                </button>
-            </div>
-
-            <div id="gaps-tab-content">
-                ${activeGapsTab === 'missing'
-                    ? renderMissingTab(missing, missingEpisodes)
-                    : renderExtraTab(extra, extraFiles)}
-            </div>
-        `;
-    } catch (error) {
-        appContent.innerHTML = `<div class="card"><p class="text-muted text-center">Could not load gaps: ${error.message}</p></div>`;
+    if (!gapsData) {
+        try {
+            const res = await fetch('/static/gaps-import.json');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            gapsData = await res.json();
+        } catch (e) {
+            appContent.innerHTML = `<div class="card"><p class="text-muted text-center">Could not load the import report: ${escapeHtml(e.message)}</p></div>`;
+            return;
+        }
     }
+
+    const shows = gapsData.shows;
+    const withMissing = shows.filter(s => s.missing > 0);
+    const withExtra = shows.filter(s => s.extra_count > 0);
+    const totalMissing = shows.reduce((n, s) => n + s.missing, 0);
+    const totalExtra = shows.reduce((n, s) => n + s.extra_count, 0);
+
+    const body = {
+        summary: () => renderGapsSummary(shows, withMissing, withExtra, totalMissing, totalExtra),
+        missing: () => renderGapsMissing(withMissing, totalMissing),
+        extra: () => renderGapsExtra(withExtra, totalExtra),
+    }[activeGapsTab]();
+
+    appContent.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Gaps</h1>
+        </div>
+
+        <div class="card" style="margin-bottom: 20px;">
+            <p style="margin: 0;">
+                The <strong>${gapsData.imported}</strong> shows added by the managed import of
+                <code>/home/coex/drives/tv-shows</code> on 2026-09-08/09.
+                <strong>${shows.length}</strong> have a gap;
+                the other <strong>${gapsData.imported - shows.length}</strong> matched cleanly.
+            </p>
+            <p class="text-muted" style="margin: 10px 0 0;">
+                A frozen snapshot, generated ${gapsData.generated} — it does not change as you fix
+                things. For the live library use the dashboard's Most Incomplete and Extra Files cards.
+            </p>
+        </div>
+
+        <div class="scan-tabs">
+            <button class="scan-tab ${activeGapsTab === 'summary' ? 'active' : ''}" onclick="switchGapsTab('summary')">
+                <img src="/static/images/nav-lists.png" class="tab-icon-img" alt="">Summary (${shows.length})
+            </button>
+            <button class="scan-tab ${activeGapsTab === 'missing' ? 'active' : ''}" onclick="switchGapsTab('missing')">
+                <img src="/static/images/list-ignore.png" class="tab-icon-img" alt="">Missing (${totalMissing})
+            </button>
+            <button class="scan-tab ${activeGapsTab === 'extra' ? 'active' : ''}" onclick="switchGapsTab('extra')">
+                <img src="/static/images/list-special.png" class="tab-icon-img" alt="">Extra (${totalExtra})
+            </button>
+        </div>
+
+        <div id="gaps-tab-content">${body}</div>
+    `;
 }
 
-function renderMissingTab(shows, totalEpisodes) {
-    if (shows.length === 0) {
-        return '<div class="card"><p class="text-muted text-center">No missing episodes. The library is complete.</p></div>';
-    }
-
+function renderGapsSummary(shows, withMissing, withExtra, totalMissing, totalExtra) {
     return `
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">${totalEpisodes} episodes missing across ${shows.length} shows</h3>
+        <div class="stats-grid" style="margin-bottom: 20px;">
+            <div class="stat-card warning">
+                <div class="stat-value">${totalMissing}</div>
+                <div class="stat-label">Episodes missing (${withMissing.length} shows)</div>
             </div>
+            <div class="stat-card special">
+                <div class="stat-value">${totalExtra}</div>
+                <div class="stat-label">Unmatched files (${withExtra.length} shows)</div>
+            </div>
+        </div>
+
+        <div class="card">
             <p class="text-muted" style="margin-bottom: 15px;">
-                Aired episodes the metadata provider lists with no file in the library folder.
-                Specials and episodes that have not aired yet are excluded.
-                ${scopeNote()}
+                <strong>Tracked</strong> is found + missing + not aired — the episodes media-admin holds
+                accountable. Season 0 specials are never counted as missing, so they sit in their own
+                column and are excluded from Tracked.
             </p>
             <div class="table-container">
                 <table>
@@ -106,19 +104,23 @@ function renderMissingTab(shows, totalEpisodes) {
                         <tr>
                             <th>Show</th>
                             <th style="text-align: right;">Found</th>
+                            <th style="text-align: right;">Tracked</th>
                             <th style="text-align: right;">Missing</th>
-                            <th style="text-align: right;">Aired</th>
-                            <th style="text-align: right;">Complete</th>
+                            <th style="text-align: right;">Extra</th>
+                            <th style="text-align: right;">Not aired</th>
+                            <th style="text-align: right;">Specials</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${shows.map(s => `
-                            <tr style="cursor: pointer;" onclick="showShowDetail(${s.id})">
+                            <tr>
                                 <td>${escapeHtml(s.name)}</td>
-                                <td style="text-align: right;">${s.episodes_found}</td>
-                                <td style="text-align: right;"><span class="badge badge-warning">${s.episodes_missing}</span></td>
-                                <td style="text-align: right;">${s.total_aired}</td>
-                                <td style="text-align: right;">${s.completion_percent}%</td>
+                                <td style="text-align: right;">${s.found}</td>
+                                <td style="text-align: right;">${s.tracked}</td>
+                                <td style="text-align: right;">${s.missing ? `<span class="badge badge-warning">${s.missing}</span>` : ''}</td>
+                                <td style="text-align: right;">${s.extra_count ? `<span class="badge">${s.extra_count}</span>` : ''}</td>
+                                <td style="text-align: right;">${s.not_aired || ''}</td>
+                                <td style="text-align: right;">${s.specials || ''}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -128,44 +130,58 @@ function renderMissingTab(shows, totalEpisodes) {
     `;
 }
 
-function renderExtraTab(shows, totalFiles) {
-    if (shows.length === 0) {
-        return '<div class="card"><p class="text-muted text-center">Every video file on disk is matched to an episode.</p></div>';
-    }
-
+function renderGapsMissing(shows, total) {
     return `
         <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">${totalFiles} unmatched files across ${shows.length} shows</h3>
-            </div>
-            <p class="text-muted" style="margin-bottom: 15px;">
-                More video files in the library folder than matched episodes. Usually either two
-                series sharing one folder, or a folder that numbers its seasons differently from
-                the provider. The files play fine — media-admin just has nowhere to file them.
-                ${scopeNote()}
+            <div class="card-header"><h3 class="card-title">${total} episodes missing across ${shows.length} shows</h3></div>
+            <p class="text-muted">
+                Episodes the metadata provider lists as aired, with no file in the library folder.
+                Specials and unaired episodes are excluded.
             </p>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Show</th>
-                            <th style="text-align: right;">Matched</th>
-                            <th style="text-align: right;">Files on disk</th>
-                            <th style="text-align: right;">Extra</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${shows.map(s => `
-                            <tr style="cursor: pointer;" onclick="showShowDetail(${s.id})">
-                                <td>${escapeHtml(s.name)}</td>
-                                <td style="text-align: right;">${s.matched_episodes}</td>
-                                <td style="text-align: right;">${s.disk_files}</td>
-                                <td style="text-align: right;"><span class="badge badge-warning">${s.extra}</span></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
+            ${shows.map(s => `
+                <div style="padding: 14px 0; border-bottom: 1px solid var(--border-color);">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 15px;">
+                        <strong>${escapeHtml(s.name)}</strong>
+                        <span class="badge badge-warning">${s.missing} missing</span>
+                    </div>
+                    <div class="text-muted" style="font-size: 0.85rem; margin: 4px 0;"><code>${escapeHtml(s.folder)}</code></div>
+                    <div style="font-family: monospace; font-size: 0.85rem;">${escapeHtml(s.missing_ranges)}</div>
+                </div>
+            `).join('')}
         </div>
     `;
+}
+
+function renderGapsExtra(shows, total) {
+    return `
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">${total} unmatched files across ${shows.length} shows</h3></div>
+            <p class="text-muted">
+                Video files the scanner never linked to an episode record. They play fine —
+                media-admin just has nowhere to file them. Two causes dominate: two series sharing
+                one folder (Wet Hot American Summer holds both <em>First Day of Camp</em> and
+                <em>Ten Years Later</em>), or a folder numbering its seasons differently from the
+                provider, common in long-running cartoons.
+            </p>
+            ${shows.map((s, i) => `
+                <div style="padding: 14px 0; border-bottom: 1px solid var(--border-color);">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 15px;">
+                        <strong>${escapeHtml(s.name)}</strong>
+                        <span class="badge">${s.extra_count} extra</span>
+                    </div>
+                    <div class="text-muted" style="font-size: 0.85rem; margin: 4px 0;"><code>${escapeHtml(s.folder)}</code></div>
+                    <div style="font-family: monospace; font-size: 0.85rem;">${escapeHtml(s.extra_ranges)}</div>
+                    <a href="#" onclick="toggleGapsFiles(${i}); return false;" style="font-size: 0.85rem;">Show filenames</a>
+                    <div id="gaps-files-${i}" style="display: none; margin-top: 8px; font-family: monospace; font-size: 0.8rem;">
+                        ${s.extra_files.map(f => `<div>${escapeHtml(f)}</div>`).join('')}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function toggleGapsFiles(i) {
+    const el = document.getElementById(`gaps-files-${i}`);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }

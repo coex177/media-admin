@@ -659,38 +659,17 @@ async def get_recently_added(
     return result
 
 
-def _parse_added_since(value: str):
-    """Parse an ISO date or datetime, raising 400 rather than 500 on junk input."""
-    from datetime import datetime
-
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"added_since must be an ISO date or datetime, got {value!r}",
-        )
-
-
 @router.get("/most-incomplete")
 async def get_most_incomplete(
     db: Session = Depends(get_db),
-    limit: int = 5,
-    added_since: Optional[str] = None,
+    limit: int = 5
 ):
-    """Get shows with the most missing episodes.
-
-    added_since: ISO date/datetime — only consider shows added to the library on or
-    after it, so a bulk import can be reviewed on its own.
-    """
+    """Get shows with the most missing episodes."""
     from ..models import Show, Episode, IgnoredEpisode
 
     ignored_ids = set(r[0] for r in db.query(IgnoredEpisode.episode_id).all())
 
-    query = db.query(Show)
-    if added_since:
-        query = query.filter(Show.created_at >= _parse_added_since(added_since))
-    shows = query.all()
+    shows = db.query(Show).all()
 
     show_data = []
     for show in shows:
@@ -935,15 +914,8 @@ async def get_network_distribution(db: Session = Depends(get_db)):
 
 
 @router.get("/extra-files")
-async def get_extra_files(
-    db: Session = Depends(get_db),
-    added_since: Optional[str] = None,
-):
-    """Get shows with more video files on disk than matched episodes in the DB.
-
-    added_since: ISO date/datetime — only consider shows added to the library on or
-    after it, so a bulk import can be reviewed on its own.
-    """
+async def get_extra_files(db: Session = Depends(get_db)):
+    """Get shows with more video files on disk than matched episodes in the DB."""
     from ..models import Show, Episode
     from ..config import settings
     import os
@@ -951,10 +923,7 @@ async def get_extra_files(
 
     video_extensions = set(settings.video_extensions)
 
-    query = db.query(Show).filter(Show.folder_path != None)
-    if added_since:
-        query = query.filter(Show.created_at >= _parse_added_since(added_since))
-    shows = query.all()
+    shows = db.query(Show).filter(Show.folder_path != None).all()
 
     result = []
     for show in shows:
