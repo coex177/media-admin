@@ -8,10 +8,27 @@
 
 let activeGapsTab = 'missing';
 
+// The 2026-09-08/09 managed import of /home/coex/drives/tv-shows. Scoping to it
+// separates "gaps the import brought in" from the library's pre-existing ones.
+const IMPORT_SINCE = '2026-09-08';
+let gapsScope = 'import';   // 'import' | 'all'
+
+function switchGapsScope(scope) {
+    gapsScope = scope;
+    setUiPref('gapsScope', scope);
+    renderGaps();
+}
+
 function switchGapsTab(tab) {
     activeGapsTab = tab;
     setUiPref('activeGapsTab', tab);
     renderGaps();
+}
+
+function scopeNote() {
+    return gapsScope === 'import'
+        ? `Showing only shows added by the ${IMPORT_SINCE} import.`
+        : 'Showing the whole library.';
 }
 
 async function renderGaps() {
@@ -19,11 +36,15 @@ async function renderGaps() {
 
     const saved = getUiPref('activeGapsTab', null);
     if (saved === 'missing' || saved === 'extra') activeGapsTab = saved;
+    const savedScope = getUiPref('gapsScope', null);
+    if (savedScope === 'import' || savedScope === 'all') gapsScope = savedScope;
+
+    const since = gapsScope === 'import' ? `&added_since=${IMPORT_SINCE}` : '';
 
     try {
         const [missing, extra] = await Promise.all([
-            api('/most-incomplete?limit=1000'),
-            api('/extra-files'),
+            api(`/most-incomplete?limit=1000${since}`),
+            api(`/extra-files?${since.slice(1)}`),
         ]);
 
         const missingEpisodes = missing.reduce((n, s) => n + s.episodes_missing, 0);
@@ -32,6 +53,12 @@ async function renderGaps() {
         appContent.innerHTML = `
             <div class="page-header">
                 <h1 class="page-title">Gaps</h1>
+                <div class="add-show-tabs" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">
+                    <button class="tab-btn ${gapsScope === 'import' ? 'active' : ''}"
+                            onclick="switchGapsScope('import')">From import</button>
+                    <button class="tab-btn ${gapsScope === 'all' ? 'active' : ''}"
+                            onclick="switchGapsScope('all')">Whole library</button>
+                </div>
             </div>
 
             <div class="scan-tabs">
@@ -71,6 +98,7 @@ function renderMissingTab(shows, totalEpisodes) {
             <p class="text-muted" style="margin-bottom: 15px;">
                 Aired episodes the metadata provider lists with no file in the library folder.
                 Specials and episodes that have not aired yet are excluded.
+                ${scopeNote()}
             </p>
             <div class="table-container">
                 <table>
@@ -114,6 +142,7 @@ function renderExtraTab(shows, totalFiles) {
                 More video files in the library folder than matched episodes. Usually either two
                 series sharing one folder, or a folder that numbers its seasons differently from
                 the provider. The files play fine — media-admin just has nowhere to file them.
+                ${scopeNote()}
             </p>
             <div class="table-container">
                 <table>
