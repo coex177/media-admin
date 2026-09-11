@@ -4,39 +4,6 @@
  "imported": 509,
  "shows": [
   {
-   "name": "Cunk on...",
-   "folder": "/home/coex/drives/tv-shows/Cunk on...",
-   "found": 5,
-   "tracked": 10,
-   "missing": 5,
-   "not_aired": 0,
-   "specials": 0,
-   "missing_ranges": "S02E01-E05",
-   "extra_count": 0,
-   "extra_ranges": "",
-   "extra_files": [],
-   "id": 2390
-  },
-  {
-   "name": "Adventure Time",
-   "folder": "/home/coex/drives/tv-shows/Adventure Time (2010)",
-   "found": 279,
-   "tracked": 279,
-   "missing": 0,
-   "not_aired": 0,
-   "specials": 17,
-   "missing_ranges": "",
-   "extra_count": 4,
-   "extra_ranges": "S11E01-E04",
-   "extra_files": [
-    "11x01 - BMO.mkv",
-    "11x02.mkv",
-    "11x03.mkv",
-    "11x04.mkv"
-   ],
-   "id": 2441
-  },
-  {
    "name": "Black Butler",
    "folder": "/home/coex/drives/tv-shows/Black Butler",
    "found": 66,
@@ -63,25 +30,6 @@
    "extra_ranges": "",
    "extra_files": [],
    "id": 2625
-  },
-  {
-   "name": "Tom and Jerry in New York",
-   "folder": "/home/coex/drives/tv-shows/Tom and Jerry in New York",
-   "found": 13,
-   "tracked": 13,
-   "missing": 0,
-   "not_aired": 0,
-   "specials": 0,
-   "missing_ranges": "",
-   "extra_count": 4,
-   "extra_ranges": "S02E09, S02E13, S02E17, S02E21",
-   "extra_files": [
-    "2x09-2x12 - The Spa\u2019s the Limit + The Hairy Dignitary + Year of the Mouse + Relativity.mkv",
-    "2x13-2x16 - Cat and Mouse Burglars + Caterpillar and Mouse + Pied Piper of Harlem + Lazy Jerry.mkv",
-    "2x17-2x20 - To Your Health + Golf Brawl + Tom's Swan Song + King Spike the First and Last.mkv",
-    "2x21-2x24 - Planet of the Mice + Ball of Fun + Big Apple + Flamingo A-Go-Go.mkv"
-   ],
-   "id": 2208
   },
   {
    "name": "All in the Family",
