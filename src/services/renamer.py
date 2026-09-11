@@ -61,6 +61,31 @@ class RenamerService:
 
         return plex_safe_stem(filename, fallback=code) + extension
 
+    # ext4/ZFS cap each path component at 255 bytes. A five-episode range of
+    # long titles blows past that, and shutil.move then fails with
+    # ENAMETOOLONG partway through a rename run.
+    NAME_MAX = 255
+
+    def _fit_name(
+        self, stem: str, episode_code: str, separator: str,
+        titles: list[str], extension: str,
+    ) -> str:
+        """Trim a multi-episode filename until it fits NAME_MAX.
+
+        Whole titles are dropped from the end rather than cutting mid-title, so
+        the result never looks like a real title that does not exist. If even
+        one title will not fit, the bare episode code is used - that is what the
+        scanner matches on, so the file stays findable either way.
+        """
+        budget = self.NAME_MAX - len(extension.encode())
+        if len(stem.encode()) <= budget:
+            return stem + extension
+        for keep in range(len(titles) - 1, 0, -1):
+            candidate = episode_code + separator + " + ".join(titles[:keep])
+            if len(candidate.encode()) <= budget:
+                return candidate + extension
+        return episode_code[:budget] + extension
+
     def generate_multi_episode_filename(
         self, show: Show, episodes: list[Episode], extension: str
     ) -> str:
@@ -110,7 +135,8 @@ class RenamerService:
             separator = " - "
 
         filename = episode_code + separator + combined_title
-        return plex_safe_stem(filename, fallback=episode_code) + extension
+        stem = plex_safe_stem(filename, fallback=episode_code)
+        return self._fit_name(stem, episode_code, separator, titles, extension)
 
     def generate_episode_path(
         self, show: Show, episode: Episode, extension: str
@@ -222,8 +248,18 @@ class RenamerService:
         # Create destination directory if needed
         dest.parent.mkdir(parents=True, exist_ok=True)
 
-        # Move the main file
-        shutil.move(str(source), str(dest))
+        # Move the main file. An OS-level refusal (name too long, permissions,
+        # no space) is this file's problem, not the caller's - report it and let
+        # the rest of the run continue instead of raising a 500.
+        try:
+            shutil.move(str(source), str(dest))
+        except OSError as e:
+            return RenameResult(
+                success=False,
+                source_path=str(source),
+                dest_path=str(dest),
+                error=f"{e.__class__.__name__}: {e}",
+            )
         make_plex_readable(dest)
 
         # Move accompanying files (subtitles, nfo, etc.)
