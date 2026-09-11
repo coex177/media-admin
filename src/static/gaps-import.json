@@ -4,22 +4,6 @@
  "imported": 509,
  "shows": [
   {
-   "name": "Teen Titans Go!",
-   "folder": "/home/coex/drives/tv-shows/Teen Titans Go!",
-   "found": 435,
-   "tracked": 455,
-   "missing": 16,
-   "not_aired": 4,
-   "specials": 9,
-   "missing_ranges": "S07E52-E53, S09E35-E48",
-   "extra_count": 1,
-   "extra_ranges": "S08E37",
-   "extra_files": [
-    "8x37 - Four Hundred.mkv"
-   ],
-   "id": 2457
-  },
-  {
    "name": "Guilt",
    "folder": "/home/coex/drives/tv-shows/Guilt (2019)",
    "found": 4,
@@ -39,52 +23,6 @@
     "1x10 - What Did You Do.mkv"
    ],
    "id": 2256
-  },
-  {
-   "name": "The Returned",
-   "folder": "/home/coex/drives/tv-shows/The Returned (2015)",
-   "found": 8,
-   "tracked": 10,
-   "missing": 2,
-   "not_aired": 0,
-   "specials": 0,
-   "missing_ranges": "S01E09-E10",
-   "extra_count": 8,
-   "extra_ranges": "S02E01-E08",
-   "extra_files": [
-    "2x01 - The Child.mkv",
-    "2x02 - Milan.mkv",
-    "2x03 - Morgane.mkv",
-    "2x04 - Virgil.mkv",
-    "2x05 - Madame Costa.mkv",
-    "2x06 - Esther.mkv",
-    "2x07 - Etienne.mkv",
-    "2x08 - The Returned.mkv"
-   ],
-   "id": 2541
-  },
-  {
-   "name": "Wet Hot American Summer: Ten Years Later",
-   "folder": "/home/coex/drives/tv-shows/Wet Hot American Summer - Ten Years Later (2017)",
-   "found": 8,
-   "tracked": 8,
-   "missing": 0,
-   "not_aired": 0,
-   "specials": 0,
-   "missing_ranges": "",
-   "extra_count": 8,
-   "extra_ranges": "S02E01-E08",
-   "extra_files": [
-    "2x01 - Reunion.mkv",
-    "2x02 - Softball.mkv",
-    "2x03 - Tigerclaw.mkv",
-    "2x04 - Lunch.mkv",
-    "2x05 - King of Camp.mkv",
-    "2x06 - Rain.mkv",
-    "2x07 - Dance.mkv",
-    "2x08 - End Summer Night's Dream.mkv"
-   ],
-   "id": 2594
   },
   {
    "name": "Avatar: The Last Airbender",
