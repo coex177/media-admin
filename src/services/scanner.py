@@ -684,7 +684,12 @@ class ScannerService:
                         separator = " - "
 
                     # Build expected filename and path
-                    expected_filename = episode_code_str + separator + combined_title + extension
+                    # Same 255-byte cap the renamer honours - a preview that cannot be
+                    # written is worse than a shorter one.
+                    expected_filename = renamer._fit_name(
+                        episode_code_str + separator + combined_title,
+                        episode_code_str, separator, titles, extension,
+                    )
                     season_folder = show.season_format.format(season=file_season)
                     expected_path = Path(show.folder_path) / season_folder / expected_filename
 

@@ -590,13 +590,21 @@ async def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)
         source = Path(preview["current_path"])
         dest = Path(preview["expected_path"])
 
-        if not source.exists():
-            errors.append(f"Source not found: {source.name}")
-            failed += 1
-            continue
+        # A stale preview can name a path the filesystem refuses outright (too
+        # long, bad mount). That is this file's problem, not the batch's - the
+        # remaining renames still get applied.
+        try:
+            if not source.exists():
+                errors.append(f"Source not found: {source.name}")
+                failed += 1
+                continue
 
-        if dest.exists() and str(source) != str(dest):
-            errors.append(f"Destination already exists: {dest.name}")
+            if dest.exists() and str(source) != str(dest):
+                errors.append(f"Destination already exists: {dest.name}")
+                failed += 1
+                continue
+        except OSError as e:
+            errors.append(f"Cannot rename {source.name}: {e}")
             failed += 1
             continue
 
