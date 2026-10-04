@@ -129,8 +129,10 @@ class MatcherService:
         # Remove special characters
         normalized = re.sub(r"[^a-z0-9\s]", "", normalized)
         # Collapse whitespace
-        normalized = re.sub(r"\s+", " ", normalized)
-        return normalized.strip()
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        # Rejoin dotted acronyms split into letters: "s w a t exiles" -> "swat exiles"
+        normalized = re.sub(r"\b[a-z0-9](?: [a-z0-9]\b)+", lambda m: m.group().replace(" ", ""), normalized)
+        return normalized
 
     def match_show_name(self, filename_title: str, show_name: str) -> float:
         """Calculate similarity between filename title and show name."""
@@ -147,12 +149,17 @@ class MatcherService:
         # Check if one contains the other as a significant substring
         # Require the shorter string to be at least 4 chars and at least 50% of the longer
         # Must match at word boundaries to avoid e.g. "Cross" matching "Crossbones"
-        shorter = norm_filename if len(norm_filename) <= len(norm_show) else norm_show
-        longer = norm_show if len(norm_filename) <= len(norm_show) else norm_filename
-        if len(shorter) >= 4 and re.search(r'\b' + re.escape(shorter) + r'\b', longer):
+        # Only when the filename is the shorter side: extra words in the filename usually
+        # mean a different show ("Lego One Piece" is not "One Piece"), while a shortened
+        # filename is just a release-group abbreviation ("Agents of SHIELD").
+        shorter, longer = norm_filename, norm_show
+        if len(shorter) >= 4 and len(shorter) < len(longer) and re.search(r'\b' + re.escape(shorter) + r'\b', longer):
             # Ensure it's a significant match (at least 50% of the longer string)
             if len(shorter) / len(longer) >= 0.5:
                 return 0.9
+        # Filename may carry a country suffix the show name lacks: "Euphoria US" -> "Euphoria"
+        if norm_filename == f"{norm_show} {norm_filename[-2:]}" and norm_filename[-2:] in ("us", "uk", "au", "ca", "nz"):
+            return 0.9
 
         # Word-based matching
         filename_words = set(norm_filename.split())
