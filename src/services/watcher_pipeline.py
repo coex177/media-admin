@@ -1137,6 +1137,10 @@ class WatcherPipeline:
         if match_result:
             matched_dict, score = match_result
             movie = self.db.query(Movie).filter(Movie.id == matched_dict["id"]).first()
+            # A partial title match ('Runner' → 'The Runner') may be a different
+            # movie; let TMDB decide. It returns the DB movie when it is the same one.
+            if movie and score < 1.0:
+                movie = self._auto_import_movie(title, year) or movie
             if movie:
                 logger.info(f"Pipeline: matched movie '{title}' → '{movie.title}' (score={score:.2f})")
                 self._log(
