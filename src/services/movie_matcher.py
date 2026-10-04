@@ -237,7 +237,9 @@ class MovieMatcherService:
         if year and movie_year:
             drift = abs(year - movie_year)
             if drift == 0:
-                score = min(score + 0.1, 1.0)
+                # Only an exact title reaches 1.0: 'Runner' must not tie with
+                # 'The Runner' just because both are from 2026.
+                score = min(score + 0.1, 1.0 if norm_filename == norm_movie else 0.95)
             elif drift == 1:
                 score = max(score - 0.3, 0.0)
             else:
