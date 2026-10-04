@@ -149,6 +149,12 @@ class ScannerService:
         show_name_normalized = self.matcher.normalize_show_name(show.name)
         show_year = self._get_show_year(show)
 
+        # Country-stripped base name ("Queer as Folk (US)" → "Queer as Folk"),
+        # used for matching year-suffixed folders that carry no country.
+        base_name_normalized = self.matcher.normalize_show_name(
+            re.sub(r'\s*\((US|UK|AU|CA|NZ)\)\s*$', '', show.name, flags=re.IGNORECASE).strip()
+        )
+
         # Check if show name contains a country code
         show_country = None
         country_match = re.search(r'\((US|UK|AU|CA|NZ)\)', show.name, re.IGNORECASE)
@@ -170,6 +176,11 @@ class ScannerService:
             name_variants.append(show.name.replace(':', ' -'))
             name_variants.append(show.name.replace(':', ''))
 
+        # When the show has an air year, only a "Show (year)" folder is an
+        # unambiguous direct hit — several shows can share one name ("Queer
+        # as Folk" 1999/2000/2022). A bare "Show" folder is left to the
+        # listing passes below, where year and case are weighed properly,
+        # so it can never steal the match from a year folder.
         for folder in folders:
             folder_path = Path(folder.path)
             storage = storage_for_folder(self.db, folder)
@@ -177,16 +188,17 @@ class ScannerService:
                 if not storage.exists(folder.path):
                     continue
 
-                for name_var in name_variants:
-                    candidate = folder_path / name_var
-                    if storage.is_dir(str(candidate)):
-                        logger.info(f"  find_show_folder: DIRECT HIT → {candidate}")
-                        return str(candidate)
-
-                    if show_year:
+                if show_year:
+                    for name_var in name_variants:
                         candidate = folder_path / f"{name_var} ({show_year})"
                         if storage.is_dir(str(candidate)):
                             logger.info(f"  find_show_folder: DIRECT HIT (year) → {candidate}")
+                            return str(candidate)
+                else:
+                    for name_var in name_variants:
+                        candidate = folder_path / name_var
+                        if storage.is_dir(str(candidate)):
+                            logger.info(f"  find_show_folder: DIRECT HIT → {candidate}")
                             return str(candidate)
             except StorageError as e:
                 logger.warning(f"  find_show_folder: {e}")
@@ -239,10 +251,14 @@ class ScannerService:
 
         logger.debug(f"  find_show_folder: {len(candidates)} candidate folders, running multi-pass matching")
 
-        # Pass 1: Exact name match with matching year
+        # Pass 1: Exact name match with matching year (a country-suffixed
+        # show name like "Queer as Folk (US)" also matches its bare folder name)
         if show_year:
             for c in candidates:
-                if c['name_normalized'] == show_name_normalized and c['year'] == show_year:
+                if c['year'] == show_year and (
+                    c['name_normalized'] == show_name_normalized
+                    or c['name_normalized'] == base_name_normalized
+                ):
                     logger.info(f"  find_show_folder: pass 1 (exact+year) → {c['path']}")
                     return c['path']
 
