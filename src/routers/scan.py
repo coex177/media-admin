@@ -602,7 +602,7 @@ def apply_renames(data: ApplyRenamesRequest, db: Session = Depends(get_db)):
                 errors.append(f"Destination already exists: {dest.name}")
                 failed += 1
                 continue
-        except StorageError as e:
+        except (StorageError, OSError) as e:
             errors.append(f"{source.name}: {e}")
             failed += 1
             continue
