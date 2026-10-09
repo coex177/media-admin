@@ -339,7 +339,16 @@ class ScannerService:
                 .distinct()
                 .all()
             )
-            recent_show_ids = [r[0] for r in recent_show_ids]
+            recent_show_ids = {r[0] for r in recent_show_ids}
+
+            # A season premiere isn't in the DB until a metadata refresh, so the
+            # air-date query above misses it. Also take shows with a recent file.
+            # ponytail: walks every show folder (same cost as the Extra Files card)
+            cutoff_ts = (datetime.utcnow() - timedelta(days=recent_days)).timestamp()
+            for show in self.db.query(Show).filter(Show.folder_path != None).all():
+                if show.id not in recent_show_ids and self._has_recent_video(show.folder_path, cutoff_ts):
+                    recent_show_ids.add(show.id)
+            recent_show_ids = list(recent_show_ids)
 
             shows = (
                 self.db.query(Show)
@@ -385,9 +394,24 @@ class ScannerService:
         else:
             shows = self.db.query(Show).all()
 
-        # ── Phase 1: File matching (10-70%) ──
+        # ── Phase 1: Metadata refresh (10-25%) ──
+        if event_loop and (tmdb_service or tvdb_service):
+            report_progress("Refreshing metadata...", 10)
+            for i, show in enumerate(shows):
+                progress_percent = 10 + int((i / max(total_shows, 1)) * 15)  # 10-25%
+                report_progress(f"Refreshing: {show.name}", progress_percent)
+                success = self.refresh_show_metadata(show, tmdb_service, tvdb_service, event_loop)
+                if success:
+                    result.metadata_refreshed += 1
+                # Small delay to avoid API rate limiting
+                import time
+                time.sleep(0.25)
+        else:
+            logger.info("  Skipping metadata refresh (no services provided)")
+
+        # ── Phase 2: File matching (25-85%) ──
         for i, show in enumerate(shows):
-            progress_percent = 10 + int((i / max(total_shows, 1)) * 60)  # 10-70%
+            progress_percent = 25 + int((i / max(total_shows, 1)) * 60)  # 25-85%
             report_progress(f"Scanning: {show.name}", progress_percent)
 
             if show.folder_path:
@@ -408,21 +432,6 @@ class ScannerService:
                     logger.debug(f"  '{show.name}': {show_matched} episodes matched from {len(files)} files")
             else:
                 logger.debug(f"[{i+1}/{total_shows}] Skipping '{show.name}' — no folder_path")
-
-        # ── Phase 2: Metadata refresh (70-85%) ──
-        if event_loop and (tmdb_service or tvdb_service):
-            report_progress("Refreshing metadata...", 70)
-            for i, show in enumerate(shows):
-                progress_percent = 70 + int((i / max(total_shows, 1)) * 15)  # 70-85%
-                report_progress(f"Refreshing: {show.name}", progress_percent)
-                success = self.refresh_show_metadata(show, tmdb_service, tvdb_service, event_loop)
-                if success:
-                    result.metadata_refreshed += 1
-                # Small delay to avoid API rate limiting
-                import time
-                time.sleep(0.25)
-        else:
-            logger.info("  Skipping metadata refresh (no services provided)")
 
         # ── Phase 3: Compute renames (85-87%) ──
         report_progress("Computing rename previews...", 85)
@@ -518,6 +527,19 @@ class ScannerService:
                      f"{result.episodes_missing} missing, {len(result.unmatched_files)} unmatched, "
                      f"{len(result.pending_actions)} pending actions")
         return result
+
+    @staticmethod
+    def _has_recent_video(folder: str, cutoff_ts: float) -> bool:
+        """True if any video file under folder was modified after cutoff_ts."""
+        exts = set(settings.video_extensions)
+        try:
+            for root, _dirs, files in os.walk(folder):
+                for f in files:
+                    if Path(f).suffix.lower() in exts and os.path.getmtime(os.path.join(root, f)) >= cutoff_ts:
+                        return True
+        except OSError:
+            pass
+        return False
 
     def refresh_show_metadata(self, show: Show, tmdb_service, tvdb_service, event_loop) -> bool:
         """Refresh metadata for a single show from its provider.
