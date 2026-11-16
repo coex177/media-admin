@@ -1485,6 +1485,18 @@ class WatcherPipeline:
                 )
                 return
 
+            self._log(
+                "moved_to_issues",
+                result="success",
+                file_path=str(old_issues_dest),
+                movie_title=movie.title,
+                movie_id=movie.id,
+                media_type="movie",
+                details=(
+                    f"[quality_replaced] Upgraded '{movie.title}': new=[{new_quality.summary()}] "
+                    f"replaced existing=[{existing_quality.summary()}]"
+                ),
+            )
             self._move_movie_to_library(new_file_path, movie, extension, edition)
         else:
             reason_label = "equal quality" if verdict == "equal" else "lower quality"
